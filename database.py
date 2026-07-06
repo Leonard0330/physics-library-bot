@@ -16,45 +16,33 @@ from typing import Optional
 DB_PATH = os.getenv("DB_PATH", "physics_library.db")
 
 # ─────────────────────────────────────────────
+# فیلدهای فیزیکی مجاز
 # ─────────────────────────────────────────────
-
+# نکته مهم: این باید dict به شکل  slug -> (label_fa, label_en)  باشه
+# چون bot.py و admin.py با .items() و unpack دو-زبانه ازش استفاده می‌کنن.
+# قبلاً این یک لیست ساده از رشته بود و همین باعث می‌شد هر جا فیلدها
+# ساخته می‌شدن (منوی «فیلدهای فیزیک» و مرحلهٔ انتخاب فیلد در آپلود ادمین)
+# با AttributeError: 'list' object has no attribute 'items' کرش کنه —
+# دقیقاً همون دلیلی که کتاب‌های آپلودی هیچ‌وقت ذخیره نمی‌شدن.
 PHYSICS_FIELDS = {
-    "classical_mechanics":   ("مکانیک کلاسیک", "Classical Mechanics"),
-    "electromagnetism":      ("الکترومغناطیس", "Electromagnetism"),
-    "quantum_mechanics":     ("مکانیک کوانتومی", "Quantum Mechanics"),
-    "quantum_field_theory":  ("نظریه میدان کوانتومی", "Quantum Field Theory"),
-    "relativity":            ("نسبیت", "Relativity"),
-    "thermodynamics":        ("ترمودینامیک", "Thermodynamics"),
-    "statistical_mechanics": ("مکانیک آماری", "Statistical Mechanics"),
-    "mathematical_physics":  ("فیزیک ریاضی", "Mathematical Physics"),
+    "classical_mechanics":        ("مکانیک کلاسیک", "Classical Mechanics"),
+    "electromagnetism":           ("الکترومغناطیس", "Electromagnetism"),
+    "modern_physics":             ("فیزیک مدرن", "Modern Physics"),
+    "General Physics":            ("فیزیک پایه", "General Physics"),
+    "quantum_mechanics":          ("مکانیک کوانتومی (و نظریه میدان)", "Quantum Mechanics (incl. QFT)"),
+    "relativity":                 ("نسبیت", "Relativity"),
+    "thermodynamics_statistical": ("ترمودینامیک و مکانیک آماری", "Thermodynamics & Statistical Mechanics"),
+    "mathematical_physics":       ("فیزیک ریاضی", "Mathematical Physics"),
 
-    "condensed_matter":      ("فیزیک ماده چگال", "Condensed Matter Physics"),
-    "solid_state":           ("فیزیک حالت جامد", "Solid State Physics"),
-    "soft_matter":           ("فیزیک ماده نرم", "Soft Matter Physics"),
-    "nanophysics":           ("نانوفیزیک", "Nanophysics"),
-    "materials_physics":     ("فیزیک مواد", "Materials Physics"),
+    "condensed_matter":           ("فیزیک ماده چگال (حالت جامد، نرم، نانو، مواد)", "Condensed Matter Physics (Solid, Soft, Nano, Materials)"),
+    "optics_amo":                 ("اپتیک، لیزر و فیزیک اتمی-مولکولی (AMO)", "Optics, Laser & AMO Physics"),
+    "nuclear_particle_plasma":    ("فیزیک هسته‌ای، ذرات و پلاسما", "Nuclear, Particle & Plasma Physics"),
+    "astrophysics_cosmology":     ("اخترفیزیک، کیهان‌شناسی و نجوم", "Astrophysics, Cosmology & Astronomy"),
+    "computational_nonlinear":    ("فیزیک محاسباتی و دینامیک غیرخطی", "Computational Physics & Nonlinear Dynamics"),
+    "biophysics_medical":         ("بیوفیزیک و فیزیک پزشکی", "Biophysics & Medical Physics"),
+    "chemical_acoustics":         ("فیزیک شیمی و آکوستیک", "Chemical Physics & Acoustics"),
 
-    "optics_laser":          ("اپتیک و لیزر", "Optics & Laser Physics"),
-    "amo_physics":           ("فیزیک اتمی، مولکولی و اپتیک (AMO)", "Atomic, Molecular and Optical Physics (AMO)"),
-    "plasma_physics":        ("فیزیک پلاسما", "Plasma Physics"),
-    "nuclear_physics":       ("فیزیک هسته‌ای", "Nuclear Physics"),
-    "particle_physics":      ("فیزیک ذرات", "Particle Physics"),
-
-    "astrophysics":          ("اخترفیزیک", "Astrophysics"),
-    "cosmology":             ("کیهان‌شناسی", "Cosmology"),
-    "astronomy":             ("نجوم", "Astronomy"),
-    "geophysics":            ("ژئوفیزیک", "Geophysics"),
-
-    "computational_physics": ("فیزیک محاسباتی", "Computational Physics"),
-    "nonlinear_dynamics":    ("دینامیک غیرخطی و آشوب", "Nonlinear Dynamics & Chaos"),
-
-    "biophysics":            ("بیوفیزیک", "Biophysics"),
-    "medical_physics":       ("فیزیک پزشکی", "Medical Physics"),
-    "chemical_physics":      ("فیزیک شیمی", "Chemical Physics"),
-
-    "acoustics":             ("آکوستیک", "Acoustics"),
-
-    "other":                 ("سایر / میان‌رشته‌ای", "Other / Interdisciplinary"),
+    "other":                      ("سایر / میان‌رشته‌ای", "Other / Interdisciplinary"),
 }
 
 
@@ -230,6 +218,7 @@ def delete_book(book_id: int) -> bool:
 
 
 # ─────────────────────────────────────────────
+# سرچ پیشرفته
 # ─────────────────────────────────────────────
 
 def search_books(
@@ -295,6 +284,7 @@ def list_all_fields() -> list[str]:
 
 
 # ─────────────────────────────────────────────
+# آمار دانلود
 # ─────────────────────────────────────────────
 
 def record_download(book_id: int, user_id: int) -> None:
@@ -359,6 +349,7 @@ def get_library_stats() -> dict:
 
 
 # ─────────────────────────────────────────────
+# مدیریت کاربران
 # ─────────────────────────────────────────────
 
 def upsert_user(user_id: int, username: str = "", first_name: str = "") -> None:
@@ -415,10 +406,12 @@ def set_user_lang(user_id: int, lang: str) -> None:
 
 
 # ─────────────────────────────────────────────
+# اجرای مستقیم → تست پایه
 # ─────────────────────────────────────────────
 if __name__ == "__main__":
     init_db()
 
+    # ── تست اضافه کردن کتاب ─────────────────────────────────────────────
     bid = add_book(
         title="Principles of Quantum Mechanics",
         author="R. Shankar",
@@ -445,6 +438,7 @@ if __name__ == "__main__":
     )
     print(f"[+] کتاب فارسی اضافه شد | id={bid2}")
 
+    # ── تست سرچ ─────────────────────────────────────────────────────────
     results = search_books(query="Quantum")
     print(f"\n[سرچ 'Quantum'] → {len(results)} نتیجه")
     for r in results:
@@ -453,15 +447,18 @@ if __name__ == "__main__":
     results2 = search_books(physics_field="quantum_mechanics", language="fa")
     print(f"\n[فیلتر: quantum_mechanics + فارسی] → {len(results2)} نتیجه")
 
+    # ── تست دانلود ──────────────────────────────────────────────────────
     record_download(bid, user_id=111)
     record_download(bid, user_id=222)
     record_download(bid2, user_id=111)
 
     print(f"\n[آمار کتاب {bid}]:", get_book_stats(bid))
 
+    # ── آمار کلی ────────────────────────────────────────────────────────
     stats = get_library_stats()
     print(f"\n[آمار کلی] {stats}")
 
+    # ── تست ادمین ───────────────────────────────────────────────────────
     upsert_user(123456789, username="admin_user", first_name="علی")
     set_admin(123456789, True)
     print(f"\n[ادمین؟] {is_admin(123456789)}")
