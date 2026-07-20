@@ -72,7 +72,7 @@ T = {
 
     # Admin Management
     "btn_admin_add":    {"fa": "➕ افزودن ادمین",          "en": "➕ Add Admin"},
-    "btn_admin_list":   {"fa": "📋 لیست ادمین‌ها",         "en": "📋 List Admins"},
+    "btn_admin_list":   {"fa": "📋 لیست ادمین‌ها",         "en": "📋 Admins"},
     "btn_admin_remove": {"fa": "➖ حذف ادمین",             "en": "➖ Remove Admin"},
     "btn_back":         {"fa": "🔙 بازگشت",                "en": "🔙 Back"},
     "admins_menu_title":{"fa": "👥 مدیریت ادمین‌ها:",       "en": "👥 Manage Admins:"},
