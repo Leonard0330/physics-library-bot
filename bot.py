@@ -194,7 +194,10 @@ def start(message: types.Message):
 def admin_command(message: types.Message):
     admin.handle_admin_command(bot, message)
 
-
+# /backup 
+@bot.message_handler(commands=["backup"])
+def backup_command(message: types.Message):
+    admin.handle_backup_command(bot, message)
 
 # /addadmin <id> 
 @bot.message_handler(commands=["addadmin"])

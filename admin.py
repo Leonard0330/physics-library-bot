@@ -318,7 +318,39 @@ def _add_admin(bot, chat_id: int, target_id: int, lang: str):
     key = "admin_already" if was_admin else "admin_added"
     bot.send_message(chat_id, tr(key, lang, id=target_id))
 
+#ِ Database Backup
+def send_db_backup(bot, chat_id: int, lang: str, caption: str | None = None):
+    db_path = database.DB_PATH
+    if not os.path.exists(db_path):
+        bot.send_message(chat_id, tr("backup_error", lang, err="DB file not found"))
+        return
+    if caption is None:
+        caption = tr("backup_caption", lang, time=datetime.now().strftime("%Y-%m-%d %H:%M"))
+    try:
+        with open(db_path, "rb") as f:
+            bot.send_document(chat_id, f, caption=caption, visible_file_name=os.path.basename(db_path))
+    except Exception as e:
+        bot.send_message(chat_id, tr("backup_error", lang, err=e))
 
+
+def handle_backup_command(bot, message: types.Message):
+    uid = message.from_user.id
+    lang = get_lang(uid)
+    if not is_admin(uid):
+        bot.send_message(message.chat.id, tr("no_access", lang))
+        return
+    bot.send_message(message.chat.id, tr("backup_sending", lang))
+    send_db_backup(bot, message.chat.id, lang)
+
+
+def broadcast_backup_to_admins(bot, caption_key: str, **caption_kwargs):
+    for a in database.list_admins():
+        lang = get_lang(a["user_id"])
+        caption = tr(caption_key, lang, **caption_kwargs)
+        try:
+            send_db_backup(bot, a["user_id"], lang, caption=caption)
+        except Exception:
+            continue
 
 def handle_admin_text(bot, message: types.Message) -> bool:
     uid  = message.from_user.id
