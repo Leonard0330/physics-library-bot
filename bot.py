@@ -206,6 +206,16 @@ def addadmin_command(message: types.Message):
     args = parts[1] if len(parts) > 1 else ""
     admin.handle_addadmin_command(bot, message, args)
 
+# /restore
+@bot.message_handler(commands=["restore"])
+def restore_command(message: types.Message):
+    admin.handle_restore_command(bot, message)
+
+# /cancel
+@bot.message_handler(commands=["cancel"])
+def cancel_command(message: types.Message):
+    admin.handle_cancel_command(bot, message)
+
 
 
 # document handler (ادمین آپلود PDF)
@@ -341,8 +351,8 @@ def handle_stats(message: types.Message):
         text = (
             f"📊 آمار کتابخانه\n\n"
             f"📚 کل کتاب‌ها: {s['total_books']}\n"
-            f"🇮🇷 فارسی: {s['fa_books']}\n"
-            f"🇬🇧 انگلیسی: {s['en_books']}\n"
+            f"فارسی: {s['fa_books']}\n"
+            f"انگلیسی: {s['en_books']}\n"
             f"⬇️ کل دانلودها: {s['total_downloads']}\n"
             f"🧲 فیلدهای فعال: {s['unique_fields']}"
         )
@@ -350,8 +360,8 @@ def handle_stats(message: types.Message):
         text = (
             f"📊 Library Stats\n\n"
             f"📚 Total Books: {s['total_books']}\n"
-            f"🇮🇷 Persian: {s['fa_books']}\n"
-            f"🇬🇧 English: {s['en_books']}\n"
+            f"Persian: {s['fa_books']}\n"
+            f"English: {s['en_books']}\n"
             f"⬇️ Total Downloads: {s['total_downloads']}\n"
             f"🧲 Active Fields: {s['unique_fields']}"
         )

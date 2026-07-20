@@ -2,12 +2,24 @@
 admin.py / Admin's Panel
 """
 
+import os
+import sqlite3
+import tempfile
+import threading
+import logging
+from datetime import datetime
+
 from telebot import types
 import database
 
 admin_sessions: dict[int, dict] = {}
 
 DEFAULT_LANG = "fa"
+
+# ── Backup / Restore state ──────────────────────────────────────────────────
+_backup_restore_lock = threading.Lock()   # فقط یک عملیات هم‌زمان
+_restore_sessions: dict[int, dict] = {}  # uid → {expire, emergency_path}
+RESTORE_TIMEOUT = 600                     # ثانیه (۱۰ دقیقه)
 
 
 def is_admin(user_id: int) -> bool:
@@ -54,8 +66,8 @@ T = {
     "list_header":      {"fa": "📋 لیست کتاب‌ها:\n",                            "en": "📋 List of books:\n"},
     "stats_header":     {"fa": "📊 آمار کتابخانه",                              "en": "📊 Library Stats"},
     "unknown_field":    {"fa": "نامشخص",                                        "en": "Unknown"},
-    "lang_fa":          {"fa": "🇮🇷 فارسی",                                     "en": "🇮🇷 Persian"},
-    "lang_en":          {"fa": "🇬🇧 انگلیسی",                                   "en": "🇬🇧 English"},
+    "lang_fa":          {"fa": "فارسی",                                     "en": "Persian"},
+    "lang_en":          {"fa": "انگلیسی",                                   "en": "English"},
 
     # Main Panel Buttons
     "btn_add":          {"fa": "➕ افزودن کتاب",           "en": "➕ Add Book"},
@@ -115,6 +127,46 @@ T = {
 
     # admin panel button
     "open_panel_btn":   {"fa": "پنل ادمین", "en": "Admin Panel"},
+
+    # Backup / Restore
+    "backup_sending":   {"fa": "⏳ در حال ارسال بکاپ...",          "en": "⏳ Sending backup..."},
+    "backup_caption":   {"fa": "💾 بکاپ دیتابیس — {time}",        "en": "💾 Database backup — {time}"},
+    "backup_error":     {"fa": "❌ خطا در بکاپ: {err}",            "en": "❌ Backup error: {err}"},
+    "backup_busy":      {"fa": "⚠️ یک عملیات بکاپ/ریستور در جریان است. کمی صبر کن.",
+                          "en": "⚠️ A backup/restore operation is already running. Please wait."},
+    "restore_prompt":   {"fa": "📤 فایل .db را ارسال کن.\n"
+                                "برای لغو /cancel بزن.\n"
+                                "⏱ تایم‌اوت: ۱۰ دقیقه.",
+                          "en": "📤 Send the .db file.\n"
+                                "Type /cancel to abort.\n"
+                                "⏱ Timeout: 10 minutes."},
+    "restore_bad_file": {"fa": "❌ فایل باید پسوند .db داشته باشد.",
+                          "en": "❌ File must have a .db extension."},
+    "restore_invalid":  {"fa": "❌ فایل SQLite معتبر نیست یا با schema پروژه سازگار نیست.",
+                          "en": "❌ Not a valid SQLite file or incompatible schema."},
+    "restore_confirm_prompt": {
+        "fa": "⚠️ بکاپ اضطراری ساخته شد و برای ادمین‌ها ارسال شد.\n"
+              "برای تأیید ریستور عبارت زیر را **عیناً** تایپ کن:\n\n"
+              "`CONFIRM RESTORE`",
+        "en": "⚠️ Emergency backup created and sent to admins.\n"
+              "To confirm the restore, type **exactly**:\n\n"
+              "`CONFIRM RESTORE`"},
+    "restore_cancelled":{"fa": "↩️ ریستور لغو شد.",                "en": "↩️ Restore cancelled."},
+    "restore_timeout":  {"fa": "⏱ تایم‌اوت ریستور. دوباره /restore بزن.",
+                          "en": "⏱ Restore timed out. Run /restore again."},
+    "restore_ok":       {"fa": "✅ ریستور با موفقیت انجام شد. ربات ادامه می‌دهد.",
+                          "en": "✅ Restore successful. Bot continues running."},
+    "restore_failed":   {"fa": "❌ ریستور ناموفق بود: {err}\nبکاپ اضطراری برگردانده شد.",
+                          "en": "❌ Restore failed: {err}\nRolled back to emergency backup."},
+    "restore_rollback_failed": {
+        "fa": "🆘 rollback هم شکست خورد: {err}\nبکاپ اضطراری را نگه می‌داریم.",
+        "en": "🆘 Rollback also failed: {err}\nKeeping the emergency backup file."},
+    "restore_no_session":{"fa": "⚠️ هیچ ریستوری در انتظار تأیید نیست.",
+                           "en": "⚠️ No pending restore to cancel."},
+    "cancel_not_yours": {"fa": "⚠️ این ریستور متعلق به تو نیست.",
+                          "en": "⚠️ This restore was not started by you."},
+    "emergency_caption":{"fa": "🆘 بکاپ اضطراری قبل از ریستور — {time}",
+                          "en": "🆘 Emergency backup before restore — {time}"},
 }
 
 
@@ -318,19 +370,77 @@ def _add_admin(bot, chat_id: int, target_id: int, lang: str):
     key = "admin_already" if was_admin else "admin_added"
     bot.send_message(chat_id, tr(key, lang, id=target_id))
 
-#ِ Database Backup
-def send_db_backup(bot, chat_id: int, lang: str, caption: str | None = None):
+# ── Backup helpers ────────────────────────────────────────────────────────
+
+def _make_backup_file(suffix: str = "") -> str:
+    """
+    یک فایل بکاپ SQLite معتبر می‌سازد (Online Backup API) و مسیرش را برمی‌گرداند.
+    فراخوان‌دهنده مسئول پاک‌کردن فایل موقت است.
+    """
     db_path = database.DB_PATH
-    if not os.path.exists(db_path):
-        bot.send_message(chat_id, tr("backup_error", lang, err="DB file not found"))
-        return
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    fname = f"physics_library_backup_{timestamp}{suffix}.db"
+    tmp_fd, tmp_path = tempfile.mkstemp(suffix=".db", prefix="tgbot_backup_")
+    os.close(tmp_fd)
+    try:
+        src = sqlite3.connect(db_path)
+        dst = sqlite3.connect(tmp_path)
+        with dst:
+            src.backup(dst)          # WAL-safe Online Backup API
+        src.close()
+        dst.close()
+    except Exception:
+        os.unlink(tmp_path)
+        raise
+    return tmp_path, fname
+
+
+def send_db_backup(bot, chat_id: int, lang: str, caption: str | None = None) -> bool:
+    """بکاپ می‌سازد، ارسال می‌کند و فایل موقت را پاک می‌کند. True در موفقیت."""
     if caption is None:
         caption = tr("backup_caption", lang, time=datetime.now().strftime("%Y-%m-%d %H:%M"))
     try:
-        with open(db_path, "rb") as f:
-            bot.send_document(chat_id, f, caption=caption, visible_file_name=os.path.basename(db_path))
+        tmp_path, fname = _make_backup_file()
     except Exception as e:
         bot.send_message(chat_id, tr("backup_error", lang, err=e))
+        return False
+    try:
+        with open(tmp_path, "rb") as f:
+            bot.send_document(chat_id, f, caption=caption, visible_file_name=fname)
+        return True
+    except Exception as e:
+        bot.send_message(chat_id, tr("backup_error", lang, err=e))
+        return False
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except Exception:
+            pass
+
+
+def broadcast_backup_to_admins(bot, caption_key: str, **caption_kwargs) -> str | None:
+    """
+    بکاپ را یک بار می‌سازد و برای همه ادمین‌ها ارسال می‌کند.
+    شکست ارسال به یک ادمین، بقیه را متوقف نمی‌کند.
+    مسیر فایل موقت را برمی‌گرداند (پاک‌سازی بر عهده فراخوان‌دهنده).
+    """
+    try:
+        tmp_path, fname = _make_backup_file()
+    except Exception as e:
+        logging.error("broadcast_backup_to_admins: backup creation failed: %s", e)
+        return None
+
+    for a in database.list_admins():
+        uid_a = a["user_id"]
+        lang_a = get_lang(uid_a)
+        caption = tr(caption_key, lang_a, **caption_kwargs)
+        try:
+            with open(tmp_path, "rb") as f:
+                bot.send_document(uid_a, f, caption=caption, visible_file_name=fname)
+        except Exception as e:
+            logging.warning("broadcast_backup_to_admins: failed to send to %s: %s", uid_a, e)
+
+    return tmp_path
 
 
 def handle_backup_command(bot, message: types.Message):
@@ -339,18 +449,250 @@ def handle_backup_command(bot, message: types.Message):
     if not is_admin(uid):
         bot.send_message(message.chat.id, tr("no_access", lang))
         return
-    bot.send_message(message.chat.id, tr("backup_sending", lang))
-    send_db_backup(bot, message.chat.id, lang)
+    if not _backup_restore_lock.acquire(blocking=False):
+        bot.send_message(message.chat.id, tr("backup_busy", lang))
+        return
+    try:
+        bot.send_message(message.chat.id, tr("backup_sending", lang))
+        # ارسال برای همه ادمین‌ها (شامل خود فرستنده)
+        time_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+        tmp_path = broadcast_backup_to_admins(bot, "backup_caption", time=time_str)
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+    finally:
+        _backup_restore_lock.release()
 
 
-def broadcast_backup_to_admins(bot, caption_key: str, **caption_kwargs):
-    for a in database.list_admins():
-        lang = get_lang(a["user_id"])
-        caption = tr(caption_key, lang, **caption_kwargs)
+# ── Restore helpers ───────────────────────────────────────────────────────
+
+def _validate_restore_db(path: str) -> bool:
+    """فایل را بررسی می‌کند: SQLite معتبر و دارای جداول اصلی پروژه."""
+    required_tables = {"books", "users", "download_logs"}
+    try:
+        conn = sqlite3.connect(path)
+        tables = {row[0] for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()}
+        conn.close()
+        return required_tables.issubset(tables)
+    except Exception:
+        return False
+
+
+def _do_restore(bot, initiator_uid: int, tmp_db_path: str, emergency_path: str):
+    """
+    ریستور واقعی را انجام می‌دهد.
+    در موفقیت emergency_path را پاک می‌کند.
+    در شکست، rollback می‌کند.
+    در شکست rollback، emergency_path را نگه می‌دارد.
+    """
+    lang = get_lang(initiator_uid)
+    db_path = database.DB_PATH
+    try:
+        src = sqlite3.connect(tmp_db_path)
+        dst = sqlite3.connect(db_path)
+        with dst:
+            src.backup(dst)
+        src.close()
+        dst.close()
+        bot.send_message(initiator_uid, tr("restore_ok", lang))
         try:
-            send_db_backup(bot, a["user_id"], lang, caption=caption)
+            os.unlink(tmp_db_path)
         except Exception:
-            continue
+            pass
+        try:
+            os.unlink(emergency_path)
+        except Exception:
+            pass
+    except Exception as e:
+        logging.error("_do_restore: restore failed: %s", e)
+        bot.send_message(initiator_uid, tr("restore_failed", lang, err=e))
+        # rollback با emergency backup
+        try:
+            src = sqlite3.connect(emergency_path)
+            dst = sqlite3.connect(db_path)
+            with dst:
+                src.backup(dst)
+            src.close()
+            dst.close()
+        except Exception as rb_err:
+            logging.error("_do_restore: rollback failed: %s", rb_err)
+            bot.send_message(initiator_uid, tr("restore_rollback_failed", lang, err=rb_err))
+            # emergency_path را نگه می‌داریم — نپاک می‌کنیم
+            return
+        try:
+            os.unlink(tmp_db_path)
+        except Exception:
+            pass
+
+
+def handle_restore_command(bot, message: types.Message):
+    uid = message.from_user.id
+    lang = get_lang(uid)
+    if not is_admin(uid):
+        bot.send_message(message.chat.id, tr("no_access", lang))
+        return
+    if not _backup_restore_lock.acquire(blocking=False):
+        bot.send_message(message.chat.id, tr("backup_busy", lang))
+        return
+    # lock را نگه می‌داریم تا پایان کل فرآیند (ارسال فایل → تأیید → اجرا)
+    _restore_sessions[uid] = {
+        "step": "wait_file",
+        "expire": datetime.now().timestamp() + RESTORE_TIMEOUT,
+        "emergency_path": None,
+        "tmp_db_path": None,
+    }
+    bot.send_message(message.chat.id, tr("restore_prompt", lang))
+
+
+def handle_cancel_command(bot, message: types.Message):
+    uid = message.from_user.id
+    lang = get_lang(uid)
+    if not is_admin(uid):
+        bot.send_message(message.chat.id, tr("no_access", lang))
+        return
+    if uid not in _restore_sessions:
+        bot.send_message(message.chat.id, tr("restore_no_session", lang))
+        return
+    sess = _restore_sessions.pop(uid)
+    # پاک‌کردن فایل‌های موقت
+    for key in ("emergency_path", "tmp_db_path"):
+        p = sess.get(key)
+        if p:
+            try:
+                os.unlink(p)
+            except Exception:
+                pass
+    _backup_restore_lock.release()
+    bot.send_message(message.chat.id, tr("restore_cancelled", lang))
+
+
+def handle_restore_document(bot, message: types.Message) -> bool:
+    """
+    وقتی ادمین‌ای در مرحله wait_file است و یک فایل ارسال می‌کند.
+    در handle_admin_document فراخوانی می‌شود (قبل از چک PDF).
+    True برمی‌گرداند اگر پیام را مصرف کرده باشد.
+    """
+    uid = message.from_user.id
+    if uid not in _restore_sessions:
+        return False
+    sess = _restore_sessions[uid]
+    if sess.get("step") != "wait_file":
+        return False
+
+    # بررسی تایم‌اوت
+    if datetime.now().timestamp() > sess["expire"]:
+        _restore_sessions.pop(uid)
+        _backup_restore_lock.release()
+        bot.send_message(message.chat.id, tr("restore_timeout", get_lang(uid)))
+        return True
+
+    lang = get_lang(uid)
+    doc = message.document
+    if not (doc.file_name or "").lower().endswith(".db"):
+        bot.send_message(message.chat.id, tr("restore_bad_file", lang))
+        return True
+
+    # دانلود فایل به temp
+    try:
+        file_info = bot.get_file(doc.file_id)
+        downloaded = bot.download_file(file_info.file_path)
+        tmp_fd, tmp_path = tempfile.mkstemp(suffix=".db", prefix="tgbot_restore_")
+        os.write(tmp_fd, downloaded)
+        os.close(tmp_fd)
+    except Exception as e:
+        bot.send_message(message.chat.id, tr("backup_error", lang, err=e))
+        return True
+
+    # اعتبارسنجی schema
+    if not _validate_restore_db(tmp_path):
+        try:
+            os.unlink(tmp_path)
+        except Exception:
+            pass
+        bot.send_message(message.chat.id, tr("restore_invalid", lang))
+        return True
+
+    # بکاپ اضطراری
+    time_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+    emergency_tmp = broadcast_backup_to_admins(
+        bot, "emergency_caption", time=time_str
+    )
+    # نگه‌داشتن emergency برای rollback — یک نسخه محلی جداگانه
+    try:
+        em_fd, em_path = tempfile.mkstemp(suffix=".db", prefix="tgbot_emergency_")
+        os.close(em_fd)
+        src = sqlite3.connect(database.DB_PATH)
+        dst = sqlite3.connect(em_path)
+        with dst:
+            src.backup(dst)
+        src.close()
+        dst.close()
+    except Exception as e:
+        logging.error("handle_restore_document: emergency backup failed: %s", e)
+        em_path = None
+
+    if emergency_tmp:
+        try:
+            os.unlink(emergency_tmp)
+        except Exception:
+            pass
+
+    sess["step"] = "wait_confirm"
+    sess["tmp_db_path"] = tmp_path
+    sess["emergency_path"] = em_path
+    bot.send_message(message.chat.id, tr("restore_confirm_prompt", lang), parse_mode="Markdown")
+    return True
+
+
+def handle_restore_confirm_text(bot, message: types.Message) -> bool:
+    """
+    در handle_admin_text فراخوانی می‌شود تا CONFIRM RESTORE را بررسی کند.
+    True برمی‌گرداند اگر پیام را مصرف کرده باشد.
+    """
+    uid = message.from_user.id
+    if uid not in _restore_sessions:
+        return False
+    sess = _restore_sessions[uid]
+    if sess.get("step") != "wait_confirm":
+        return False
+
+    # بررسی تایم‌اوت
+    if datetime.now().timestamp() > sess["expire"]:
+        _restore_sessions.pop(uid)
+        _backup_restore_lock.release()
+        bot.send_message(message.chat.id, tr("restore_timeout", get_lang(uid)))
+        return True
+
+    text = message.text.strip()
+    lang = get_lang(uid)
+
+    if text != "CONFIRM RESTORE":
+        # لغو — هر چیزی غیر از عبارت دقیق
+        _restore_sessions.pop(uid)
+        for key in ("emergency_path", "tmp_db_path"):
+            p = sess.get(key)
+            if p:
+                try:
+                    os.unlink(p)
+                except Exception:
+                    pass
+        _backup_restore_lock.release()
+        bot.send_message(message.chat.id, tr("restore_cancelled", lang))
+        return True
+
+    # اجرای ریستور
+    tmp_db_path = sess.pop("tmp_db_path", None)
+    emergency_path = sess.pop("emergency_path", None)
+    _restore_sessions.pop(uid)
+    try:
+        _do_restore(bot, uid, tmp_db_path, emergency_path)
+    finally:
+        _backup_restore_lock.release()
+    return True
 
 def handle_admin_text(bot, message: types.Message) -> bool:
     uid  = message.from_user.id
@@ -358,6 +700,10 @@ def handle_admin_text(bot, message: types.Message) -> bool:
 
     if not is_admin(uid):
         return False
+
+    # بررسی تأیید ریستور (CONFIRM RESTORE یا لغو ضمنی)
+    if handle_restore_confirm_text(bot, message):
+        return True
 
     lang = get_lang(uid)
 
@@ -588,6 +934,9 @@ def handle_admin_document(bot, message: types.Message) -> bool:
     uid = message.from_user.id
     if not is_admin(uid):
         return False
+    # ابتدا restore session را بررسی می‌کنیم
+    if handle_restore_document(bot, message):
+        return True
     if uid not in admin_sessions:
         return False
     if admin_sessions[uid].get("step") != "wait_file":
