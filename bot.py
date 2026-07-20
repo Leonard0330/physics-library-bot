@@ -1,25 +1,20 @@
+import os
 import telebot
 from telebot import types
 import database
 import admin
-import os
 
 TOKEN = os.environ.get("BOT_TOKEN")
 bot = telebot.TeleBot(TOKEN)
 
 database.init_db()
 
-# ─────────────────────────────
-# user language store (in-memory)
-# برای پرسیستنس واقعی باید به دیتابیس اضافه بشه
-# ─────────────────────────────
+
 user_langs: dict[int, str] = {}
-# وضعیت انتظار برای ورودی متن سرچ
 waiting_search: set[int] = set()
 
-# ─────────────────────────────
 # texts (FA / EN)
-# ─────────────────────────────
+
 TEXTS = {
     "start": {
         "fa": "📚 به ربات کتابخانه فیزیک خوش اومدی!\nاز دکمه‌های پایین استفاده کن 👇",
@@ -73,6 +68,10 @@ TEXTS = {
         "fa": "🏆 پرطرفدارترین کتاب‌ها",
         "en": "🏆 Top Downloaded Books"
     },
+    "books_list_header": {
+        "fa": "📚 لیست کتاب‌ها — روی هر کتاب بزن تا مشخصاتش و لینک دانلودش رو ببینی 👇",
+        "en": "📚 Book list — tap a book to see its details and download link 👇"
+    },
     "help": {
         "fa": (
             "📖 راهنما:\n\n"
@@ -97,9 +96,8 @@ TEXTS = {
     }
 }
 
-# ─────────────────────────────
-# دکمه‌های کیبورد اصلی
-# ─────────────────────────────
+# Main Buttons
+
 BTN = {
     "books":   {"fa": "📚 همه کتاب‌ها",    "en": "📚 All Books"},
     "search":  {"fa": "🔍 جستجو",          "en": "🔍 Search"},
@@ -111,15 +109,19 @@ BTN = {
 }
 
 
-# ─────────────────────────────
+
 # helpers
-# ─────────────────────────────
 def get_lang(user: types.User) -> str:
     uid = user.id
     if uid in user_langs:
         return user_langs[uid]
-    # پیش‌فرض از locale تلگرام
-    lang = "fa" if (user.language_code or "").startswith("fa") else "en"
+
+
+    lang = database.get_user_lang(uid)
+    if not lang:
+        lang = "fa" if (user.language_code or "").startswith("fa") else "en"
+        database.set_user_lang(uid, lang)
+
     user_langs[uid] = lang
     return lang
 
@@ -154,40 +156,28 @@ def main_keyboard(user: types.User) -> types.ReplyKeyboardMarkup:
 
 
 def cancel_keyboard(user: types.User) -> types.ReplyKeyboardMarkup:
-    """کیبورد موقت برای لغو جستجو."""
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
     lang = get_lang(user)
     kb.add(types.KeyboardButton("❌ لغو" if lang == "fa" else "❌ Cancel"))
     return kb
 
 
-# ─────────────────────────────
-# /admin  (باید قبل از text_handler باشه)
-# ─────────────────────────────
-@bot.message_handler(commands=["admin"])
-def admin_command(message: types.Message):
-    admin.handle_admin_command(bot, message)
+def send_home(chat_id: int, user: types.User):
+    bot.send_message(
+        chat_id,
+        t(user, "start"),
+        reply_markup=main_keyboard(user)
+    )
+    if admin.is_admin(user.id):
+        lang = get_lang(user)
+        bot.send_message(
+            chat_id,
+            admin.tr("open_panel_btn", lang),
+            reply_markup=admin.open_panel_markup(lang)
+        )
 
 
-# ─────────────────────────────
-# document handler (ادمین آپلود PDF)
-# ─────────────────────────────
-@bot.message_handler(content_types=["document"])
-def document_handler(message: types.Message):
-    admin.handle_admin_document(bot, message)
-
-
-# ─────────────────────────────
-# callback های ادمین (باید قبل از callback های عمومی باشه)
-# ─────────────────────────────
-@bot.callback_query_handler(func=lambda c: c.data.startswith("adm_"))
-def admin_callback(callback: types.CallbackQuery):
-    admin.handle_admin_callback(bot, callback)
-
-
-# ─────────────────────────────
 # /start
-# ─────────────────────────────
 @bot.message_handler(commands=["start"])
 def start(message: types.Message):
     user = message.from_user
@@ -196,27 +186,55 @@ def start(message: types.Message):
         username=user.username or "",
         first_name=user.first_name or ""
     )
-    bot.send_message(
-        message.chat.id,
-        t(user, "start"),
-        reply_markup=main_keyboard(user)
-    )
+    send_home(message.chat.id, user)
 
 
-# ─────────────────────────────
-# handler متن آزاد (دکمه‌های keyboard)
-# ─────────────────────────────
+# /admin
+@bot.message_handler(commands=["admin"])
+def admin_command(message: types.Message):
+    admin.handle_admin_command(bot, message)
+
+
+
+# /addadmin <id> 
+@bot.message_handler(commands=["addadmin"])
+def addadmin_command(message: types.Message):
+    parts = message.text.split(maxsplit=1)
+    args = parts[1] if len(parts) > 1 else ""
+    admin.handle_addadmin_command(bot, message, args)
+
+
+
+# document handler (ادمین آپلود PDF)
+
+@bot.message_handler(content_types=["document"])
+def document_handler(message: types.Message):
+    admin.handle_admin_document(bot, message)
+
+
+@bot.message_handler(func=lambda m: m.forward_from is not None, content_types=["text"])
+def forward_handler(message: types.Message):
+    if admin.handle_admin_forward(bot, message):
+        return
+    text_handler(message)
+
+
+# admin callback
+@bot.callback_query_handler(func=lambda c: c.data.startswith("adm_"))
+def admin_callback(callback: types.CallbackQuery):
+    admin.handle_admin_callback(bot, callback)
+
+
+
 @bot.message_handler(content_types=["text"])
 def text_handler(message: types.Message):
     user = message.from_user
     text = message.text.strip()
     uid  = user.id
-
-    # ── ادمین پنل اول چک میشه ──────────────────────────────────────
     if admin.handle_admin_text(bot, message):
         return
 
-    # ── حالت انتظار سرچ ──────────────────────────────────────────────
+    # waiting search
     if uid in waiting_search:
         waiting_search.discard(uid)
 
@@ -232,7 +250,7 @@ def text_handler(message: types.Message):
         handle_search_query(message, text)
         return
 
-    # ── دکمه‌های اصلی ─────────────────────────────────────────────────
+    # main buttons
     all_btns = {BTN[k][l] for k in BTN for l in ("fa", "en")}
 
     if text == btn(user, "books"):
@@ -265,26 +283,17 @@ def text_handler(message: types.Message):
             reply_markup=main_keyboard(user)
         )
 
-    # دکمه‌ای که ازش رد شدیم → /start دوباره
+    
     elif text not in all_btns:
-        bot.send_message(
-            message.chat.id,
-            t(user, "start"),
-            reply_markup=main_keyboard(user)
-        )
+        send_home(message.chat.id, user)
 
 
-# ─────────────────────────────
-# handlers منطقی
-# ─────────────────────────────
+# handlers
 def handle_books(message: types.Message):
+    #list of all books
     user = message.from_user
     rows = database.search_books(limit=20)
-    if not rows:
-        bot.send_message(message.chat.id, t(user, "no_books"), reply_markup=main_keyboard(user))
-        return
-    for book in rows:
-        send_book_card(message.chat.id, user, book)
+    send_book_list(message.chat.id, user, rows, header_key="books_list_header")
 
 
 def handle_search_query(message: types.Message, query: str):
@@ -293,14 +302,8 @@ def handle_search_query(message: types.Message, query: str):
     if not rows:
         bot.send_message(message.chat.id, t(user, "not_found"), reply_markup=main_keyboard(user))
         return
-    for book in rows:
-        send_book_card(message.chat.id, user, book)
-    # بعد از نتایج، کیبورد اصلی رو برگردون
-    bot.send_message(
-        message.chat.id,
-        "─" * 10,
-        reply_markup=main_keyboard(user)
-    )
+    send_book_list(message.chat.id, user, rows, header_key="books_list_header")
+    bot.send_message(message.chat.id, "─" * 10, reply_markup=main_keyboard(user))
 
 
 def handle_fields(message: types.Message):
@@ -314,7 +317,7 @@ def handle_fields(message: types.Message):
             types.InlineKeyboardButton(label, callback_data=f"field:{field_key}")
         )
 
-    # دو تا دو تا به markup اضافه میکنیم تا row_width درست کار کنه
+    
     markup = types.InlineKeyboardMarkup()
     for i in range(0, len(buttons), 2):
         markup.row(*buttons[i:i+2])
@@ -335,8 +338,8 @@ def handle_stats(message: types.Message):
         text = (
             f"📊 آمار کتابخانه\n\n"
             f"📚 کل کتاب‌ها: {s['total_books']}\n"
-            f" فارسی: {s['fa_books']}\n"
-            f" انگلیسی: {s['en_books']}\n"
+            f"🇮🇷 فارسی: {s['fa_books']}\n"
+            f"🇬🇧 انگلیسی: {s['en_books']}\n"
             f"⬇️ کل دانلودها: {s['total_downloads']}\n"
             f"🧲 فیلدهای فعال: {s['unique_fields']}"
         )
@@ -344,8 +347,8 @@ def handle_stats(message: types.Message):
         text = (
             f"📊 Library Stats\n\n"
             f"📚 Total Books: {s['total_books']}\n"
-            f" Persian: {s['fa_books']}\n"
-            f" English: {s['en_books']}\n"
+            f"🇮🇷 Persian: {s['fa_books']}\n"
+            f"🇬🇧 English: {s['en_books']}\n"
             f"⬇️ Total Downloads: {s['total_downloads']}\n"
             f"🧲 Active Fields: {s['unique_fields']}"
         )
@@ -356,11 +359,7 @@ def handle_stats(message: types.Message):
 def handle_top(message: types.Message):
     user = message.from_user
     rows = database.get_top_downloads(limit=10)
-    if not rows:
-        bot.send_message(message.chat.id, t(user, "no_books"), reply_markup=main_keyboard(user))
-        return
-    for book in rows:
-        send_book_card(message.chat.id, user, book)
+    send_book_list(message.chat.id, user, rows, header_key="top_books_header")
 
 
 def toggle_language(message: types.Message):
@@ -368,18 +367,38 @@ def toggle_language(message: types.Message):
     current = get_lang(user)
     new_lang = "en" if current == "fa" else "fa"
     user_langs[user.id] = new_lang
+    database.set_user_lang(user.id, new_lang)
 
     key = "lang_changed_en" if new_lang == "en" else "lang_changed_fa"
     bot.send_message(
         message.chat.id,
         TEXTS[key][new_lang],
-        reply_markup=main_keyboard(user)   # کیبورد با زبان جدید
+        reply_markup=main_keyboard(user)   
     )
+    if admin.is_admin(user.id):
+        bot.send_message(
+            message.chat.id,
+            admin.tr("open_panel_btn", new_lang),
+            reply_markup=admin.open_panel_markup(new_lang)
+        )
 
 
-# ─────────────────────────────
-# کارت کتاب
-# ─────────────────────────────
+def send_book_list(chat_id: int, user: types.User, rows, header_key: str):
+    if not rows:
+        bot.send_message(chat_id, t(user, "no_books"), reply_markup=main_keyboard(user))
+        return
+
+    header = TEXTS[header_key][get_lang(user)]
+    markup = types.InlineKeyboardMarkup()
+    for book in rows:
+        disp = database.get_display_id(book)
+        label = f"{disp} — {book['title'][:40]}"
+        markup.add(types.InlineKeyboardButton(label, callback_data=f"bookinfo:{book['id']}"))
+
+    bot.send_message(chat_id, header, reply_markup=markup)
+
+
+# Book Card
 def send_book_card(chat_id: int, user: types.User, book):
     lang = get_lang(user)
     field_fa, field_en = database.PHYSICS_FIELDS.get(
@@ -387,12 +406,14 @@ def send_book_card(chat_id: int, user: types.User, book):
     )
     field = field_fa if lang == "fa" else field_en
     lang_label = "فارسی" if book["language"] == "fa" else "English"
+    disp = database.get_display_id(book)
 
     text = (
         f"📘 {book['title']}\n"
         f"✍ {book['author']}\n"
         f"🌐 {lang_label}\n"
         f"🧲 {field}\n"
+        f"🔖 {disp}\n"
         f"⬇️ {book['download_count']}"
     )
 
@@ -406,9 +427,23 @@ def send_book_card(chat_id: int, user: types.User, book):
     bot.send_message(chat_id, text, reply_markup=markup)
 
 
-# ─────────────────────────────
-# callback: دانلود
-# ─────────────────────────────
+# callback: book specs from list
+@bot.callback_query_handler(func=lambda c: c.data.startswith("bookinfo:"))
+def book_info(callback: types.CallbackQuery):
+    user = callback.from_user
+    book_id = int(callback.data.split(":")[1])
+    book = database.get_book(book_id)
+
+    if not book:
+        bot.answer_callback_query(callback.id, t(user, "book_missing"), show_alert=True)
+        return
+
+    bot.answer_callback_query(callback.id)
+    send_book_card(callback.message.chat.id, user, book)
+
+
+# callback: download
+
 @bot.callback_query_handler(func=lambda c: c.data.startswith("download:"))
 def download(callback: types.CallbackQuery):
     user = callback.from_user
@@ -428,9 +463,6 @@ def download(callback: types.CallbackQuery):
     bot.answer_callback_query(callback.id, t(user, "downloaded"))
 
 
-# ─────────────────────────────
-# callback: فیلد فیزیکی
-# ─────────────────────────────
 @bot.callback_query_handler(func=lambda c: c.data.startswith("field:"))
 def field_books(callback: types.CallbackQuery):
     user = callback.from_user
@@ -442,11 +474,9 @@ def field_books(callback: types.CallbackQuery):
         return
 
     bot.answer_callback_query(callback.id)
-    for book in rows:
-        send_book_card(callback.message.chat.id, user, book)
+    send_book_list(callback.message.chat.id, user, rows, header_key="books_list_header")
 
 
 
-# ─────────────────────────────
 print("Bot is running...")
 bot.infinity_polling()

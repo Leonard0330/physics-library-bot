@@ -1,12 +1,4 @@
-"""
-database.py — ماژول دیتابیس کتابخانه فیزیک
-SQLite با پشتیبانی از:
-  - CRUD کتاب
-  - فیلدهای فیزیکی (کوانتوم، الکترومغناطیس، ...)
-  - آپلود فایل (ذخیره file_id تلگرام)
-  - آمار دانلود
-  - سرچ پیشرفته
-"""
+"""database.py"""
 
 import sqlite3
 import os
@@ -15,20 +7,13 @@ from typing import Optional
 
 DB_PATH = os.getenv("DB_PATH", "physics_library.db")
 
-# ─────────────────────────────────────────────
-# فیلدهای فیزیکی مجاز
-# ─────────────────────────────────────────────
-# نکته مهم: این باید dict به شکل  slug -> (label_fa, label_en)  باشه
-# چون bot.py و admin.py با .items() و unpack دو-زبانه ازش استفاده می‌کنن.
-# قبلاً این یک لیست ساده از رشته بود و همین باعث می‌شد هر جا فیلدها
-# ساخته می‌شدن (منوی «فیلدهای فیزیک» و مرحلهٔ انتخاب فیلد در آپلود ادمین)
-# با AttributeError: 'list' object has no attribute 'items' کرش کنه —
-# دقیقاً همون دلیلی که کتاب‌های آپلودی هیچ‌وقت ذخیره نمی‌شدن.
+
+# Physics Fields
 PHYSICS_FIELDS = {
     "classical_mechanics":        ("مکانیک کلاسیک", "Classical Mechanics"),
     "electromagnetism":           ("الکترومغناطیس", "Electromagnetism"),
     "modern_physics":             ("فیزیک مدرن", "Modern Physics"),
-    "General Physics":            ("فیزیک پایه", "General Physics"),
+    "general_physics":            ("فیزیک پایه", "General Physics"),
     "quantum_mechanics":          ("مکانیک کوانتومی (و نظریه میدان)", "Quantum Mechanics (incl. QFT)"),
     "relativity":                 ("نسبیت", "Relativity"),
     "thermodynamics_statistical": ("ترمودینامیک و مکانیک آماری", "Thermodynamics & Statistical Mechanics"),
@@ -45,24 +30,51 @@ PHYSICS_FIELDS = {
     "other":                      ("سایر / میان‌رشته‌ای", "Other / Interdisciplinary"),
 }
 
+# Fields Code
+FIELD_CODES = {
+    "classical_mechanics":        "CM",
+    "electromagnetism":           "EM",
+    "modern_physics":             "MOD",
+    "general_physics":            "GEN",
+    "quantum_mechanics":          "QM",
+    "relativity":                 "REL",
+    "thermodynamics_statistical": "THS",
+    "mathematical_physics":       "MTH",
+    "condensed_matter":           "CMP",
+    "optics_amo":                 "OPT",
+    "nuclear_particle_plasma":    "NPP",
+    "astrophysics_cosmology":     "AST",
+    "computational_nonlinear":    "CMN",
+    "biophysics_medical":         "BIO",
+    "chemical_acoustics":         "CHE",
+    "other":                      "OTH",
+}
 
-# ─────────────────────────────────────────────
-# اتصال و ساخت جداول
-# ─────────────────────────────────────────────
+
+def field_code(physics_field: str) -> str:
+    if physics_field in FIELD_CODES:
+        return FIELD_CODES[physics_field]
+    return (physics_field or "gen")[:3].upper()
+
+
+def get_display_id(book: "sqlite3.Row | dict") -> str:
+    field = book["physics_field"]
+    number = book["field_number"] if ("field_number" in book.keys() if hasattr(book, "keys") else "field_number" in book) else None
+    if number:
+        return f"#{field_code(field)}-{number}"
+    return f"#{book['id']}"
+
 
 def get_connection() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row          # دسترسی به ستون‌ها با نام
+    conn.row_factory = sqlite3.Row         
     conn.execute("PRAGMA foreign_keys = ON")
-    conn.execute("PRAGMA journal_mode = WAL")  # بهتر برای multi-access
+    conn.execute("PRAGMA journal_mode = WAL")  
     return conn
 
 
 def init_db() -> None:
-    """ساخت تمام جداول (اگر وجود نداشته باشند)."""
     with get_connection() as conn:
-
-        # ── جدول کتاب‌ها ──────────────────────────────────────────────────
         conn.execute("""
             CREATE TABLE IF NOT EXISTS books (
                 id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -84,7 +96,7 @@ def init_db() -> None:
             )
         """)
 
-        # ── فهرست‌سازی برای سرچ سریع ──────────────────────────────────────
+        # CC for quick Search
         conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_books_field
             ON books(physics_field)
@@ -98,7 +110,27 @@ def init_db() -> None:
             ON books(title)
         """)
 
-        # ── جدول لاگ دانلود ───────────────────────────────────────────────
+        # Field Number
+        book_cols = {row["name"] for row in conn.execute("PRAGMA table_info(books)")}
+        if "field_number" not in book_cols:
+            conn.execute("ALTER TABLE books ADD COLUMN field_number INTEGER")
+            rows = conn.execute(
+                "SELECT id, physics_field FROM books ORDER BY physics_field, created_at, id"
+            ).fetchall()
+            counters: dict[str, int] = {}
+            for r in rows:
+                counters[r["physics_field"]] = counters.get(r["physics_field"], 0) + 1
+                conn.execute(
+                    "UPDATE books SET field_number = ? WHERE id = ?",
+                    (counters[r["physics_field"]], r["id"])
+                )
+
+        conn.execute(
+            "UPDATE books SET physics_field = 'general_physics' "
+            "WHERE physics_field = 'General Physics'"
+        )
+
+        # Download Logs
         conn.execute("""
             CREATE TABLE IF NOT EXISTS download_logs (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -113,7 +145,6 @@ def init_db() -> None:
             ON download_logs(book_id)
         """)
 
-        # ── جدول کاربران (اختیاری، برای آمار) ───────────────────────────
         conn.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 user_id     INTEGER PRIMARY KEY,
@@ -125,7 +156,6 @@ def init_db() -> None:
             )
         """)
 
-        # ── مهاجرت برای دیتابیس‌های قدیمی‌تر که ستون lang رو ندارن ──────
         existing_cols = {row["name"] for row in conn.execute("PRAGMA table_info(users)")}
         if "lang" not in existing_cols:
             conn.execute("ALTER TABLE users ADD COLUMN lang TEXT")
@@ -134,9 +164,7 @@ def init_db() -> None:
     print(f"[DB] دیتابیس آماده شد: {DB_PATH}")
 
 
-# ─────────────────────────────────────────────
-# CRUD کتاب
-# ─────────────────────────────────────────────
+# Book CRUD
 
 def add_book(
     title: str,
@@ -152,42 +180,65 @@ def add_book(
     cover_file_id: str = "",
     added_by: Optional[int] = None,
 ) -> int:
-    """اضافه کردن کتاب جدید — برمی‌گردونه id کتاب."""
     if physics_field not in PHYSICS_FIELDS:
         raise ValueError(f"فیلد نامعتبر: {physics_field}")
     if language not in ("fa", "en"):
         raise ValueError("زبان باید 'fa' یا 'en' باشد")
 
     with get_connection() as conn:
+        row = conn.execute(
+            "SELECT COALESCE(MAX(field_number), 0) AS mx FROM books WHERE physics_field = ?",
+            (physics_field,)
+        ).fetchone()
+        next_number = row["mx"] + 1
+
         cur = conn.execute("""
             INSERT INTO books
                 (title, author, language, physics_field,
                  description, edition, year,
                  file_id, file_name, file_size,
-                 cover_file_id, added_by)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                 cover_file_id, added_by, field_number)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
         """, (
             title, author, language, physics_field,
             description, edition, year,
             file_id, file_name, file_size,
-            cover_file_id, added_by,
+            cover_file_id, added_by, next_number,
         ))
         conn.commit()
         return cur.lastrowid
 
 
 def get_book(book_id: int) -> Optional[sqlite3.Row]:
-    """گرفتن یک کتاب با id."""
     with get_connection() as conn:
         return conn.execute(
             "SELECT * FROM books WHERE id = ?", (book_id,)
         ).fetchone()
 
 
+def find_book_by_display_id(text: str) -> Optional[sqlite3.Row]:
+    cleaned = text.strip().lstrip("#").upper().replace(" ", "")
+    letters = "".join(ch for ch in cleaned if ch.isalpha())
+    digits = "".join(ch for ch in cleaned if ch.isdigit())
+    if not letters or not digits:
+        return None
+
+    matching_fields = [f for f, code in FIELD_CODES.items() if code == letters]
+    if not matching_fields:
+        return None
+
+    with get_connection() as conn:
+        for field in matching_fields:
+            row = conn.execute(
+                "SELECT * FROM books WHERE physics_field = ? AND field_number = ?",
+                (field, int(digits))
+            ).fetchone()
+            if row:
+                return row
+    return None
+
+
 def update_book(book_id: int, **kwargs) -> bool:
-    """آپدیت هر فیلدی از کتاب.
-    مثال: update_book(3, title='نام جدید', year=2024)
-    """
     allowed = {
         "title", "author", "language", "physics_field",
         "description", "edition", "year",
@@ -197,11 +248,22 @@ def update_book(book_id: int, **kwargs) -> bool:
     if not fields:
         return False
 
-    fields["updated_at"] = datetime.utcnow().isoformat()
-    set_clause = ", ".join(f"{k} = ?" for k in fields)
-    values = list(fields.values()) + [book_id]
-
     with get_connection() as conn:
+        if "physics_field" in fields:
+            current = conn.execute(
+                "SELECT physics_field FROM books WHERE id = ?", (book_id,)
+            ).fetchone()
+            if current and current["physics_field"] != fields["physics_field"]:
+                row = conn.execute(
+                    "SELECT COALESCE(MAX(field_number), 0) AS mx FROM books WHERE physics_field = ?",
+                    (fields["physics_field"],)
+                ).fetchone()
+                fields["field_number"] = row["mx"] + 1
+
+        fields["updated_at"] = datetime.utcnow().isoformat()
+        set_clause = ", ".join(f"{k} = ?" for k in fields)
+        values = list(fields.values()) + [book_id]
+
         cur = conn.execute(
             f"UPDATE books SET {set_clause} WHERE id = ?", values
         )
@@ -210,16 +272,14 @@ def update_book(book_id: int, **kwargs) -> bool:
 
 
 def delete_book(book_id: int) -> bool:
-    """حذف کتاب (لاگ دانلود هم cascade حذف می‌شه)."""
     with get_connection() as conn:
         cur = conn.execute("DELETE FROM books WHERE id = ?", (book_id,))
         conn.commit()
         return cur.rowcount > 0
 
 
-# ─────────────────────────────────────────────
-# سرچ پیشرفته
-# ─────────────────────────────────────────────
+
+# Advanced Search
 
 def search_books(
     query: str = "",
@@ -228,12 +288,6 @@ def search_books(
     limit: int = 10,
     offset: int = 0,
 ) -> list[sqlite3.Row]:
-    """
-    سرچ ترکیبی:
-      - query     → جستجو در عنوان و نام نویسنده
-      - physics_field → فیلد فیزیکی
-      - language  → 'fa' یا 'en'
-    """
     conditions = []
     params = []
 
@@ -265,7 +319,6 @@ def search_books(
 
 
 def get_books_by_field(physics_field: str, limit: int = 20) -> list[sqlite3.Row]:
-    """همه کتاب‌های یک فیلد خاص."""
     with get_connection() as conn:
         return conn.execute(
             "SELECT * FROM books WHERE physics_field = ? ORDER BY title LIMIT ?",
@@ -274,7 +327,6 @@ def get_books_by_field(physics_field: str, limit: int = 20) -> list[sqlite3.Row]
 
 
 def list_all_fields() -> list[str]:
-    """فیلدهایی که حداقل یک کتاب دارند."""
     with get_connection() as conn:
         rows = conn.execute(
             "SELECT DISTINCT physics_field, COUNT(*) as cnt "
@@ -283,12 +335,9 @@ def list_all_fields() -> list[str]:
     return [r["physics_field"] for r in rows]
 
 
-# ─────────────────────────────────────────────
-# آمار دانلود
-# ─────────────────────────────────────────────
+# Download Stats
 
 def record_download(book_id: int, user_id: int) -> None:
-    """ثبت یک دانلود + افزایش شمارنده."""
     with get_connection() as conn:
         conn.execute(
             "INSERT INTO download_logs (book_id, user_id) VALUES (?,?)",
@@ -302,7 +351,6 @@ def record_download(book_id: int, user_id: int) -> None:
 
 
 def get_top_downloads(limit: int = 10) -> list[sqlite3.Row]:
-    """پرطرفدارترین کتاب‌ها."""
     with get_connection() as conn:
         return conn.execute(
             "SELECT id, title, author, physics_field, download_count "
@@ -312,7 +360,6 @@ def get_top_downloads(limit: int = 10) -> list[sqlite3.Row]:
 
 
 def get_book_stats(book_id: int) -> dict:
-    """آمار کامل یک کتاب: دانلود کل + دانلود ۳۰ روز اخیر."""
     with get_connection() as conn:
         book = conn.execute(
             "SELECT download_count FROM books WHERE id = ?", (book_id,)
@@ -332,7 +379,6 @@ def get_book_stats(book_id: int) -> dict:
 
 
 def get_library_stats() -> dict:
-    """آمار کلی کتابخانه."""
     with get_connection() as conn:
         total_books   = conn.execute("SELECT COUNT(*) FROM books").fetchone()[0]
         total_fa      = conn.execute("SELECT COUNT(*) FROM books WHERE language='fa'").fetchone()[0]
@@ -348,12 +394,9 @@ def get_library_stats() -> dict:
     }
 
 
-# ─────────────────────────────────────────────
-# مدیریت کاربران
-# ─────────────────────────────────────────────
+# user management
 
 def upsert_user(user_id: int, username: str = "", first_name: str = "") -> None:
-    """ثبت یا آپدیت کاربر."""
     with get_connection() as conn:
         conn.execute("""
             INSERT INTO users (user_id, username, first_name, last_seen)
@@ -368,10 +411,11 @@ def upsert_user(user_id: int, username: str = "", first_name: str = "") -> None:
 
 def set_admin(user_id: int, is_admin: bool = True) -> None:
     with get_connection() as conn:
-        conn.execute(
-            "UPDATE users SET is_admin = ? WHERE user_id = ?",
-            (1 if is_admin else 0, user_id)
-        )
+        conn.execute("""
+            INSERT INTO users (user_id, is_admin, last_seen)
+            VALUES (?, ?, datetime('now'))
+            ON CONFLICT(user_id) DO UPDATE SET is_admin = excluded.is_admin
+        """, (user_id, 1 if is_admin else 0))
         conn.commit()
 
 
@@ -383,8 +427,16 @@ def is_admin(user_id: int) -> bool:
     return bool(row and row["is_admin"])
 
 
+def list_admins() -> list[sqlite3.Row]:
+    """لیست همهٔ ادمین‌های فعلی."""
+    with get_connection() as conn:
+        return conn.execute(
+            "SELECT user_id, username, first_name FROM users WHERE is_admin = 1 "
+            "ORDER BY last_seen DESC"
+        ).fetchall()
+
+
 def get_user_lang(user_id: int) -> Optional[str]:
-    """زبان ذخیره‌شدهٔ کاربر رو برمی‌گردونه ('fa' یا 'en')، یا None اگر هنوز تعیین نشده."""
     with get_connection() as conn:
         row = conn.execute(
             "SELECT lang FROM users WHERE user_id = ?", (user_id,)
@@ -393,7 +445,6 @@ def get_user_lang(user_id: int) -> Optional[str]:
 
 
 def set_user_lang(user_id: int, lang: str) -> None:
-    """ذخیرهٔ زبان انتخابی کاربر (پرسیستنت، نه فقط در حافظه)."""
     if lang not in ("fa", "en"):
         return
     with get_connection() as conn:
@@ -404,20 +455,16 @@ def set_user_lang(user_id: int, lang: str) -> None:
         """, (user_id, lang))
         conn.commit()
 
-
-# ─────────────────────────────────────────────
-# اجرای مستقیم → تست پایه
-# ─────────────────────────────────────────────
+# TEST
 if __name__ == "__main__":
     init_db()
 
-    # ── تست اضافه کردن کتاب ─────────────────────────────────────────────
     bid = add_book(
         title="Principles of Quantum Mechanics",
         author="R. Shankar",
         language="en",
         physics_field="quantum_mechanics",
-        file_id="BQACAgIAAxkBAAIBhGV...",   # یه file_id نمونه
+        file_id="BQACAgIAAxkBAAIBhGV...",  
         file_name="shankar_qm.pdf",
         file_size=15_000_000,
         description="یکی از بهترین رفرنس‌های مکانیک کوانتومی",
@@ -438,7 +485,7 @@ if __name__ == "__main__":
     )
     print(f"[+] کتاب فارسی اضافه شد | id={bid2}")
 
-    # ── تست سرچ ─────────────────────────────────────────────────────────
+    # search test
     results = search_books(query="Quantum")
     print(f"\n[سرچ 'Quantum'] → {len(results)} نتیجه")
     for r in results:
@@ -447,18 +494,18 @@ if __name__ == "__main__":
     results2 = search_books(physics_field="quantum_mechanics", language="fa")
     print(f"\n[فیلتر: quantum_mechanics + فارسی] → {len(results2)} نتیجه")
 
-    # ── تست دانلود ──────────────────────────────────────────────────────
+    # download test
     record_download(bid, user_id=111)
     record_download(bid, user_id=222)
     record_download(bid2, user_id=111)
 
     print(f"\n[آمار کتاب {bid}]:", get_book_stats(bid))
 
-    # ── آمار کلی ────────────────────────────────────────────────────────
+    # stats test
     stats = get_library_stats()
     print(f"\n[آمار کلی] {stats}")
 
-    # ── تست ادمین ───────────────────────────────────────────────────────
+    # admin test
     upsert_user(123456789, username="admin_user", first_name="علی")
     set_admin(123456789, True)
     print(f"\n[ادمین؟] {is_admin(123456789)}")

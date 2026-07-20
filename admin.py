@@ -1,5 +1,5 @@
 """
-admin.py — پنل ادمین برای اضافه کردن کتاب (دوزبانه: فارسی/انگلیسی)
+admin.py / Admin's Panel
 """
 
 from telebot import types
@@ -15,21 +15,22 @@ def is_admin(user_id: int) -> bool:
 
 
 def get_lang(user_id: int) -> str:
-    """زبان پرسیستنت کاربر رو می‌گیره (همون چیزی که bot.py هم ذخیره می‌کنه)."""
     return database.get_user_lang(user_id) or DEFAULT_LANG
 
 
-# ─────────────────────────────
-# متن‌های دوزبانه
-# ─────────────────────────────
+
+# Bilingual Texts
 T = {
     "no_access":       {"fa": "⛔️ دسترسی ندارید.",                              "en": "⛔️ You don't have access."},
     "panel_title":      {"fa": "👨‍💼 پنل ادمین\nیکی از گزینه‌ها رو انتخاب کن:",   "en": "👨‍💼 Admin Panel\nChoose an option:"},
     "cancelled":        {"fa": "↩️ عملیات لغو شد.",                             "en": "↩️ Operation cancelled."},
-    "ask_book_id_del":  {"fa": "🗑 شناسه (ID) کتاب رو بنویس:",                   "en": "🗑 Enter the book ID:"},
-    "not_a_number":     {"fa": "❗️ شناسه باید عدد باشه.",                       "en": "❗️ The ID must be a number."},
+    "ask_book_id_del":  {"fa": "🗑 شناسه کتاب رو بنویس (مثلاً REL-14 یا آیدی عددی):",
+                          "en": "🗑 Enter the book ID (e.g. REL-14 or the raw numeric ID):"},
+    "ask_book_id_edit": {"fa": "✏️ شناسه کتابی که می‌خوای ویرایش کنی رو بنویس (مثلاً REL-14):",
+                          "en": "✏️ Enter the ID of the book to edit (e.g. REL-14):"},
+    "not_a_number":     {"fa": "❗️ فرمت شناسه اشتباهه.",                        "en": "❗️ Invalid ID format."},
     "book_not_found":   {"fa": "❌ کتابی با شناسه {id} پیدا نشد.",               "en": "❌ No book found with ID {id}."},
-    "book_deleted":     {"fa": "🗑 کتاب «{title}» حذف شد.",                     "en": "🗑 Book \"{title}\" deleted."},
+    "book_deleted":     {"fa": "🗑 کتاب «{title}» ({disp}) حذف شد.",             "en": "🗑 Book \"{title}\" ({disp}) deleted."},
     "back_to_panel":    {"fa": "بازگشت به پنل:",                               "en": "Back to panel:"},
     "send_pdf":         {"fa": "📤 فایل PDF کتاب رو بفرست:",                    "en": "📤 Send the book's PDF file:"},
     "pdf_only":         {"fa": "❗️ فقط فایل PDF قبول میشه.",                    "en": "❗️ Only PDF files are accepted."},
@@ -46,8 +47,8 @@ T = {
     "wrong_step":       {"fa": "⚠️ مرحله اشتباه",                              "en": "⚠️ Wrong step"},
     "missing_fields":   {"fa": "❌ این فیلدها خالی هستن: {fields}\nدوباره از ابتدا شروع کن.",
                           "en": "❌ These fields are missing: {fields}\nPlease start over."},
-    "saved_ok":         {"fa": "✅ کتاب با موفقیت ذخیره شد!\n🔖 شناسه: #{id}\n📘 {title}",
-                          "en": "✅ Book saved successfully!\n🔖 ID: #{id}\n📘 {title}"},
+    "saved_ok":         {"fa": "✅ کتاب با موفقیت ذخیره شد!\n🔖 شناسه: {disp}\n📘 {title}",
+                          "en": "✅ Book saved successfully!\n🔖 ID: {disp}\n📘 {title}"},
     "save_error":       {"fa": "❌ خطا در ذخیره:\n{err}",                       "en": "❌ Error while saving:\n{err}"},
     "no_books":         {"fa": "📭 هنوز کتابی ثبت نشده.",                       "en": "📭 No books have been added yet."},
     "list_header":      {"fa": "📋 لیست کتاب‌ها:\n",                            "en": "📋 List of books:\n"},
@@ -56,18 +57,52 @@ T = {
     "lang_fa":          {"fa": "🇮🇷 فارسی",                                     "en": "🇮🇷 Persian"},
     "lang_en":          {"fa": "🇬🇧 انگلیسی",                                   "en": "🇬🇧 English"},
 
-    # دکمه‌های کیبورد اصلی پنل
+    # Main Panel Buttons
     "btn_add":          {"fa": "➕ افزودن کتاب",           "en": "➕ Add Book"},
+    "btn_edit":         {"fa": "✏️ ویرایش کتاب",           "en": "✏️ Edit Book"},
     "btn_list":         {"fa": "📋 لیست کتاب‌ها",          "en": "📋 Book List"},
     "btn_delete":       {"fa": "🗑 حذف کتاب",              "en": "🗑 Delete Book"},
     "btn_stats":        {"fa": "📊 آمار ادمین",            "en": "📊 Admin Stats"},
+    "btn_admins":       {"fa": "👥 مدیریت ادمین‌ها",       "en": "👥 Manage Admins"},
     "btn_exit":         {"fa": "🔙 خروج از پنل ادمین",     "en": "🔙 Exit Admin Panel"},
     "btn_cancel":       {"fa": "❌ لغو عملیات",            "en": "❌ Cancel Operation"},
     "btn_skip":         {"fa": "⏭ رد کردن",                "en": "⏭ Skip"},
     "btn_confirm_save": {"fa": "✅ تأیید و ذخیره",          "en": "✅ Confirm & Save"},
     "btn_confirm_no":   {"fa": "❌ لغو",                    "en": "❌ Cancel"},
 
-    # کارت خلاصه
+    # Admin Management
+    "btn_admin_add":    {"fa": "➕ افزودن ادمین",          "en": "➕ Add Admin"},
+    "btn_admin_list":   {"fa": "📋 لیست ادمین‌ها",         "en": "📋 List Admins"},
+    "btn_admin_remove": {"fa": "➖ حذف ادمین",             "en": "➖ Remove Admin"},
+    "btn_back":         {"fa": "🔙 بازگشت",                "en": "🔙 Back"},
+    "admins_menu_title":{"fa": "👥 مدیریت ادمین‌ها:",       "en": "👥 Manage Admins:"},
+    "ask_new_admin_id": {"fa": "🆔 آیدی عددی کاربر رو بنویس، یا پیامش رو فوروارد کن:\n"
+                                "(آیدی عددی رو می‌تونه با بات @userinfobot بگیره)",
+                          "en": "🆔 Enter the user's numeric ID, or forward a message from them:\n"
+                                "(they can get their numeric ID from @userinfobot)"},
+    "ask_remove_admin_id": {"fa": "🆔 آیدی عددی ادمینی که می‌خوای حذف کنی رو بنویس:",
+                             "en": "🆔 Enter the numeric ID of the admin to remove:"},
+    "admin_added":      {"fa": "✅ کاربر {id} حالا ادمینه.",                     "en": "✅ User {id} is now an admin."},
+    "admin_removed":    {"fa": "✅ دسترسی ادمین کاربر {id} حذف شد.",             "en": "✅ Admin access removed for user {id}."},
+    "admin_already":    {"fa": "ℹ️ این کاربر از قبل ادمین بود.",                 "en": "ℹ️ This user was already an admin."},
+    "cannot_remove_self": {"fa": "⚠️ نمی‌تونی دسترسی ادمین خودت رو از همینجا حذف کنی.",
+                            "en": "⚠️ You can't remove your own admin access from here."},
+    "admins_list_header": {"fa": "👥 ادمین‌های فعلی:\n",                        "en": "👥 Current admins:\n"},
+    "no_admins":        {"fa": "📭 هیچ ادمینی ثبت نشده (این عجیبه!).",           "en": "📭 No admins found (that's odd!)."},
+
+    # Edit Books
+    "edit_found":       {"fa": "کتاب پیدا شد:\n\n{summary}\n\nکدوم فیلد رو می‌خوای ویرایش کنی؟",
+                          "en": "Book found:\n\n{summary}\n\nWhich field do you want to edit?"},
+    "edit_field_title":    {"fa": "📘 عنوان",   "en": "📘 Title"},
+    "edit_field_author":   {"fa": "✍ نویسنده",  "en": "✍ Author"},
+    "edit_field_year":     {"fa": "📅 سال",     "en": "📅 Year"},
+    "edit_field_edition":  {"fa": "🔖 ویرایش",  "en": "🔖 Edition"},
+    "edit_field_desc":     {"fa": "📝 توضیحات", "en": "📝 Description"},
+    "edit_field_physics":  {"fa": "🧲 فیلد فیزیکی", "en": "🧲 Physics Field"},
+    "ask_new_value":    {"fa": "مقدار جدید رو بنویس:",                          "en": "Enter the new value:"},
+    "edit_saved":       {"fa": "✅ کتاب {disp} به‌روزرسانی شد.",                 "en": "✅ Book {disp} updated."},
+
+    # Summary
     "summary_title":    {"fa": "📋 خلاصه اطلاعات کتاب:\n",  "en": "📋 Book Summary:\n"},
     "summary_book":     {"fa": "📘 عنوان: {v}",  "en": "📘 Title: {v}"},
     "summary_author":   {"fa": "✍ نویسنده: {v}", "en": "✍ Author: {v}"},
@@ -78,8 +113,8 @@ T = {
     "summary_desc":     {"fa": "📝 توضیحات: {v}", "en": "📝 Description: {v}"},
     "summary_file":     {"fa": "📁 فایل: {v}",    "en": "📁 File: {v}"},
 
-    # دکمه شیشه‌ای ورود سریع به پنل (روی منوی اصلی کاربر ادمین)
-    "open_panel_btn":   {"fa": "🛠 پنل ادمین", "en": "🛠 Admin Panel"},
+    # admin panel button
+    "open_panel_btn":   {"fa": "پنل ادمین", "en": "Admin Panel"},
 }
 
 
@@ -88,21 +123,44 @@ def tr(key: str, lang: str, **kwargs) -> str:
     return text.format(**kwargs) if kwargs else text
 
 
-# ─────────────────────────────
-# کیبوردها
-# ─────────────────────────────
+def _disp(book) -> str:
+    return database.get_display_id(book)
+
+
+def _resolve_book(text: str):
+    text = text.strip()
+    if text.isdigit():
+        return database.get_book(int(text))
+    return database.find_book_by_display_id(text)
+
+# Keyboards
 
 def admin_keyboard(lang: str) -> types.ReplyKeyboardMarkup:
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     kb.add(
         types.KeyboardButton(tr("btn_add", lang)),
-        types.KeyboardButton(tr("btn_list", lang)),
+        types.KeyboardButton(tr("btn_edit", lang)),
     )
     kb.add(
+        types.KeyboardButton(tr("btn_list", lang)),
         types.KeyboardButton(tr("btn_delete", lang)),
+    )
+    kb.add(
         types.KeyboardButton(tr("btn_stats", lang)),
+        types.KeyboardButton(tr("btn_admins", lang)),
     )
     kb.add(types.KeyboardButton(tr("btn_exit", lang)))
+    return kb
+
+
+def admins_menu_keyboard(lang: str) -> types.ReplyKeyboardMarkup:
+    kb = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    kb.add(
+        types.KeyboardButton(tr("btn_admin_add", lang)),
+        types.KeyboardButton(tr("btn_admin_remove", lang)),
+    )
+    kb.add(types.KeyboardButton(tr("btn_admin_list", lang)))
+    kb.add(types.KeyboardButton(tr("btn_back", lang)))
     return kb
 
 
@@ -130,13 +188,13 @@ def lang_keyboard() -> types.InlineKeyboardMarkup:
     return markup
 
 
-def field_keyboard(lang: str) -> types.InlineKeyboardMarkup:
+def field_keyboard(lang: str, prefix: str = "adm_field") -> types.InlineKeyboardMarkup:
     markup = types.InlineKeyboardMarkup()
     buttons = []
     for key, (label_fa, label_en) in database.PHYSICS_FIELDS.items():
         label = label_fa if lang == "fa" else label_en
         buttons.append(
-            types.InlineKeyboardButton(label, callback_data=f"adm_field:{key}")
+            types.InlineKeyboardButton(label, callback_data=f"{prefix}:{key}")
         )
     for i in range(0, len(buttons), 2):
         markup.row(*buttons[i:i + 2])
@@ -152,16 +210,30 @@ def confirm_keyboard(lang: str) -> types.InlineKeyboardMarkup:
     return markup
 
 
+def edit_field_keyboard(lang: str) -> types.InlineKeyboardMarkup:
+    markup = types.InlineKeyboardMarkup()
+    markup.row(
+        types.InlineKeyboardButton(tr("edit_field_title", lang),   callback_data="adm_editfield:title"),
+        types.InlineKeyboardButton(tr("edit_field_author", lang),  callback_data="adm_editfield:author"),
+    )
+    markup.row(
+        types.InlineKeyboardButton(tr("edit_field_year", lang),    callback_data="adm_editfield:year"),
+        types.InlineKeyboardButton(tr("edit_field_edition", lang), callback_data="adm_editfield:edition"),
+    )
+    markup.row(
+        types.InlineKeyboardButton(tr("edit_field_desc", lang),    callback_data="adm_editfield:description"),
+        types.InlineKeyboardButton(tr("edit_field_physics", lang), callback_data="adm_editfield:physics_field"),
+    )
+    return markup
+
+
 def open_panel_markup(lang: str) -> types.InlineKeyboardMarkup:
-    """دکمه شیشه‌ای (inline) که در منوی اصلی کاربران ادمین نشون داده می‌شه."""
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton(tr("open_panel_btn", lang), callback_data="adm_open_panel"))
     return markup
 
 
-# ─────────────────────────────
 # خلاصه کتاب
-# ─────────────────────────────
 
 def summary_text(data: dict, lang: str) -> str:
     field_fa, field_en = database.PHYSICS_FIELDS.get(
@@ -184,9 +256,20 @@ def summary_text(data: dict, lang: str) -> str:
     return "\n".join(lines)
 
 
-# ─────────────────────────────
-# ورود به پنل /admin (هم برای کامند و هم برای دکمه شیشه‌ای)
-# ─────────────────────────────
+def _book_summary_text(book, lang: str) -> str:
+    return summary_text({
+        "title": book["title"],
+        "author": book["author"],
+        "language": book["language"],
+        "physics_field": book["physics_field"],
+        "year": book["year"],
+        "edition": book["edition"],
+        "description": book["description"],
+        "file_name": book["file_name"],
+    }, lang) + f"\n🔖 {_disp(book)}"
+
+
+# /admin entrance
 
 def open_panel(bot, chat_id: int, user_id: int):
     lang = get_lang(user_id)
@@ -206,10 +289,36 @@ def handle_admin_command(bot, message: types.Message):
     open_panel(bot, message.chat.id, uid)
 
 
-# ─────────────────────────────
-# هندلر اصلی متن — از bot.py صدا زده میشه
-# اگه True برگردونه یعنی پیام مال ادمینه و bot.py دیگه کاری نکنه
-# ─────────────────────────────
+# /addadmin <id> 
+
+def handle_addadmin_command(bot, message: types.Message, args: str):
+    uid = message.from_user.id
+    lang = get_lang(uid)
+    if not is_admin(uid):
+        bot.send_message(message.chat.id, tr("no_access", lang))
+        return
+
+    target_text = args.strip()
+    target_id = None
+    if message.reply_to_message:
+        target_id = message.reply_to_message.from_user.id
+    elif target_text.isdigit():
+        target_id = int(target_text)
+
+    if not target_id:
+        bot.send_message(message.chat.id, tr("ask_new_admin_id", lang))
+        return
+
+    _add_admin(bot, message.chat.id, target_id, lang)
+
+
+def _add_admin(bot, chat_id: int, target_id: int, lang: str):
+    was_admin = database.is_admin(target_id)
+    database.set_admin(target_id, True)
+    key = "admin_already" if was_admin else "admin_added"
+    bot.send_message(chat_id, tr(key, lang, id=target_id))
+
+
 
 def handle_admin_text(bot, message: types.Message) -> bool:
     uid  = message.from_user.id
@@ -220,15 +329,24 @@ def handle_admin_text(bot, message: types.Message) -> bool:
 
     lang = get_lang(uid)
 
-    # ── لغو در هر جایی (هر دو زبان) ───────────────────────────────────
+    
     if text in (T["btn_cancel"]["fa"], T["btn_cancel"]["en"]):
         admin_sessions.pop(uid, None)
         bot.send_message(message.chat.id, tr("cancelled", lang), reply_markup=admin_keyboard(lang))
         return True
 
-    # ── دکمه‌های منوی اصلی ادمین (هر دو زبان) ─────────────────────────
+    if text in (T["btn_back"]["fa"], T["btn_back"]["en"]):
+        admin_sessions.pop(uid, None)
+        bot.send_message(message.chat.id, tr("panel_title", lang), reply_markup=admin_keyboard(lang))
+        return True
+
     if text in (T["btn_add"]["fa"], T["btn_add"]["en"]):
         _start_add(bot, message, lang)
+        return True
+
+    if text in (T["btn_edit"]["fa"], T["btn_edit"]["en"]):
+        admin_sessions[uid] = {"step": "wait_edit_id"}
+        bot.send_message(message.chat.id, tr("ask_book_id_edit", lang), reply_markup=cancel_keyboard(lang))
         return True
 
     if text in (T["btn_list"]["fa"], T["btn_list"]["en"]):
@@ -248,24 +366,42 @@ def handle_admin_text(bot, message: types.Message) -> bool:
         _show_stats(bot, message, lang)
         return True
 
+    if text in (T["btn_admins"]["fa"], T["btn_admins"]["en"]):
+        admin_sessions.pop(uid, None)
+        bot.send_message(message.chat.id, tr("admins_menu_title", lang), reply_markup=admins_menu_keyboard(lang))
+        return True
+
+    if text in (T["btn_admin_add"]["fa"], T["btn_admin_add"]["en"]):
+        admin_sessions[uid] = {"step": "wait_new_admin_id"}
+        bot.send_message(message.chat.id, tr("ask_new_admin_id", lang), reply_markup=cancel_keyboard(lang))
+        return True
+
+    if text in (T["btn_admin_remove"]["fa"], T["btn_admin_remove"]["en"]):
+        admin_sessions[uid] = {"step": "wait_remove_admin_id"}
+        bot.send_message(message.chat.id, tr("ask_remove_admin_id", lang), reply_markup=cancel_keyboard(lang))
+        return True
+
+    if text in (T["btn_admin_list"]["fa"], T["btn_admin_list"]["en"]):
+        _show_admins(bot, message, lang)
+        return True
+
     if text in (T["btn_exit"]["fa"], T["btn_exit"]["en"]):
         admin_sessions.pop(uid, None)
-        return False   # به bot.py میگیم کیبورد اصلی رو نشون بده
+        return False   
 
-    # ── مراحل جاری session ──────────────────────────────────────────
     if uid not in admin_sessions:
         return False
 
     step = admin_sessions[uid].get("step", "")
 
-    # --- مرحله عنوان
+    # Title
     if step == "wait_title":
         admin_sessions[uid]["data"]["title"] = text
         admin_sessions[uid]["step"] = "wait_author"
         bot.send_message(message.chat.id, tr("ask_author", lang), reply_markup=cancel_keyboard(lang))
         return True
 
-    # --- مرحله نویسنده
+    # Author
     if step == "wait_author":
         admin_sessions[uid]["data"]["author"] = text
         admin_sessions[uid]["step"] = "wait_language"
@@ -273,7 +409,7 @@ def handle_admin_text(bot, message: types.Message) -> bool:
         bot.send_message(message.chat.id, "👇", reply_markup=lang_keyboard())
         return True
 
-    # --- مرحله سال (زبان و فیلد از callback میان)
+    # Callback
     if step == "wait_year":
         if text == tr("btn_skip", lang):
             admin_sessions[uid]["data"]["year"] = None
@@ -291,7 +427,7 @@ def handle_admin_text(bot, message: types.Message) -> bool:
         )
         return True
 
-    # --- مرحله ویرایش
+    # Edition
     if step == "wait_edition":
         admin_sessions[uid]["data"]["edition"] = "" if text == tr("btn_skip", lang) else text
         admin_sessions[uid]["step"] = "wait_desc"
@@ -302,7 +438,7 @@ def handle_admin_text(bot, message: types.Message) -> bool:
         )
         return True
 
-    # --- مرحله توضیحات
+    # Descrption / Comment
     if step == "wait_desc":
         admin_sessions[uid]["data"]["description"] = "" if text == tr("btn_skip", lang) else text
         admin_sessions[uid]["step"] = "confirm"
@@ -310,34 +446,111 @@ def handle_admin_text(bot, message: types.Message) -> bool:
         bot.send_message(
             message.chat.id,
             summary_text(data, lang),
-            reply_markup=admin_keyboard(lang)   # کیبورد عادی ادمین، تأیید از inline
+            reply_markup=admin_keyboard(lang)   
         )
         bot.send_message(message.chat.id, tr("confirm_question", lang), reply_markup=confirm_keyboard(lang))
         return True
 
-    # --- مرحله حذف کتاب
+    # Delete Book
     if step == "wait_delete_id":
-        try:
-            book_id = int(text)
-        except ValueError:
-            bot.send_message(message.chat.id, tr("not_a_number", lang))
-            return True
-        book = database.get_book(book_id)
+        book = _resolve_book(text)
         if not book:
-            bot.send_message(message.chat.id, tr("book_not_found", lang, id=book_id))
+            bot.send_message(message.chat.id, tr("book_not_found", lang, id=text))
         else:
-            database.delete_book(book_id)
-            bot.send_message(message.chat.id, tr("book_deleted", lang, title=book["title"]))
+            disp = _disp(book)
+            database.delete_book(book["id"])
+            bot.send_message(message.chat.id, tr("book_deleted", lang, title=book["title"], disp=disp))
         admin_sessions.pop(uid, None)
         bot.send_message(message.chat.id, tr("back_to_panel", lang), reply_markup=admin_keyboard(lang))
+        return True
+
+    if step == "wait_edit_id":
+        book = _resolve_book(text)
+        if not book:
+            bot.send_message(message.chat.id, tr("book_not_found", lang, id=text))
+            admin_sessions.pop(uid, None)
+            bot.send_message(message.chat.id, tr("back_to_panel", lang), reply_markup=admin_keyboard(lang))
+            return True
+        admin_sessions[uid] = {"step": "edit_choose_field", "book_id": book["id"]}
+        bot.send_message(
+            message.chat.id,
+            tr("edit_found", lang, summary=_book_summary_text(book, lang)),
+            reply_markup=admin_keyboard(lang)
+        )
+        bot.send_message(message.chat.id, "👇", reply_markup=edit_field_keyboard(lang))
+        return True
+
+    if step == "wait_edit_value":
+        field = admin_sessions[uid]["edit_field"]
+        book_id = admin_sessions[uid]["book_id"]
+        value: object = text
+
+        if field == "year":
+            if text == tr("btn_skip", lang):
+                value = None
+            else:
+                try:
+                    value = int(text)
+                except ValueError:
+                    bot.send_message(message.chat.id, tr("year_not_number", lang))
+                    return True
+
+        database.update_book(book_id, **{field: value})
+        book = database.get_book(book_id)
+        admin_sessions.pop(uid, None)
+        bot.send_message(
+            message.chat.id,
+            tr("edit_saved", lang, disp=_disp(book)),
+            reply_markup=admin_keyboard(lang)
+        )
+        return True
+
+    # new admin
+    if step == "wait_new_admin_id":
+        if not text.isdigit():
+            bot.send_message(message.chat.id, tr("not_a_number", lang))
+            return True
+        _add_admin(bot, message.chat.id, int(text), lang)
+        admin_sessions.pop(uid, None)
+        bot.send_message(message.chat.id, tr("admins_menu_title", lang), reply_markup=admins_menu_keyboard(lang))
+        return True
+
+    # delete admin
+    if step == "wait_remove_admin_id":
+        if not text.isdigit():
+            bot.send_message(message.chat.id, tr("not_a_number", lang))
+            return True
+        target_id = int(text)
+        if target_id == uid:
+            bot.send_message(message.chat.id, tr("cannot_remove_self", lang))
+        else:
+            database.set_admin(target_id, False)
+            bot.send_message(message.chat.id, tr("admin_removed", lang, id=target_id))
+        admin_sessions.pop(uid, None)
+        bot.send_message(message.chat.id, tr("admins_menu_title", lang), reply_markup=admins_menu_keyboard(lang))
         return True
 
     return False
 
 
-# ─────────────────────────────
-# هندلر فایل PDF
-# ─────────────────────────────
+def handle_admin_forward(bot, message: types.Message) -> bool:
+    uid = message.from_user.id
+    if not is_admin(uid):
+        return False
+    if uid not in admin_sessions or admin_sessions[uid].get("step") != "wait_new_admin_id":
+        return False
+    if not message.forward_from:
+        return False  
+
+    lang = get_lang(uid)
+    target_id = message.forward_from.id
+    _add_admin(bot, message.chat.id, target_id, lang)
+    admin_sessions.pop(uid, None)
+    bot.send_message(message.chat.id, tr("admins_menu_title", lang), reply_markup=admins_menu_keyboard(lang))
+    return True
+
+
+# PDF Handler
 
 def handle_admin_document(bot, message: types.Message) -> bool:
     uid = message.from_user.id
@@ -367,9 +580,7 @@ def handle_admin_document(bot, message: types.Message) -> bool:
     return True
 
 
-# ─────────────────────────────
-# هندلر callback های ادمین
-# ─────────────────────────────
+# admin callback handler
 
 def handle_admin_callback(bot, callback: types.CallbackQuery) -> bool:
     uid  = callback.from_user.id
@@ -380,13 +591,13 @@ def handle_admin_callback(bot, callback: types.CallbackQuery) -> bool:
 
     lang = get_lang(uid)
 
-    # دکمه شیشه‌ای ورود سریع به پنل از منوی اصلی
+    
     if data == "adm_open_panel":
         bot.answer_callback_query(callback.id)
         open_panel(bot, callback.message.chat.id, uid)
         return True
 
-    # انتخاب زبان کتاب
+    
     if data.startswith("adm_lang:"):
         if uid not in admin_sessions or admin_sessions[uid].get("step") != "wait_language":
             bot.answer_callback_query(callback.id, tr("wrong_step", lang))
@@ -399,7 +610,7 @@ def handle_admin_callback(bot, callback: types.CallbackQuery) -> bool:
         bot.send_message(callback.message.chat.id, "👇", reply_markup=field_keyboard(lang))
         return True
 
-    # انتخاب فیلد
+    
     if data.startswith("adm_field:"):
         if uid not in admin_sessions or admin_sessions[uid].get("step") != "wait_field":
             bot.answer_callback_query(callback.id, tr("wrong_step", lang))
@@ -415,7 +626,7 @@ def handle_admin_callback(bot, callback: types.CallbackQuery) -> bool:
         )
         return True
 
-    # تأیید نهایی
+
     if data.startswith("adm_confirm:"):
         if uid not in admin_sessions or admin_sessions[uid].get("step") != "confirm":
             bot.answer_callback_query(callback.id, tr("wrong_step", lang))
@@ -431,7 +642,7 @@ def handle_admin_callback(bot, callback: types.CallbackQuery) -> bool:
 
         d = admin_sessions[uid]["data"]
 
-        # چک کن همه فیلدهای اجباری هستن
+        
         required = ["file_id", "title", "author", "language", "physics_field"]
         missing  = [k for k in required if not d.get(k)]
         if missing:
@@ -457,9 +668,10 @@ def handle_admin_callback(bot, callback: types.CallbackQuery) -> bool:
                 year         = d.get("year"),
                 added_by     = uid,
             )
+            book = database.get_book(book_id)
             bot.send_message(
                 callback.message.chat.id,
-                tr("saved_ok", lang, id=book_id, title=d["title"]),
+                tr("saved_ok", lang, disp=_disp(book), title=d["title"]),
                 reply_markup=admin_keyboard(lang)
             )
         except Exception as e:
@@ -472,12 +684,47 @@ def handle_admin_callback(bot, callback: types.CallbackQuery) -> bool:
             admin_sessions.pop(uid, None)
         return True
 
+    
+    if data.startswith("adm_editfield:"):
+        if uid not in admin_sessions or admin_sessions[uid].get("step") != "edit_choose_field":
+            bot.answer_callback_query(callback.id, tr("wrong_step", lang))
+            return True
+        field = data.split(":", 1)[1]
+        bot.answer_callback_query(callback.id)
+
+        if field == "physics_field":
+            admin_sessions[uid]["step"] = "wait_edit_new_field"
+            bot.send_message(callback.message.chat.id, tr("ask_field", lang), reply_markup=cancel_keyboard(lang))
+            bot.send_message(callback.message.chat.id, "👇", reply_markup=field_keyboard(lang, prefix="adm_editfieldval"))
+            return True
+
+        admin_sessions[uid]["step"] = "wait_edit_value"
+        admin_sessions[uid]["edit_field"] = field
+        kb = skip_cancel_keyboard(lang) if field == "year" else cancel_keyboard(lang)
+        bot.send_message(callback.message.chat.id, tr("ask_new_value", lang), reply_markup=kb)
+        return True
+
+    
+    if data.startswith("adm_editfieldval:"):
+        if uid not in admin_sessions or admin_sessions[uid].get("step") != "wait_edit_new_field":
+            bot.answer_callback_query(callback.id, tr("wrong_step", lang))
+            return True
+        new_field = data.split(":", 1)[1]
+        book_id = admin_sessions[uid]["book_id"]
+        database.update_book(book_id, physics_field=new_field)
+        book = database.get_book(book_id)
+        bot.answer_callback_query(callback.id, "✅")
+        admin_sessions.pop(uid, None)
+        bot.send_message(
+            callback.message.chat.id,
+            tr("edit_saved", lang, disp=_disp(book)),
+            reply_markup=admin_keyboard(lang)
+        )
+        return True
+
     return False
 
-
-# ─────────────────────────────
-# توابع کمکی داخلی
-# ─────────────────────────────
+# more functions
 
 def _start_add(bot, message: types.Message, lang: str):
     uid = message.from_user.id
@@ -496,7 +743,7 @@ def _show_list(bot, message: types.Message, lang: str):
         return
     lines = [tr("list_header", lang)]
     for b in rows:
-        lines.append(f"#{b['id']} — {b['title']} | {b['author']} | ⬇️{b['download_count']}")
+        lines.append(f"{_disp(b)} — {b['title']} | {b['author']} | ⬇️{b['download_count']}")
     bot.send_message(message.chat.id, "\n".join(lines), reply_markup=admin_keyboard(lang))
 
 
@@ -522,3 +769,15 @@ def _show_stats(bot, message: types.Message, lang: str):
             f"🧲 Active Fields: {s['unique_fields']}"
         )
     bot.send_message(message.chat.id, text, reply_markup=admin_keyboard(lang))
+
+
+def _show_admins(bot, message: types.Message, lang: str):
+    rows = database.list_admins()
+    if not rows:
+        bot.send_message(message.chat.id, tr("no_admins", lang), reply_markup=admins_menu_keyboard(lang))
+        return
+    lines = [tr("admins_list_header", lang)]
+    for a in rows:
+        name = a["first_name"] or a["username"] or "-"
+        lines.append(f"🆔 {a['user_id']} — {name}")
+    bot.send_message(message.chat.id, "\n".join(lines), reply_markup=admins_menu_keyboard(lang))
