@@ -97,6 +97,7 @@ TEXTS = {
 }
 
 # Main Buttons
+
 BTN = {
     "books":   {"fa": "📚 همه کتاب‌ها",    "en": "📚 All Books"},
     "search":  {"fa": "🔍 جستجو",          "en": "🔍 Search"},
@@ -232,6 +233,7 @@ def forward_handler(message: types.Message):
 
 
 # admin callback
+
 @bot.callback_query_handler(func=lambda c: c.data.startswith("adm_"))
 def admin_callback(callback: types.CallbackQuery):
     admin.handle_admin_callback(bot, callback)
@@ -404,7 +406,7 @@ def send_book_list(chat_id: int, user: types.User, rows, header_key: str):
     markup = types.InlineKeyboardMarkup()
     for book in rows:
         disp = database.get_display_id(book)
-        edition_part = f" [{book['edition']}]" if book['edition'] else ""
+        edition_part = f" [{book['edition']}]" if book["edition"] and book["edition"].strip() else ""
         label = f"{disp} — {book['title'][:35]}{edition_part}"
         markup.add(types.InlineKeyboardButton(label, callback_data=f"bookinfo:{book['id']}"))
 
@@ -412,6 +414,7 @@ def send_book_list(chat_id: int, user: types.User, rows, header_key: str):
 
 
 # Book Card
+
 def send_book_card(chat_id: int, user: types.User, book):
     lang = get_lang(user)
     field_fa, field_en = database.PHYSICS_FIELDS.get(
@@ -474,9 +477,13 @@ def download(callback: types.CallbackQuery):
     field = field_fa if lang == "fa" else field_en
     lang_label = "فارسی" if book["language"] == "fa" else "English"
     disp = database.get_display_id(book)
-    edition_line = f"\n🔖 {book['edition']}" if book.get("edition") else ""
-    year_line    = f"\n📅 {book['year']}"    if book.get("year")    else ""
-    desc_line    = f"\n📝 {book['description']}" if book.get("description") else ""
+    edition_val = book["edition"] if book["edition"] else ""
+    year_val    = book["year"]    if book["year"]    else ""
+    desc_val    = book["description"] if book["description"] else ""
+
+    edition_line = f"\n📖 {edition_val}" if edition_val else ""
+    year_line    = f"\n📅 {year_val}"    if year_val    else ""
+    desc_line    = f"\n📝 {desc_val}"    if desc_val    else ""
 
     caption = (
         f"📘 {book['title']}{edition_line}\n"

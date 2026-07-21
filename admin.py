@@ -14,9 +14,9 @@ admin_sessions: dict[int, dict] = {}
 
 DEFAULT_LANG = "fa"
 
-# ── Backup / Restore state ──────────────────────────────────────────────────
-_backup_restore_lock = threading.Lock()   
-_restore_sessions: dict[int, dict] = {}  
+# Backup / Restore state 
+_backup_restore_lock = threading.Lock()  
+_restore_sessions: dict[int, dict] = {} 
 RESTORE_TIMEOUT = 600                     
 
 
@@ -30,6 +30,7 @@ def get_lang(user_id: int) -> str:
 
 
 # Bilingual Texts
+
 T = {
     "no_access":       {"fa": "⛔️ دسترسی ندارید.",                              "en": "⛔️ You don't have access."},
     "panel_title":      {"fa": "👨‍💼 پنل ادمین\nیکی از گزینه‌ها رو انتخاب کن:",   "en": "👨‍💼 Admin Panel\nChoose an option:"},
@@ -68,6 +69,7 @@ T = {
     "lang_en":          {"fa": "انگلیسی",                                   "en": "English"},
 
     # Main Panel Buttons
+
     "btn_add":          {"fa": "➕ افزودن کتاب",           "en": "➕ Add Book"},
     "btn_edit":         {"fa": "✏️ ویرایش کتاب",           "en": "✏️ Edit Book"},
     "btn_list":         {"fa": "📋 لیست کتاب‌ها",          "en": "📋 Book List"},
@@ -81,6 +83,7 @@ T = {
     "btn_confirm_no":   {"fa": "❌ لغو",                    "en": "❌ Cancel"},
 
     # Admin Management
+
     "btn_admin_add":    {"fa": "➕ افزودن ادمین",          "en": "➕ Add Admin"},
     "btn_admin_list":   {"fa": "📋 لیست ادمین‌ها",         "en": "📋 Admins"},
     "btn_admin_remove": {"fa": "➖ حذف ادمین",             "en": "➖ Remove Admin"},
@@ -101,6 +104,7 @@ T = {
     "no_admins":        {"fa": "📭 هیچ ادمینی ثبت نشده (این عجیبه!).",           "en": "📭 No admins found (that's odd!)."},
 
     # Edit Books
+
     "edit_found":       {"fa": "کتاب پیدا شد:\n\n{summary}\n\nکدوم فیلد رو می‌خوای ویرایش کنی؟",
                           "en": "Book found:\n\n{summary}\n\nWhich field do you want to edit?"},
     "edit_field_title":    {"fa": "📘 عنوان",   "en": "📘 Title"},
@@ -113,6 +117,7 @@ T = {
     "edit_saved":       {"fa": "✅ کتاب {disp} به‌روزرسانی شد.",                 "en": "✅ Book {disp} updated."},
 
     # Summary
+
     "summary_title":    {"fa": "📋 خلاصه اطلاعات کتاب:\n",  "en": "📋 Book Summary:\n"},
     "summary_book":     {"fa": "📘 عنوان: {v}",  "en": "📘 Title: {v}"},
     "summary_author":   {"fa": "✍ نویسنده: {v}", "en": "✍ Author: {v}"},
@@ -124,9 +129,11 @@ T = {
     "summary_file":     {"fa": "📁 فایل: {v}",    "en": "📁 File: {v}"},
 
     # admin panel button
+
     "open_panel_btn":   {"fa": "پنل ادمین", "en": "Admin Panel"},
 
     # Backup / Restore
+
     "backup_sending":   {"fa": "⏳ در حال ارسال بکاپ...",          "en": "⏳ Sending backup..."},
     "backup_caption":   {"fa": "💾 بکاپ دیتابیس — {time}",        "en": "💾 Database backup — {time}"},
     "backup_error":     {"fa": "❌ خطا در بکاپ: {err}",            "en": "❌ Backup error: {err}"},
@@ -442,7 +449,7 @@ def handle_backup_command(bot, message: types.Message):
         return
     try:
         bot.send_message(message.chat.id, tr("backup_sending", lang))
-        # ارسال برای همه ادمین‌ها (شامل خود فرستنده)
+        # Send to all Admins
         time_str = datetime.now().strftime("%Y-%m-%d %H:%M")
         tmp_path = broadcast_backup_to_admins(bot, "backup_caption", time=time_str)
         if tmp_path:
@@ -502,7 +509,7 @@ def _do_restore(bot, initiator_uid: int, tmp_db_path: str, emergency_path: str):
         except Exception as rb_err:
             logging.error("_do_restore: rollback failed: %s", rb_err)
             bot.send_message(initiator_uid, tr("restore_rollback_failed", lang, err=rb_err))
-            # emergency_path 
+            # emergency_path
             return
         try:
             os.unlink(tmp_db_path)
@@ -519,7 +526,7 @@ def handle_restore_command(bot, message: types.Message):
     if not _backup_restore_lock.acquire(blocking=False):
         bot.send_message(message.chat.id, tr("backup_busy", lang))
         return
-    # lock 
+    # lock
     _restore_sessions[uid] = {
         "step": "wait_file",
         "expire": datetime.now().timestamp() + RESTORE_TIMEOUT,
@@ -539,6 +546,7 @@ def handle_cancel_command(bot, message: types.Message):
         bot.send_message(message.chat.id, tr("restore_no_session", lang))
         return
     sess = _restore_sessions.pop(uid)
+    # Delete Temporary files
     for key in ("emergency_path", "tmp_db_path"):
         p = sess.get(key)
         if p:
@@ -558,7 +566,7 @@ def handle_restore_document(bot, message: types.Message) -> bool:
     if sess.get("step") != "wait_file":
         return False
 
-    # بررسی تایم‌اوت
+    # Check Time-out
     if datetime.now().timestamp() > sess["expire"]:
         _restore_sessions.pop(uid)
         _backup_restore_lock.release()
@@ -571,7 +579,7 @@ def handle_restore_document(bot, message: types.Message) -> bool:
         bot.send_message(message.chat.id, tr("restore_bad_file", lang))
         return True
 
-    # دانلود فایل به temp
+    # download file to temp
     try:
         file_info = bot.get_file(doc.file_id)
         downloaded = bot.download_file(file_info.file_path)
@@ -591,7 +599,7 @@ def handle_restore_document(bot, message: types.Message) -> bool:
         bot.send_message(message.chat.id, tr("restore_invalid", lang))
         return True
 
-    # بکاپ اضطراری
+    # Emergency Backup
     time_str = datetime.now().strftime("%Y-%m-%d %H:%M")
     emergency_tmp = broadcast_backup_to_admins(
         bot, "emergency_caption", time=time_str
@@ -631,7 +639,7 @@ def handle_restore_confirm_text(bot, message: types.Message) -> bool:
     if sess.get("step") != "wait_confirm":
         return False
 
-    # بررسی تایم‌اوت
+    
     if datetime.now().timestamp() > sess["expire"]:
         _restore_sessions.pop(uid)
         _backup_restore_lock.release()
@@ -642,7 +650,7 @@ def handle_restore_confirm_text(bot, message: types.Message) -> bool:
     lang = get_lang(uid)
 
     if text != "CONFIRM RESTORE":
-        # Cancel Unvalide
+        # Cancel all except CONFIRM RESTORE
         _restore_sessions.pop(uid)
         for key in ("emergency_path", "tmp_db_path"):
             p = sess.get(key)
@@ -655,7 +663,7 @@ def handle_restore_confirm_text(bot, message: types.Message) -> bool:
         bot.send_message(message.chat.id, tr("restore_cancelled", lang))
         return True
 
-    # Restore
+    # Run Restore
     tmp_db_path = sess.pop("tmp_db_path", None)
     emergency_path = sess.pop("emergency_path", None)
     _restore_sessions.pop(uid)
@@ -672,7 +680,7 @@ def handle_admin_text(bot, message: types.Message) -> bool:
     if not is_admin(uid):
         return False
 
-    # CONFIRM RESTORE
+    
     if handle_restore_confirm_text(bot, message):
         return True
 
@@ -905,6 +913,7 @@ def handle_admin_document(bot, message: types.Message) -> bool:
     uid = message.from_user.id
     if not is_admin(uid):
         return False
+    # ابتدا restore session را بررسی می‌کنیم
     if handle_restore_document(bot, message):
         return True
     if uid not in admin_sessions:
@@ -1094,7 +1103,7 @@ def _show_list(bot, message: types.Message, lang: str):
         return
     lines = [tr("list_header", lang)]
     for b in rows:
-        edition_part = f" [{b['edition']}]" if b['edition'] else ""
+        edition_part = f" [{b['edition']}]" if b["edition"] and b["edition"].strip() else ""
         lines.append(f"{_disp(b)} — {b['title']}{edition_part} | {b['author']} | ⬇️{b['download_count']}")
     bot.send_message(message.chat.id, "\n".join(lines), reply_markup=admin_keyboard(lang))
 
