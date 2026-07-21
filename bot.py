@@ -97,7 +97,6 @@ TEXTS = {
 }
 
 # Main Buttons
-
 BTN = {
     "books":   {"fa": "📚 همه کتاب‌ها",    "en": "📚 All Books"},
     "search":  {"fa": "🔍 جستجو",          "en": "🔍 Search"},
@@ -405,7 +404,8 @@ def send_book_list(chat_id: int, user: types.User, rows, header_key: str):
     markup = types.InlineKeyboardMarkup()
     for book in rows:
         disp = database.get_display_id(book)
-        label = f"{disp} — {book['title'][:40]}"
+        edition_part = f" [{book['edition']}]" if book['edition'] else ""
+        label = f"{disp} — {book['title'][:35]}{edition_part}"
         markup.add(types.InlineKeyboardButton(label, callback_data=f"bookinfo:{book['id']}"))
 
     bot.send_message(chat_id, header, reply_markup=markup)
@@ -467,10 +467,32 @@ def download(callback: types.CallbackQuery):
         bot.answer_callback_query(callback.id, t(user, "book_missing"))
         return
 
+    lang = get_lang(user)
+    field_fa, field_en = database.PHYSICS_FIELDS.get(
+        book["physics_field"], ("نامشخص", "Unknown")
+    )
+    field = field_fa if lang == "fa" else field_en
+    lang_label = "فارسی" if book["language"] == "fa" else "English"
+    disp = database.get_display_id(book)
+    edition_line = f"\n🔖 {book['edition']}" if book.get("edition") else ""
+    year_line    = f"\n📅 {book['year']}"    if book.get("year")    else ""
+    desc_line    = f"\n📝 {book['description']}" if book.get("description") else ""
+
+    caption = (
+        f"📘 {book['title']}{edition_line}\n"
+        f"✍ {book['author']}\n"
+        f"🌐 {lang_label}\n"
+        f"🧲 {field}\n"
+        f"🔖 {disp}\n"
+        f"⬇️ {book['download_count']}"
+        f"{year_line}"
+        f"{desc_line}\n\n"
+        f"@PhysisLib_Bot"
+    )
     bot.send_document(
         callback.message.chat.id,
         book["file_id"],
-        caption=f"📘 {book['title']}"
+        caption=caption
     )
     database.record_download(book_id, user.id)
     bot.answer_callback_query(callback.id, t(user, "downloaded"))

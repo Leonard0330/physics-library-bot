@@ -1,6 +1,4 @@
-"""
-admin.py / Admin's Panel
-"""
+"""admin.py / Admin's Panel"""
 
 import os
 import sqlite3
@@ -17,9 +15,9 @@ admin_sessions: dict[int, dict] = {}
 DEFAULT_LANG = "fa"
 
 # ── Backup / Restore state ──────────────────────────────────────────────────
-_backup_restore_lock = threading.Lock()   # فقط یک عملیات هم‌زمان
-_restore_sessions: dict[int, dict] = {}  # uid → {expire, emergency_path}
-RESTORE_TIMEOUT = 600                     # ثانیه (۱۰ دقیقه)
+_backup_restore_lock = threading.Lock()   
+_restore_sessions: dict[int, dict] = {}  
+RESTORE_TIMEOUT = 600                     
 
 
 def is_admin(user_id: int) -> bool:
@@ -234,8 +232,8 @@ def skip_cancel_keyboard(lang: str) -> types.ReplyKeyboardMarkup:
 def lang_keyboard() -> types.InlineKeyboardMarkup:
     markup = types.InlineKeyboardMarkup()
     markup.row(
-        types.InlineKeyboardButton("🇮🇷 فارسی", callback_data="adm_lang:fa"),
-        types.InlineKeyboardButton("🇬🇧 English", callback_data="adm_lang:en"),
+        types.InlineKeyboardButton("فارسی", callback_data="adm_lang:fa"),
+        types.InlineKeyboardButton("English", callback_data="adm_lang:en"),
     )
     return markup
 
@@ -285,7 +283,7 @@ def open_panel_markup(lang: str) -> types.InlineKeyboardMarkup:
     return markup
 
 
-# خلاصه کتاب
+# Book Summary
 
 def summary_text(data: dict, lang: str) -> str:
     field_fa, field_en = database.PHYSICS_FIELDS.get(
@@ -370,13 +368,9 @@ def _add_admin(bot, chat_id: int, target_id: int, lang: str):
     key = "admin_already" if was_admin else "admin_added"
     bot.send_message(chat_id, tr(key, lang, id=target_id))
 
-# ── Backup helpers ────────────────────────────────────────────────────────
+# Backup helpers
 
 def _make_backup_file(suffix: str = "") -> str:
-    """
-    یک فایل بکاپ SQLite معتبر می‌سازد (Online Backup API) و مسیرش را برمی‌گرداند.
-    فراخوان‌دهنده مسئول پاک‌کردن فایل موقت است.
-    """
     db_path = database.DB_PATH
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     fname = f"physics_library_backup_{timestamp}{suffix}.db"
@@ -396,7 +390,6 @@ def _make_backup_file(suffix: str = "") -> str:
 
 
 def send_db_backup(bot, chat_id: int, lang: str, caption: str | None = None) -> bool:
-    """بکاپ می‌سازد، ارسال می‌کند و فایل موقت را پاک می‌کند. True در موفقیت."""
     if caption is None:
         caption = tr("backup_caption", lang, time=datetime.now().strftime("%Y-%m-%d %H:%M"))
     try:
@@ -419,11 +412,6 @@ def send_db_backup(bot, chat_id: int, lang: str, caption: str | None = None) -> 
 
 
 def broadcast_backup_to_admins(bot, caption_key: str, **caption_kwargs) -> str | None:
-    """
-    بکاپ را یک بار می‌سازد و برای همه ادمین‌ها ارسال می‌کند.
-    شکست ارسال به یک ادمین، بقیه را متوقف نمی‌کند.
-    مسیر فایل موقت را برمی‌گرداند (پاک‌سازی بر عهده فراخوان‌دهنده).
-    """
     try:
         tmp_path, fname = _make_backup_file()
     except Exception as e:
@@ -466,10 +454,9 @@ def handle_backup_command(bot, message: types.Message):
         _backup_restore_lock.release()
 
 
-# ── Restore helpers ───────────────────────────────────────────────────────
+# Restore helpers
 
 def _validate_restore_db(path: str) -> bool:
-    """فایل را بررسی می‌کند: SQLite معتبر و دارای جداول اصلی پروژه."""
     required_tables = {"books", "users", "download_logs"}
     try:
         conn = sqlite3.connect(path)
@@ -483,12 +470,6 @@ def _validate_restore_db(path: str) -> bool:
 
 
 def _do_restore(bot, initiator_uid: int, tmp_db_path: str, emergency_path: str):
-    """
-    ریستور واقعی را انجام می‌دهد.
-    در موفقیت emergency_path را پاک می‌کند.
-    در شکست، rollback می‌کند.
-    در شکست rollback، emergency_path را نگه می‌دارد.
-    """
     lang = get_lang(initiator_uid)
     db_path = database.DB_PATH
     try:
@@ -521,7 +502,7 @@ def _do_restore(bot, initiator_uid: int, tmp_db_path: str, emergency_path: str):
         except Exception as rb_err:
             logging.error("_do_restore: rollback failed: %s", rb_err)
             bot.send_message(initiator_uid, tr("restore_rollback_failed", lang, err=rb_err))
-            # emergency_path را نگه می‌داریم — نپاک می‌کنیم
+            # emergency_path 
             return
         try:
             os.unlink(tmp_db_path)
@@ -538,7 +519,7 @@ def handle_restore_command(bot, message: types.Message):
     if not _backup_restore_lock.acquire(blocking=False):
         bot.send_message(message.chat.id, tr("backup_busy", lang))
         return
-    # lock را نگه می‌داریم تا پایان کل فرآیند (ارسال فایل → تأیید → اجرا)
+    # lock 
     _restore_sessions[uid] = {
         "step": "wait_file",
         "expire": datetime.now().timestamp() + RESTORE_TIMEOUT,
@@ -558,7 +539,6 @@ def handle_cancel_command(bot, message: types.Message):
         bot.send_message(message.chat.id, tr("restore_no_session", lang))
         return
     sess = _restore_sessions.pop(uid)
-    # پاک‌کردن فایل‌های موقت
     for key in ("emergency_path", "tmp_db_path"):
         p = sess.get(key)
         if p:
@@ -571,11 +551,6 @@ def handle_cancel_command(bot, message: types.Message):
 
 
 def handle_restore_document(bot, message: types.Message) -> bool:
-    """
-    وقتی ادمین‌ای در مرحله wait_file است و یک فایل ارسال می‌کند.
-    در handle_admin_document فراخوانی می‌شود (قبل از چک PDF).
-    True برمی‌گرداند اگر پیام را مصرف کرده باشد.
-    """
     uid = message.from_user.id
     if uid not in _restore_sessions:
         return False
@@ -649,10 +624,6 @@ def handle_restore_document(bot, message: types.Message) -> bool:
 
 
 def handle_restore_confirm_text(bot, message: types.Message) -> bool:
-    """
-    در handle_admin_text فراخوانی می‌شود تا CONFIRM RESTORE را بررسی کند.
-    True برمی‌گرداند اگر پیام را مصرف کرده باشد.
-    """
     uid = message.from_user.id
     if uid not in _restore_sessions:
         return False
@@ -671,7 +642,7 @@ def handle_restore_confirm_text(bot, message: types.Message) -> bool:
     lang = get_lang(uid)
 
     if text != "CONFIRM RESTORE":
-        # لغو — هر چیزی غیر از عبارت دقیق
+        # Cancel Unvalide
         _restore_sessions.pop(uid)
         for key in ("emergency_path", "tmp_db_path"):
             p = sess.get(key)
@@ -684,7 +655,7 @@ def handle_restore_confirm_text(bot, message: types.Message) -> bool:
         bot.send_message(message.chat.id, tr("restore_cancelled", lang))
         return True
 
-    # اجرای ریستور
+    # Restore
     tmp_db_path = sess.pop("tmp_db_path", None)
     emergency_path = sess.pop("emergency_path", None)
     _restore_sessions.pop(uid)
@@ -701,7 +672,7 @@ def handle_admin_text(bot, message: types.Message) -> bool:
     if not is_admin(uid):
         return False
 
-    # بررسی تأیید ریستور (CONFIRM RESTORE یا لغو ضمنی)
+    # CONFIRM RESTORE
     if handle_restore_confirm_text(bot, message):
         return True
 
@@ -934,7 +905,6 @@ def handle_admin_document(bot, message: types.Message) -> bool:
     uid = message.from_user.id
     if not is_admin(uid):
         return False
-    # ابتدا restore session را بررسی می‌کنیم
     if handle_restore_document(bot, message):
         return True
     if uid not in admin_sessions:
@@ -1124,7 +1094,8 @@ def _show_list(bot, message: types.Message, lang: str):
         return
     lines = [tr("list_header", lang)]
     for b in rows:
-        lines.append(f"{_disp(b)} — {b['title']} | {b['author']} | ⬇️{b['download_count']}")
+        edition_part = f" [{b['edition']}]" if b['edition'] else ""
+        lines.append(f"{_disp(b)} — {b['title']}{edition_part} | {b['author']} | ⬇️{b['download_count']}")
     bot.send_message(message.chat.id, "\n".join(lines), reply_markup=admin_keyboard(lang))
 
 
@@ -1135,8 +1106,8 @@ def _show_stats(bot, message: types.Message, lang: str):
         text = (
             f"{header}\n\n"
             f"📚 کل کتاب‌ها: {s['total_books']}\n"
-            f"🇮🇷 فارسی: {s['fa_books']}\n"
-            f"🇬🇧 انگلیسی: {s['en_books']}\n"
+            f"فارسی: {s['fa_books']}\n"
+            f"انگلیسی: {s['en_books']}\n"
             f"⬇️ کل دانلودها: {s['total_downloads']}\n"
             f"🧲 فیلدهای فعال: {s['unique_fields']}"
         )
@@ -1144,8 +1115,8 @@ def _show_stats(bot, message: types.Message, lang: str):
         text = (
             f"{header}\n\n"
             f"📚 Total Books: {s['total_books']}\n"
-            f"🇮🇷 Persian: {s['fa_books']}\n"
-            f"🇬🇧 English: {s['en_books']}\n"
+            f"Persian: {s['fa_books']}\n"
+            f"English: {s['en_books']}\n"
             f"⬇️ Total Downloads: {s['total_downloads']}\n"
             f"🧲 Active Fields: {s['unique_fields']}"
         )
