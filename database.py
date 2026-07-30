@@ -8,47 +8,52 @@ from typing import Optional
 DB_PATH = os.getenv("DB_PATH", "physics_library.db")
 
 
-# Physics Fields
-PHYSICS_FIELDS = {
-    "classical_mechanics":        ("مکانیک کلاسیک", "Classical Mechanics"),
-    "electromagnetism":           ("الکترومغناطیس", "Electromagnetism"),
-    "modern_physics":             ("فیزیک مدرن", "Modern Physics"),
-    "general_physics":            ("فیزیک پایه", "General Physics"),
-    "quantum_mechanics":          ("مکانیک کوانتومی (و نظریه میدان)", "Quantum Mechanics (incl. QFT)"),
-    "relativity":                 ("نسبیت", "Relativity"),
-    "thermodynamics_statistical": ("ترمودینامیک و مکانیک آماری", "Thermodynamics & Statistical Mechanics"),
-    "mathematical_physics":       ("فیزیک ریاضی", "Mathematical Physics"),
-
-    "condensed_matter":           ("فیزیک ماده چگال (حالت جامد، نرم، نانو، مواد)", "Condensed Matter Physics (Solid, Soft, Nano, Materials)"),
-    "optics_amo":                 ("اپتیک، لیزر و فیزیک اتمی-مولکولی (AMO)", "Optics, Laser & AMO Physics"),
-    "nuclear_particle_plasma":    ("فیزیک هسته‌ای، ذرات و پلاسما", "Nuclear, Particle & Plasma Physics"),
-    "astrophysics_cosmology":     ("اخترفیزیک، کیهان‌شناسی و نجوم", "Astrophysics, Cosmology & Astronomy"),
-    "computational_nonlinear":    ("فیزیک محاسباتی و دینامیک غیرخطی", "Computational Physics & Nonlinear Dynamics"),
-    "biophysics_medical":         ("بیوفیزیک و فیزیک پزشکی", "Biophysics & Medical Physics"),
-    "chemical_acoustics":         ("فیزیک شیمی و آکوستیک", "Chemical Physics & Acoustics"),
-
-    "other":                      ("سایر / میان‌رشته‌ای", "Other / Interdisciplinary"),
+# Seed data for physics_fields table (populated once during init_db)
+_PHYSICS_FIELDS_SEED = {
+    "classical_mechanics":        ("مکانیک کلاسیک", "Classical Mechanics",        "CM"),
+    "electromagnetism":           ("الکترومغناطیس", "Electromagnetism",           "EM"),
+    "modern_physics":             ("فیزیک مدرن", "Modern Physics",                "MOD"),
+    "general_physics":            ("فیزیک پایه", "General Physics",               "GEN"),
+    "quantum_mechanics":          ("مکانیک کوانتومی (و نظریه میدان)", "Quantum Mechanics (incl. QFT)", "QM"),
+    "relativity":                 ("نسبیت", "Relativity",                          "REL"),
+    "thermodynamics_statistical": ("ترمودینامیک و مکانیک آماری", "Thermodynamics & Statistical Mechanics", "THS"),
+    "mathematical_physics":       ("فیزیک ریاضی", "Mathematical Physics",         "MTH"),
+    "condensed_matter":           ("فیزیک ماده چگال (حالت جامد، نرم، نانو، مواد)", "Condensed Matter Physics (Solid, Soft, Nano, Materials)", "CMP"),
+    "optics_amo":                 ("اپتیک، لیزر و فیزیک اتمی-مولکولی (AMO)", "Optics, Laser & AMO Physics", "OPT"),
+    "nuclear_particle_plasma":    ("فیزیک هسته‌ای، ذرات و پلاسما", "Nuclear, Particle & Plasma Physics", "NPP"),
+    "astrophysics_cosmology":     ("اخترفیزیک، کیهان‌شناسی و نجوم", "Astrophysics, Cosmology & Astronomy", "AST"),
+    "computational_nonlinear":    ("فیزیک محاسباتی و دینامیک غیرخطی", "Computational Physics & Nonlinear Dynamics", "CMN"),
+    "biophysics_medical":         ("بیوفیزیک و فیزیک پزشکی", "Biophysics & Medical Physics",    "BIO"),
+    "chemical_acoustics":         ("فیزیک شیمی و آکوستیک", "Chemical Physics & Acoustics",      "CHE"),
+    "other":                      ("سایر / میان‌رشته‌ای", "Other / Interdisciplinary",          "OTH"),
 }
 
-# Fields Code
-FIELD_CODES = {
-    "classical_mechanics":        "CM",
-    "electromagnetism":           "EM",
-    "modern_physics":             "MOD",
-    "general_physics":            "GEN",
-    "quantum_mechanics":          "QM",
-    "relativity":                 "REL",
-    "thermodynamics_statistical": "THS",
-    "mathematical_physics":       "MTH",
-    "condensed_matter":           "CMP",
-    "optics_amo":                 "OPT",
-    "nuclear_particle_plasma":    "NPP",
-    "astrophysics_cosmology":     "AST",
-    "computational_nonlinear":    "CMN",
-    "biophysics_medical":         "BIO",
-    "chemical_acoustics":         "CHE",
-    "other":                      "OTH",
-}
+# In-memory caches — loaded from DB by _load_field_caches() after init_db()
+PHYSICS_FIELDS: dict[str, tuple[str, str]] = {}
+FIELD_CODES:    dict[str, str]             = {}
+
+
+def _load_field_caches(conn: Optional[sqlite3.Connection] = None) -> None:
+    """Reload PHYSICS_FIELDS and FIELD_CODES from the physics_fields table.
+
+    Pass an existing *conn* to reuse the current transaction (e.g. during
+    init_db); omit it to open a fresh connection.
+    """
+    global PHYSICS_FIELDS, FIELD_CODES
+
+    def _fetch(c: sqlite3.Connection) -> None:
+        global PHYSICS_FIELDS, FIELD_CODES
+        rows = c.execute(
+            "SELECT key, name_fa, name_en, code FROM physics_fields"
+        ).fetchall()
+        PHYSICS_FIELDS = {r["key"]: (r["name_fa"], r["name_en"]) for r in rows}
+        FIELD_CODES    = {r["key"]: r["code"]                    for r in rows}
+
+    if conn is not None:
+        _fetch(conn)
+    else:
+        with get_connection() as c:
+            _fetch(c)
 
 
 def field_code(physics_field: str) -> str:
@@ -57,12 +62,23 @@ def field_code(physics_field: str) -> str:
     return (physics_field or "gen")[:3].upper()
 
 
-def get_display_id(book: "sqlite3.Row | dict") -> str:
-    field = book["physics_field"]
-    number = book["field_number"] if ("field_number" in book.keys() if hasattr(book, "keys") else "field_number" in book) else None
+def get_display_id(resource: "sqlite3.Row | dict") -> str:
+    """Return the display ID for a resource.
+
+    Books  → #QM-B7  (field_code + 'B' prefix + field_number)
+    Articles → #QM-A3 (field_code + 'A' prefix + field_number)
+    Unknown resource_type falls back to book behaviour.
+    """
+    keys = resource.keys() if hasattr(resource, "keys") else resource
+    field  = resource["physics_field"]
+    number = resource["field_number"] if "field_number" in keys else None
+
     if number:
-        return f"#{field_code(field)}-{number}"
-    return f"#{book['id']}"
+        rtype = resource["resource_type"] if "resource_type" in keys else "book"
+        if rtype == "article":
+            return f"#{field_code(field)}-A{number}"
+        return f"#{field_code(field)}-B{number}"
+    return f"#{resource['id']}"
 
 
 def get_connection() -> sqlite3.Connection:
@@ -75,6 +91,27 @@ def get_connection() -> sqlite3.Connection:
 
 def init_db() -> None:
     with get_connection() as conn:
+
+        # ── physics_fields table ─────────────────────────────────────────────
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS physics_fields (
+                key         TEXT PRIMARY KEY,
+                name_fa     TEXT NOT NULL,
+                name_en     TEXT NOT NULL,
+                code        TEXT NOT NULL UNIQUE,
+                parent_key  TEXT REFERENCES physics_fields(key) ON DELETE SET NULL
+            )
+        """)
+
+        # Seed rows that are missing (idempotent)
+        for key, (name_fa, name_en, code) in _PHYSICS_FIELDS_SEED.items():
+            conn.execute("""
+                INSERT INTO physics_fields (key, name_fa, name_en, code, parent_key)
+                VALUES (?, ?, ?, ?, NULL)
+                ON CONFLICT(key) DO NOTHING
+            """, (key, name_fa, name_en, code))
+
+        # ── books table ──────────────────────────────────────────────────────
         conn.execute("""
             CREATE TABLE IF NOT EXISTS books (
                 id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -130,6 +167,22 @@ def init_db() -> None:
             "WHERE physics_field = 'General Physics'"
         )
 
+        # ── New columns on books (article support + resource_type) ────────────
+        book_cols = {row["name"] for row in conn.execute("PRAGMA table_info(books)")}
+        _new_book_cols = [
+            ("resource_type",    "TEXT NOT NULL DEFAULT 'book'"),
+            ("doi",              "TEXT"),
+            ("journal",          "TEXT"),
+            ("volume",           "TEXT"),
+            ("issue",            "TEXT"),
+            ("pages",            "TEXT"),
+            ("url",              "TEXT"),
+            ("publication_date", "TEXT"),
+        ]
+        for col_name, col_def in _new_book_cols:
+            if col_name not in book_cols:
+                conn.execute(f"ALTER TABLE books ADD COLUMN {col_name} {col_def}")
+
         # Download Logs
         conn.execute("""
             CREATE TABLE IF NOT EXISTS download_logs (
@@ -161,10 +214,165 @@ def init_db() -> None:
             conn.execute("ALTER TABLE users ADD COLUMN lang TEXT")
 
         conn.commit()
+        _load_field_caches(conn)
     print(f"[DB] دیتابیس آماده شد: {DB_PATH}")
 
 
-# Book CRUD
+# ── Generic resource functions ───────────────────────────────────────────────
+
+def add_resource(
+    title: str,
+    author: str,
+    language: str,
+    physics_field: str,
+    resource_type: str = "book",
+    file_id: str = "",
+    file_name: str = "",
+    file_size: int = 0,
+    description: str = "",
+    edition: str = "",
+    year: Optional[int] = None,
+    cover_file_id: str = "",
+    added_by: Optional[int] = None,
+    # article-specific fields
+    doi: str = "",
+    journal: str = "",
+    volume: str = "",
+    issue: str = "",
+    pages: str = "",
+    url: str = "",
+    publication_date: str = "",
+) -> int:
+    if physics_field not in PHYSICS_FIELDS:
+        raise ValueError(f"فیلد نامعتبر: {physics_field}")
+    if language not in ("fa", "en"):
+        raise ValueError("زبان باید 'fa' یا 'en' باشد")
+    if resource_type not in ("book", "article"):
+        raise ValueError("resource_type باید 'book' یا 'article' باشد")
+
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT COALESCE(MAX(field_number), 0) AS mx FROM books "
+            "WHERE physics_field = ? AND resource_type = ?",
+            (physics_field, resource_type)
+        ).fetchone()
+        next_number = row["mx"] + 1
+
+        cur = conn.execute("""
+            INSERT INTO books
+                (title, author, language, physics_field,
+                 description, edition, year,
+                 file_id, file_name, file_size,
+                 cover_file_id, added_by, field_number, resource_type,
+                 doi, journal, volume, issue, pages, url, publication_date)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """, (
+            title, author, language, physics_field,
+            description, edition, year,
+            file_id, file_name, file_size,
+            cover_file_id, added_by, next_number, resource_type,
+            doi, journal, volume, issue, pages, url, publication_date,
+        ))
+        conn.commit()
+        return cur.lastrowid
+
+
+def get_resource(resource_id: int) -> Optional[sqlite3.Row]:
+    with get_connection() as conn:
+        return conn.execute(
+            "SELECT * FROM books WHERE id = ?", (resource_id,)
+        ).fetchone()
+
+
+def search_resources(
+    query: str = "",
+    physics_field: str = "",
+    language: str = "",
+    resource_type: str = "",
+    limit: int = 10,
+    offset: int = 0,
+) -> list[sqlite3.Row]:
+    conditions: list[str] = []
+    params: list = []
+
+    if query:
+        conditions.append("(title LIKE ? OR author LIKE ?)")
+        like = f"%{query}%"
+        params += [like, like]
+
+    if physics_field:
+        conditions.append("physics_field = ?")
+        params.append(physics_field)
+
+    if language:
+        conditions.append("language = ?")
+        params.append(language)
+
+    if resource_type:
+        conditions.append("resource_type = ?")
+        params.append(resource_type)
+
+    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+    sql = f"""
+        SELECT * FROM books
+        {where}
+        ORDER BY download_count DESC, created_at DESC
+        LIMIT ? OFFSET ?
+    """
+    params += [limit, offset]
+
+    with get_connection() as conn:
+        return conn.execute(sql, params).fetchall()
+
+
+def find_resource_by_display_id(text: str) -> Optional[sqlite3.Row]:
+    """Parse a display ID like #QM-B7 or #QM-A3 and return the matching row.
+
+    Format: #{FIELD_CODE}-{TYPE_PREFIX}{NUMBER}
+      TYPE_PREFIX B → book, A → article (omitting prefix also matches books).
+    """
+    cleaned = text.strip().lstrip("#").upper().replace(" ", "")
+    # Split on '-' to separate field code from the rest
+    parts = cleaned.split("-", 1)
+    if len(parts) != 2:
+        return None
+
+    letters = parts[0]                    # e.g. "QM"
+    rest    = parts[1]                    # e.g. "B7" / "A3" / "7"
+
+    if not letters or not rest:
+        return None
+
+    # Detect optional type prefix
+    if rest and rest[0] in ("B", "A"):
+        type_prefix = rest[0]
+        digits      = rest[1:]
+    else:
+        type_prefix = "B"
+        digits      = rest
+
+    if not digits.isdigit():
+        return None
+
+    resource_type  = "article" if type_prefix == "A" else "book"
+    field_number   = int(digits)
+
+    matching_fields = [f for f, code in FIELD_CODES.items() if code == letters]
+    if not matching_fields:
+        return None
+
+    with get_connection() as conn:
+        for field in matching_fields:
+            row = conn.execute(
+                "SELECT * FROM books WHERE physics_field = ? AND field_number = ? AND resource_type = ?",
+                (field, field_number, resource_type)
+            ).fetchone()
+            if row:
+                return row
+    return None
+
+
+# ── Book CRUD (thin wrappers around generic functions) ───────────────────────
 
 def add_book(
     title: str,
@@ -180,62 +388,35 @@ def add_book(
     cover_file_id: str = "",
     added_by: Optional[int] = None,
 ) -> int:
-    if physics_field not in PHYSICS_FIELDS:
-        raise ValueError(f"فیلد نامعتبر: {physics_field}")
-    if language not in ("fa", "en"):
-        raise ValueError("زبان باید 'fa' یا 'en' باشد")
-
-    with get_connection() as conn:
-        row = conn.execute(
-            "SELECT COALESCE(MAX(field_number), 0) AS mx FROM books WHERE physics_field = ?",
-            (physics_field,)
-        ).fetchone()
-        next_number = row["mx"] + 1
-
-        cur = conn.execute("""
-            INSERT INTO books
-                (title, author, language, physics_field,
-                 description, edition, year,
-                 file_id, file_name, file_size,
-                 cover_file_id, added_by, field_number)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
-        """, (
-            title, author, language, physics_field,
-            description, edition, year,
-            file_id, file_name, file_size,
-            cover_file_id, added_by, next_number,
-        ))
-        conn.commit()
-        return cur.lastrowid
+    return add_resource(
+        title=title,
+        author=author,
+        language=language,
+        physics_field=physics_field,
+        resource_type="book",
+        file_id=file_id,
+        file_name=file_name,
+        file_size=file_size,
+        description=description,
+        edition=edition,
+        year=year,
+        cover_file_id=cover_file_id,
+        added_by=added_by,
+    )
 
 
 def get_book(book_id: int) -> Optional[sqlite3.Row]:
-    with get_connection() as conn:
-        return conn.execute(
-            "SELECT * FROM books WHERE id = ?", (book_id,)
-        ).fetchone()
+    return get_resource(book_id)
 
 
 def find_book_by_display_id(text: str) -> Optional[sqlite3.Row]:
+    # Legacy: treat bare codes (no B/A prefix) as books, matching old behaviour
     cleaned = text.strip().lstrip("#").upper().replace(" ", "")
-    letters = "".join(ch for ch in cleaned if ch.isalpha())
-    digits = "".join(ch for ch in cleaned if ch.isdigit())
-    if not letters or not digits:
-        return None
-
-    matching_fields = [f for f, code in FIELD_CODES.items() if code == letters]
-    if not matching_fields:
-        return None
-
-    with get_connection() as conn:
-        for field in matching_fields:
-            row = conn.execute(
-                "SELECT * FROM books WHERE physics_field = ? AND field_number = ?",
-                (field, int(digits))
-            ).fetchone()
-            if row:
-                return row
-    return None
+    # If caller passes old-style "#QM-7" without prefix, normalise to "#QM-B7"
+    parts = cleaned.split("-", 1)
+    if len(parts) == 2 and parts[1] and parts[1][0] not in ("B", "A"):
+        cleaned = f"{parts[0]}-B{parts[1]}"
+    return find_resource_by_display_id("#" + cleaned)
 
 
 def update_book(book_id: int, **kwargs) -> bool:
@@ -288,34 +469,14 @@ def search_books(
     limit: int = 10,
     offset: int = 0,
 ) -> list[sqlite3.Row]:
-    conditions = []
-    params = []
-
-    if query:
-        conditions.append("(title LIKE ? OR author LIKE ?)")
-        like = f"%{query}%"
-        params += [like, like]
-
-    if physics_field:
-        conditions.append("physics_field = ?")
-        params.append(physics_field)
-
-    if language:
-        conditions.append("language = ?")
-        params.append(language)
-
-    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
-
-    sql = f"""
-        SELECT * FROM books
-        {where}
-        ORDER BY download_count DESC, created_at DESC
-        LIMIT ? OFFSET ?
-    """
-    params += [limit, offset]
-
-    with get_connection() as conn:
-        return conn.execute(sql, params).fetchall()
+    return search_resources(
+        query=query,
+        physics_field=physics_field,
+        language=language,
+        resource_type="book",
+        limit=limit,
+        offset=offset,
+    )
 
 
 def get_books_by_field(physics_field: str, limit: int = 20) -> list[sqlite3.Row]:
@@ -380,17 +541,25 @@ def get_book_stats(book_id: int) -> dict:
 
 def get_library_stats() -> dict:
     with get_connection() as conn:
-        total_books   = conn.execute("SELECT COUNT(*) FROM books").fetchone()[0]
-        total_fa      = conn.execute("SELECT COUNT(*) FROM books WHERE language='fa'").fetchone()[0]
-        total_en      = conn.execute("SELECT COUNT(*) FROM books WHERE language='en'").fetchone()[0]
-        total_dl      = conn.execute("SELECT COALESCE(SUM(download_count),0) FROM books").fetchone()[0]
-        unique_fields = conn.execute("SELECT COUNT(DISTINCT physics_field) FROM books").fetchone()[0]
+        total_books    = conn.execute(
+            "SELECT COUNT(*) FROM books WHERE resource_type = 'book'"
+        ).fetchone()[0]
+        total_articles = conn.execute(
+            "SELECT COUNT(*) FROM books WHERE resource_type = 'article'"
+        ).fetchone()[0]
+        total_resources = conn.execute("SELECT COUNT(*) FROM books").fetchone()[0]
+        total_fa       = conn.execute("SELECT COUNT(*) FROM books WHERE language='fa'").fetchone()[0]
+        total_en       = conn.execute("SELECT COUNT(*) FROM books WHERE language='en'").fetchone()[0]
+        total_dl       = conn.execute("SELECT COALESCE(SUM(download_count),0) FROM books").fetchone()[0]
+        unique_fields  = conn.execute("SELECT COUNT(DISTINCT physics_field) FROM books").fetchone()[0]
     return {
-        "total_books": total_books,
-        "fa_books": total_fa,
-        "en_books": total_en,
-        "total_downloads": total_dl,
-        "unique_fields": unique_fields,
+        "total_books":      total_books,
+        "total_articles":   total_articles,
+        "total_resources":  total_resources,
+        "fa_books":         total_fa,
+        "en_books":         total_en,
+        "total_downloads":  total_dl,
+        "unique_fields":    unique_fields,
     }
 
 
@@ -457,6 +626,10 @@ def set_user_lang(user_id: int, lang: str) -> None:
 
 # TEST
 if __name__ == "__main__":
+    import tempfile, os as _os
+    _tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    _tmp.close()
+    DB_PATH = _tmp.name
     init_db()
 
     bid = add_book(
@@ -511,3 +684,4 @@ if __name__ == "__main__":
     print(f"\n[ادمین؟] {is_admin(123456789)}")
 
     print("\n✅ همه تست‌ها با موفقیت اجرا شدند.")
+    _os.unlink(_tmp.name)
