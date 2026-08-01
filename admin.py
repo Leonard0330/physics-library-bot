@@ -128,6 +128,49 @@ T = {
     "summary_desc":     {"fa": "📝 توضیحات: {v}", "en": "📝 Description: {v}"},
     "summary_file":     {"fa": "📁 فایل: {v}",    "en": "📁 File: {v}"},
 
+    # Resource type selection
+
+    "ask_resource_type":  {"fa": "📂 نوع منبع رو انتخاب کن:",              "en": "📂 Choose the resource type:"},
+    "btn_type_book":      {"fa": "📘 کتاب",                                "en": "📘 Book"},
+    "btn_type_article":   {"fa": "📄 مقاله",                               "en": "📄 Article"},
+
+    # Article-specific prompts
+
+    "ask_authors":        {"fa": "✍ نام نویسنده(ها) — یا رد کن:",          "en": "✍ Author(s) name — or skip:"},
+    "ask_journal":        {"fa": "📰 نام مجله/ژورنال — یا رد کن:",         "en": "📰 Journal name — or skip:"},
+    "ask_volume":         {"fa": "🔢 جلد (Volume) — یا رد کن:",            "en": "🔢 Volume — or skip:"},
+    "ask_issue":          {"fa": "🔢 شماره (Issue) — یا رد کن:",           "en": "🔢 Issue — or skip:"},
+    "ask_pages":          {"fa": "📄 صفحات (مثلاً 12-25) — یا رد کن:",     "en": "📄 Pages (e.g. 12-25) — or skip:"},
+    "ask_doi":            {"fa": "🔗 DOI — یا رد کن:",                     "en": "🔗 DOI — or skip:"},
+    "ask_url":            {"fa": "🌐 URL — یا رد کن:",                     "en": "🌐 URL — or skip:"},
+    "ask_pub_date":       {"fa": "📅 تاریخ انتشار (مثلاً 2023-06) — یا رد کن:", "en": "📅 Publication date (e.g. 2023-06) — or skip:"},
+    "ask_pdf_optional":   {"fa": "📤 فایل PDF رو بفرست — یا رد کن (مقاله بدون فایل هم قبوله):",
+                           "en": "📤 Send the PDF file — or skip (article without file is accepted):"},
+
+    # Article summary additions
+
+    "summary_resource_type": {"fa": "📂 نوع: {v}",    "en": "📂 Type: {v}"},
+    "summary_journal":    {"fa": "📰 مجله: {v}",       "en": "📰 Journal: {v}"},
+    "summary_volume":     {"fa": "🔢 جلد: {v}",        "en": "🔢 Volume: {v}"},
+    "summary_issue":      {"fa": "🔢 شماره: {v}",      "en": "🔢 Issue: {v}"},
+    "summary_pages":      {"fa": "📄 صفحات: {v}",      "en": "📄 Pages: {v}"},
+    "summary_doi":        {"fa": "🔗 DOI: {v}",        "en": "🔗 DOI: {v}"},
+    "summary_url":        {"fa": "🌐 URL: {v}",        "en": "🌐 URL: {v}"},
+    "summary_pub_date":   {"fa": "📅 تاریخ: {v}",      "en": "📅 Date: {v}"},
+
+    # Resource-type-agnostic messages
+
+    "ask_resource_id_del":  {"fa": "🗑 شناسه کتاب یا مقاله رو بنویس (مثلاً REL-B14 یا REL-A3 یا آیدی عددی):",
+                              "en": "🗑 Enter book/article ID (e.g. REL-B14 or REL-A3 or numeric ID):"},
+    "ask_resource_id_edit": {"fa": "✏️ شناسه کتاب یا مقاله‌ای که می‌خوای ویرایش کنی رو بنویس:",
+                              "en": "✏️ Enter the ID of the book or article to edit:"},
+    "resource_not_found":   {"fa": "❌ منبعی با شناسه {id} پیدا نشد.",      "en": "❌ No resource found with ID {id}."},
+    "resource_deleted":     {"fa": "🗑 «{title}» ({disp}) حذف شد.",         "en": "🗑 \"{title}\" ({disp}) deleted."},
+    "saved_ok_article":     {"fa": "✅ مقاله با موفقیت ذخیره شد!\n🔖 شناسه: {disp}\n📄 {title}",
+                              "en": "✅ Article saved successfully!\n🔖 ID: {disp}\n📄 {title}"},
+    "no_resources":         {"fa": "📭 هنوز هیچ منبعی ثبت نشده.",            "en": "📭 No resources have been added yet."},
+    "list_header_all":      {"fa": "📋 لیست منابع:\n",                        "en": "📋 Resource list:\n"},
+
     # admin panel button
 
     "open_panel_btn":   {"fa": "پنل ادمین", "en": "Admin Panel"},
@@ -189,6 +232,14 @@ def _resolve_book(text: str):
     if text.isdigit():
         return database.get_book(int(text))
     return database.find_book_by_display_id(text)
+
+
+def _resolve_resource(text: str):
+    """Resolve a book or article by numeric ID or display ID (e.g. QM-B7 / QM-A3)."""
+    text = text.strip()
+    if text.isdigit():
+        return database.get_resource(int(text))
+    return database.find_resource_by_display_id(text) or database.find_book_by_display_id(text)
 
 # Keyboards
 
@@ -267,6 +318,15 @@ def confirm_keyboard(lang: str) -> types.InlineKeyboardMarkup:
     return markup
 
 
+def resource_type_keyboard(lang: str) -> types.InlineKeyboardMarkup:
+    markup = types.InlineKeyboardMarkup()
+    markup.row(
+        types.InlineKeyboardButton(tr("btn_type_book", lang),    callback_data="adm_rtype:book"),
+        types.InlineKeyboardButton(tr("btn_type_article", lang), callback_data="adm_rtype:article"),
+    )
+    return markup
+
+
 def edit_field_keyboard(lang: str) -> types.InlineKeyboardMarkup:
     markup = types.InlineKeyboardMarkup()
     markup.row(
@@ -298,18 +358,39 @@ def summary_text(data: dict, lang: str) -> str:
     )
     field_label = field_fa if lang == "fa" else field_en
     lang_label = tr("lang_fa", lang) if data.get("language") == "fa" else tr("lang_en", lang)
+    rtype = data.get("resource_type", "book")
+    rtype_label = tr("btn_type_article", lang) if rtype == "article" else tr("btn_type_book", lang)
 
     lines = [
         tr("summary_title", lang),
+        tr("summary_resource_type", lang, v=rtype_label),
         tr("summary_book", lang, v=data.get("title", "-")),
         tr("summary_author", lang, v=data.get("author", "-")),
         tr("summary_lang", lang, v=lang_label),
         tr("summary_field", lang, v=field_label),
-        tr("summary_year", lang, v=data.get("year") or "-"),
-        tr("summary_edition", lang, v=data.get("edition") or "-"),
-        tr("summary_desc", lang, v=data.get("description") or "-"),
-        tr("summary_file", lang, v=data.get("file_name", "-")),
     ]
+
+    if rtype == "article":
+        if data.get("journal"):
+            lines.append(tr("summary_journal", lang, v=data["journal"]))
+        if data.get("volume"):
+            lines.append(tr("summary_volume", lang, v=data["volume"]))
+        if data.get("issue"):
+            lines.append(tr("summary_issue", lang, v=data["issue"]))
+        if data.get("pages"):
+            lines.append(tr("summary_pages", lang, v=data["pages"]))
+        if data.get("doi"):
+            lines.append(tr("summary_doi", lang, v=data["doi"]))
+        if data.get("url"):
+            lines.append(tr("summary_url", lang, v=data["url"]))
+        if data.get("publication_date"):
+            lines.append(tr("summary_pub_date", lang, v=data["publication_date"]))
+    else:
+        lines.append(tr("summary_year", lang, v=data.get("year") or "-"))
+        lines.append(tr("summary_edition", lang, v=data.get("edition") or "-"))
+
+    lines.append(tr("summary_desc", lang, v=data.get("description") or "-"))
+    lines.append(tr("summary_file", lang, v=data.get("file_name") or "-"))
     return "\n".join(lines)
 
 
@@ -703,7 +784,7 @@ def handle_admin_text(bot, message: types.Message) -> bool:
 
     if text in (T["btn_edit"]["fa"], T["btn_edit"]["en"]):
         admin_sessions[uid] = {"step": "wait_edit_id"}
-        bot.send_message(message.chat.id, tr("ask_book_id_edit", lang), reply_markup=cancel_keyboard(lang))
+        bot.send_message(message.chat.id, tr("ask_resource_id_edit", lang), reply_markup=cancel_keyboard(lang))
         return True
 
     if text in (T["btn_list"]["fa"], T["btn_list"]["en"]):
@@ -714,7 +795,7 @@ def handle_admin_text(bot, message: types.Message) -> bool:
         admin_sessions[uid] = {"step": "wait_delete_id"}
         bot.send_message(
             message.chat.id,
-            tr("ask_book_id_del", lang),
+            tr("ask_resource_id_del", lang),
             reply_markup=cancel_keyboard(lang)
         )
         return True
@@ -750,6 +831,10 @@ def handle_admin_text(bot, message: types.Message) -> bool:
         return False
 
     step = admin_sessions[uid].get("step", "")
+
+    # Article: allow skipping PDF upload
+    if _handle_article_skip_file(bot, message, uid, lang):
+        return True
 
     # Title
     if step == "wait_title":
@@ -795,43 +880,90 @@ def handle_admin_text(bot, message: types.Message) -> bool:
         )
         return True
 
-    # Descrption / Comment
+    # Description / Comment
     if step == "wait_desc":
         admin_sessions[uid]["data"]["description"] = "" if text == tr("btn_skip", lang) else text
+        rtype = admin_sessions[uid]["data"].get("resource_type", "book")
+        if rtype == "article":
+            admin_sessions[uid]["step"] = "wait_journal"
+            bot.send_message(message.chat.id, tr("ask_journal", lang), reply_markup=skip_cancel_keyboard(lang))
+        else:
+            admin_sessions[uid]["step"] = "confirm"
+            data = admin_sessions[uid]["data"]
+            bot.send_message(message.chat.id, summary_text(data, lang), reply_markup=admin_keyboard(lang))
+            bot.send_message(message.chat.id, tr("confirm_question", lang), reply_markup=confirm_keyboard(lang))
+        return True
+
+    # Article-specific steps
+
+    if step == "wait_journal":
+        admin_sessions[uid]["data"]["journal"] = "" if text == tr("btn_skip", lang) else text
+        admin_sessions[uid]["step"] = "wait_volume"
+        bot.send_message(message.chat.id, tr("ask_volume", lang), reply_markup=skip_cancel_keyboard(lang))
+        return True
+
+    if step == "wait_volume":
+        admin_sessions[uid]["data"]["volume"] = "" if text == tr("btn_skip", lang) else text
+        admin_sessions[uid]["step"] = "wait_issue"
+        bot.send_message(message.chat.id, tr("ask_issue", lang), reply_markup=skip_cancel_keyboard(lang))
+        return True
+
+    if step == "wait_issue":
+        admin_sessions[uid]["data"]["issue"] = "" if text == tr("btn_skip", lang) else text
+        admin_sessions[uid]["step"] = "wait_pages"
+        bot.send_message(message.chat.id, tr("ask_pages", lang), reply_markup=skip_cancel_keyboard(lang))
+        return True
+
+    if step == "wait_pages":
+        admin_sessions[uid]["data"]["pages"] = "" if text == tr("btn_skip", lang) else text
+        admin_sessions[uid]["step"] = "wait_doi"
+        bot.send_message(message.chat.id, tr("ask_doi", lang), reply_markup=skip_cancel_keyboard(lang))
+        return True
+
+    if step == "wait_doi":
+        admin_sessions[uid]["data"]["doi"] = "" if text == tr("btn_skip", lang) else text
+        admin_sessions[uid]["step"] = "wait_url"
+        bot.send_message(message.chat.id, tr("ask_url", lang), reply_markup=skip_cancel_keyboard(lang))
+        return True
+
+    if step == "wait_url":
+        admin_sessions[uid]["data"]["url"] = "" if text == tr("btn_skip", lang) else text
+        admin_sessions[uid]["step"] = "wait_pub_date"
+        bot.send_message(message.chat.id, tr("ask_pub_date", lang), reply_markup=skip_cancel_keyboard(lang))
+        return True
+
+    if step == "wait_pub_date":
+        admin_sessions[uid]["data"]["publication_date"] = "" if text == tr("btn_skip", lang) else text
         admin_sessions[uid]["step"] = "confirm"
         data = admin_sessions[uid]["data"]
-        bot.send_message(
-            message.chat.id,
-            summary_text(data, lang),
-            reply_markup=admin_keyboard(lang)   
-        )
+        bot.send_message(message.chat.id, summary_text(data, lang), reply_markup=admin_keyboard(lang))
         bot.send_message(message.chat.id, tr("confirm_question", lang), reply_markup=confirm_keyboard(lang))
         return True
 
-    # Delete Book
+    # Delete Book or Article
     if step == "wait_delete_id":
-        book = _resolve_book(text)
-        if not book:
-            bot.send_message(message.chat.id, tr("book_not_found", lang, id=text))
+        resource = _resolve_resource(text)
+        if not resource:
+            bot.send_message(message.chat.id, tr("resource_not_found", lang, id=text))
         else:
-            disp = _disp(book)
-            database.delete_book(book["id"])
-            bot.send_message(message.chat.id, tr("book_deleted", lang, title=book["title"], disp=disp))
+            disp = _disp(resource)
+            database.delete_book(resource["id"])
+            bot.send_message(message.chat.id, tr("resource_deleted", lang, title=resource["title"], disp=disp))
         admin_sessions.pop(uid, None)
         bot.send_message(message.chat.id, tr("back_to_panel", lang), reply_markup=admin_keyboard(lang))
         return True
 
     if step == "wait_edit_id":
-        book = _resolve_book(text)
-        if not book:
-            bot.send_message(message.chat.id, tr("book_not_found", lang, id=text))
+        resource = _resolve_resource(text)
+        if not resource:
+            bot.send_message(message.chat.id, tr("resource_not_found", lang, id=text))
             admin_sessions.pop(uid, None)
             bot.send_message(message.chat.id, tr("back_to_panel", lang), reply_markup=admin_keyboard(lang))
             return True
-        admin_sessions[uid] = {"step": "edit_choose_field", "book_id": book["id"]}
+        admin_sessions[uid] = {"step": "edit_choose_field", "book_id": resource["id"]}
         bot.send_message(
             message.chat.id,
-            tr("edit_found", lang, summary=_book_summary_text(book, lang)),
+            tr("edit_found", lang, summary=_book_summary_text(resource, lang)),
             reply_markup=admin_keyboard(lang)
         )
         bot.send_message(message.chat.id, "👇", reply_markup=edit_field_keyboard(lang))
@@ -940,6 +1072,32 @@ def handle_admin_document(bot, message: types.Message) -> bool:
     return True
 
 
+def _handle_article_skip_file(bot, message: types.Message, uid: int, lang: str) -> bool:
+    """Called when user sends skip-text while in wait_file step for an article."""
+    if uid not in admin_sessions:
+        return False
+    sess = admin_sessions[uid]
+    if sess.get("step") != "wait_file":
+        return False
+    if sess.get("data", {}).get("resource_type") != "article":
+        return False
+    if message.text and message.text.strip() == tr("btn_skip", lang):
+        admin_sessions[uid]["data"].setdefault("file_id", "")
+        admin_sessions[uid]["data"].setdefault("file_name", "")
+        admin_sessions[uid]["data"].setdefault("file_size", 0)
+        admin_sessions[uid]["step"] = "wait_title"
+        bot.send_message(message.chat.id, tr("ask_author", lang), reply_markup=cancel_keyboard(lang))
+        # Actually ask title first (matching book flow)
+        admin_sessions[uid]["step"] = "wait_title"
+        bot.send_message(
+            message.chat.id,
+            "📄 حالا عنوان مقاله رو بنویس:" if lang == "fa" else "📄 Now type the article's title:",
+            reply_markup=cancel_keyboard(lang)
+        )
+        return True
+    return False
+
+
 # admin callback handler
 
 def handle_admin_callback(bot, callback: types.CallbackQuery) -> bool:
@@ -955,6 +1113,24 @@ def handle_admin_callback(bot, callback: types.CallbackQuery) -> bool:
     if data == "adm_open_panel":
         bot.answer_callback_query(callback.id)
         open_panel(bot, callback.message.chat.id, uid)
+        return True
+
+    # Resource type selection (first step of add flow)
+    if data.startswith("adm_rtype:"):
+        if uid not in admin_sessions or admin_sessions[uid].get("step") != "wait_resource_type":
+            bot.answer_callback_query(callback.id, tr("wrong_step", lang))
+            return True
+        rtype = data.split(":")[1]  # "book" or "article"
+        admin_sessions[uid]["data"]["resource_type"] = rtype
+        bot.answer_callback_query(callback.id, "✅")
+        if rtype == "article":
+            admin_sessions[uid]["step"] = "wait_file"
+            bot.send_message(callback.message.chat.id, tr("ask_pdf_optional", lang),
+                             reply_markup=skip_cancel_keyboard(lang))
+        else:
+            admin_sessions[uid]["step"] = "wait_file"
+            bot.send_message(callback.message.chat.id, tr("send_pdf", lang),
+                             reply_markup=cancel_keyboard(lang))
         return True
 
     
@@ -1001,10 +1177,14 @@ def handle_admin_callback(bot, callback: types.CallbackQuery) -> bool:
             return True
 
         d = admin_sessions[uid]["data"]
+        rtype = d.get("resource_type", "book")
 
-        
-        required = ["file_id", "title", "author", "language", "physics_field"]
-        missing  = [k for k in required if not d.get(k)]
+        # For articles, file_id is optional; for books it is required
+        if rtype == "book":
+            required = ["file_id", "title", "author", "language", "physics_field"]
+        else:
+            required = ["title", "author", "language", "physics_field"]
+        missing = [k for k in required if not d.get(k)]
         if missing:
             bot.send_message(
                 callback.message.chat.id,
@@ -1015,25 +1195,52 @@ def handle_admin_callback(bot, callback: types.CallbackQuery) -> bool:
             return True
 
         try:
-            book_id = database.add_book(
-                title        = d["title"],
-                author       = d["author"],
-                language     = d["language"],
-                physics_field= d["physics_field"],
-                file_id      = d["file_id"],
-                file_name    = d["file_name"],
-                file_size    = d["file_size"],
-                description  = d.get("description", ""),
-                edition      = d.get("edition", ""),
-                year         = d.get("year"),
-                added_by     = uid,
-            )
-            book = database.get_book(book_id)
-            bot.send_message(
-                callback.message.chat.id,
-                tr("saved_ok", lang, disp=_disp(book), title=d["title"]),
-                reply_markup=admin_keyboard(lang)
-            )
+            if rtype == "article":
+                resource_id = database.add_resource(
+                    title            = d["title"],
+                    author           = d.get("author", ""),
+                    language         = d["language"],
+                    physics_field    = d["physics_field"],
+                    resource_type    = "article",
+                    file_id          = d.get("file_id", ""),
+                    file_name        = d.get("file_name", ""),
+                    file_size        = d.get("file_size", 0),
+                    description      = d.get("description", ""),
+                    doi              = d.get("doi", ""),
+                    journal          = d.get("journal", ""),
+                    volume           = d.get("volume", ""),
+                    issue            = d.get("issue", ""),
+                    pages            = d.get("pages", ""),
+                    url              = d.get("url", ""),
+                    publication_date = d.get("publication_date", ""),
+                    added_by         = uid,
+                )
+                resource = database.get_resource(resource_id)
+                bot.send_message(
+                    callback.message.chat.id,
+                    tr("saved_ok_article", lang, disp=_disp(resource), title=d["title"]),
+                    reply_markup=admin_keyboard(lang)
+                )
+            else:
+                book_id = database.add_book(
+                    title         = d["title"],
+                    author        = d["author"],
+                    language      = d["language"],
+                    physics_field = d["physics_field"],
+                    file_id       = d["file_id"],
+                    file_name     = d["file_name"],
+                    file_size     = d["file_size"],
+                    description   = d.get("description", ""),
+                    edition       = d.get("edition", ""),
+                    year          = d.get("year"),
+                    added_by      = uid,
+                )
+                book = database.get_book(book_id)
+                bot.send_message(
+                    callback.message.chat.id,
+                    tr("saved_ok", lang, disp=_disp(book), title=d["title"]),
+                    reply_markup=admin_keyboard(lang)
+                )
         except Exception as e:
             bot.send_message(
                 callback.message.chat.id,
@@ -1088,23 +1295,22 @@ def handle_admin_callback(bot, callback: types.CallbackQuery) -> bool:
 
 def _start_add(bot, message: types.Message, lang: str):
     uid = message.from_user.id
-    admin_sessions[uid] = {"step": "wait_file", "data": {}}
-    bot.send_message(
-        message.chat.id,
-        tr("send_pdf", lang),
-        reply_markup=cancel_keyboard(lang)
-    )
+    admin_sessions[uid] = {"step": "wait_resource_type", "data": {}}
+    bot.send_message(message.chat.id, tr("ask_resource_type", lang), reply_markup=cancel_keyboard(lang))
+    bot.send_message(message.chat.id, "👇", reply_markup=resource_type_keyboard(lang))
 
 
 def _show_list(bot, message: types.Message, lang: str):
-    rows = database.search_books(limit=30)
+    rows = database.search_resources(limit=30)
     if not rows:
-        bot.send_message(message.chat.id, tr("no_books", lang), reply_markup=admin_keyboard(lang))
+        bot.send_message(message.chat.id, tr("no_resources", lang), reply_markup=admin_keyboard(lang))
         return
-    lines = [tr("list_header", lang)]
+    lines = [tr("list_header_all", lang)]
     for b in rows:
-        edition_part = f" [{b['edition']}]" if b["edition"] and b["edition"].strip() else ""
-        lines.append(f"{_disp(b)} — {b['title']}{edition_part} | {b['author']} | ⬇️{b['download_count']}")
+        rtype = b["resource_type"] if "resource_type" in b.keys() else "book"
+        icon = "📄" if rtype == "article" else "📘"
+        edition_part = f" [{b['edition']}]" if rtype == "book" and b["edition"] and b["edition"].strip() else ""
+        lines.append(f"{icon} {_disp(b)} — {b['title']}{edition_part} | {b['author']} | ⬇️{b['download_count']}")
     bot.send_message(message.chat.id, "\n".join(lines), reply_markup=admin_keyboard(lang))
 
 
@@ -1114,7 +1320,8 @@ def _show_stats(bot, message: types.Message, lang: str):
     if lang == "fa":
         text = (
             f"{header}\n\n"
-            f"📚 کل کتاب‌ها: {s['total_books']}\n"
+            f"📚 کتاب‌ها: {s['total_books']}\n"
+            f"📄 مقالات: {s['total_articles']}\n"
             f"فارسی: {s['fa_books']}\n"
             f"انگلیسی: {s['en_books']}\n"
             f"⬇️ کل دانلودها: {s['total_downloads']}\n"
@@ -1123,7 +1330,8 @@ def _show_stats(bot, message: types.Message, lang: str):
     else:
         text = (
             f"{header}\n\n"
-            f"📚 Total Books: {s['total_books']}\n"
+            f"📚 Books: {s['total_books']}\n"
+            f"📄 Articles: {s['total_articles']}\n"
             f"Persian: {s['fa_books']}\n"
             f"English: {s['en_books']}\n"
             f"⬇️ Total Downloads: {s['total_downloads']}\n"

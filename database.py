@@ -89,6 +89,27 @@ def get_connection() -> sqlite3.Connection:
     return conn
 
 
+def _try_load_field_caches_if_ready() -> None:
+    """اگر دیتابیس از قبل وجود داشت و جدول physics_fields آماده بود، کش‌ها رو لود کن.
+    این تابع هنگام import ماژول صدا زده می‌شه تا PHYSICS_FIELDS و FIELD_CODES
+    بدون نیاز به فراخوانی init_db() در دسترس باشن (مثلاً بعد از ریستارت ربات).
+    """
+    try:
+        if not os.path.exists(DB_PATH):
+            return
+        with get_connection() as conn:
+            tables = {r[0] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()}
+            if "physics_fields" in tables:
+                _load_field_caches(conn)
+    except Exception:
+        pass  # اگر DB هنوز آماده نیست، init_db() بعداً کش رو لود می‌کنه
+
+
+_try_load_field_caches_if_ready()
+
+
 def init_db() -> None:
     with get_connection() as conn:
 
