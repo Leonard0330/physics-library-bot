@@ -35,10 +35,10 @@ T = {
     "no_access":       {"fa": "⛔️ دسترسی ندارید.",                              "en": "⛔️ You don't have access."},
     "panel_title":      {"fa": "👨‍💼 پنل ادمین\nیکی از گزینه‌ها رو انتخاب کن:",   "en": "👨‍💼 Admin Panel\nChoose an option:"},
     "cancelled":        {"fa": "↩️ عملیات لغو شد.",                             "en": "↩️ Operation cancelled."},
-    "ask_book_id_del":  {"fa": "🗑 شناسه کتاب رو بنویس (مثلاً REL-14 یا آیدی عددی):",
-                          "en": "🗑 Enter the book ID (e.g. REL-14 or the raw numeric ID):"},
-    "ask_book_id_edit": {"fa": "✏️ شناسه کتابی که می‌خوای ویرایش کنی رو بنویس (مثلاً REL-14):",
-                          "en": "✏️ Enter the ID of the book to edit (e.g. REL-14):"},
+    "ask_book_id_del":  {"fa": "🗑 شناسه کتاب یا مقاله رو بنویس (مثلاً REL-14 یا آیدی عددی):",
+                          "en": "🗑 Enter the book or article ID (e.g. REL-14 or the raw numeric ID):"},
+    "ask_book_id_edit": {"fa": "✏️ شناسه کتاب یا مقاله ای که می‌خوای ویرایش کنی رو بنویس (مثلاً REL-14):",
+                          "en": "✏️ Enter the ID of the book or article to edit (e.g. REL-14):"},
     "not_a_number":     {"fa": "❗️ فرمت شناسه اشتباهه.",                        "en": "❗️ Invalid ID format."},
     "book_not_found":   {"fa": "❌ کتابی با شناسه {id} پیدا نشد.",               "en": "❌ No book found with ID {id}."},
     "book_deleted":     {"fa": "🗑 کتاب «{title}» ({disp}) حذف شد.",             "en": "🗑 Book \"{title}\" ({disp}) deleted."},
@@ -49,7 +49,7 @@ T = {
                           "en": "✅ File received: {name}\n\n📘 Now type the book's title:"},
     "ask_author":       {"fa": "✍ نام نویسنده:",                                "en": "✍ Author's name:"},
     "ask_lang":         {"fa": "🌐 زبان کتاب رو انتخاب کن:",                     "en": "🌐 Choose the book's language:"},
-    "ask_field":        {"fa": "🧲 فیلد فیزیکی رو انتخاب کن:",                   "en": "🧲 Choose the physics field:"},
+    "ask_field":        {"fa": "🌌 فیلد فیزیکی رو انتخاب کن:",                   "en": "🌌 Choose the physics field:"},
     "ask_year":         {"fa": "📅 سال انتشار (مثلاً 2020) — یا رد کن:",         "en": "📅 Publication year (e.g. 2020) — or skip:"},
     "year_not_number":  {"fa": "❗️ سال رو به عدد وارد کن (مثلاً 2020):",         "en": "❗️ Enter the year as a number (e.g. 2020):"},
     "ask_edition":      {"fa": "🔖 ویرایش (مثلاً 3rd) — یا رد کن:",              "en": "🔖 Edition (e.g. 3rd) — or skip:"},
@@ -70,10 +70,10 @@ T = {
 
     # Main Panel Buttons
 
-    "btn_add":          {"fa": "➕ افزودن کتاب",           "en": "➕ Add Book"},
-    "btn_edit":         {"fa": "✏️ ویرایش کتاب",           "en": "✏️ Edit Book"},
-    "btn_list":         {"fa": "📋 لیست کتاب‌ها",          "en": "📋 Book List"},
-    "btn_delete":       {"fa": "🗑 حذف کتاب",              "en": "🗑 Delete Book"},
+    "btn_add":          {"fa": "➕ افزودن منبع",           "en": "➕ Add Resource"},
+    "btn_edit":         {"fa": "✏️ ویرایش منبع",           "en": "✏️ Edit Resource"},
+    "btn_list":         {"fa": "📋 لیست منابع",          "en": "📋 Resources List"},
+    "btn_delete":       {"fa": "🗑 حذف منبع",              "en": "🗑 Delete Resource"},
     "btn_stats":        {"fa": "📊 آمار ادمین",            "en": "📊 Admin Stats"},
     "btn_admins":       {"fa": "👥 مدیریت ادمین‌ها",       "en": "👥 Manage Admins"},
     "btn_exit":         {"fa": "🔙 خروج از پنل ادمین",     "en": "🔙 Exit Admin Panel"},
@@ -112,7 +112,7 @@ T = {
     "edit_field_year":     {"fa": "📅 سال",     "en": "📅 Year"},
     "edit_field_edition":  {"fa": "🔖 ویرایش",  "en": "🔖 Edition"},
     "edit_field_desc":     {"fa": "📝 توضیحات", "en": "📝 Description"},
-    "edit_field_physics":  {"fa": "🧲 فیلد فیزیکی", "en": "🧲 Physics Field"},
+    "edit_field_physics":  {"fa": "🌌 فیلد فیزیکی", "en": "🌌 Physics Field"},
     "ask_new_value":    {"fa": "مقدار جدید رو بنویس:",                          "en": "Enter the new value:"},
     "edit_saved":       {"fa": "✅ کتاب {disp} به‌روزرسانی شد.",                 "en": "✅ Book {disp} updated."},
 
@@ -122,7 +122,7 @@ T = {
     "summary_book":     {"fa": "📘 عنوان: {v}",  "en": "📘 Title: {v}"},
     "summary_author":   {"fa": "✍ نویسنده: {v}", "en": "✍ Author: {v}"},
     "summary_lang":     {"fa": "🌐 زبان: {v}",    "en": "🌐 Language: {v}"},
-    "summary_field":    {"fa": "🧲 فیلد: {v}",    "en": "🧲 Field: {v}"},
+    "summary_field":    {"fa": "🌌 فیلد: {v}",    "en": "🌌 Field: {v}"},
     "summary_year":     {"fa": "📅 سال: {v}",     "en": "📅 Year: {v}"},
     "summary_edition":  {"fa": "🔖 ویرایش: {v}",  "en": "🔖 Edition: {v}"},
     "summary_desc":     {"fa": "📝 توضیحات: {v}", "en": "📝 Description: {v}"},
@@ -144,8 +144,8 @@ T = {
     "ask_doi":            {"fa": "🔗 DOI — یا رد کن:",                     "en": "🔗 DOI — or skip:"},
     "ask_url":            {"fa": "🌐 URL — یا رد کن:",                     "en": "🌐 URL — or skip:"},
     "ask_pub_date":       {"fa": "📅 تاریخ انتشار (مثلاً 2023-06) — یا رد کن:", "en": "📅 Publication date (e.g. 2023-06) — or skip:"},
-    "ask_pdf_optional":   {"fa": "📤 فایل PDF رو بفرست — یا رد کن (مقاله بدون فایل هم قبوله):",
-                           "en": "📤 Send the PDF file — or skip (article without file is accepted):"},
+    "ask_pdf_optional":   {"fa": "📤 فایل PDF رو بفرست:",
+                           "en": "📤 Send the PDF file:"},
 
     # Article summary additions
 
@@ -1325,7 +1325,7 @@ def _show_stats(bot, message: types.Message, lang: str):
             f"فارسی: {s['fa_books']}\n"
             f"انگلیسی: {s['en_books']}\n"
             f"⬇️ کل دانلودها: {s['total_downloads']}\n"
-            f"🧲 فیلدهای فعال: {s['unique_fields']}"
+            f"🌌 فیلدهای فعال: {s['unique_fields']}"
         )
     else:
         text = (
@@ -1335,7 +1335,7 @@ def _show_stats(bot, message: types.Message, lang: str):
             f"Persian: {s['fa_books']}\n"
             f"English: {s['en_books']}\n"
             f"⬇️ Total Downloads: {s['total_downloads']}\n"
-            f"🧲 Active Fields: {s['unique_fields']}"
+            f"🌌 Active Fields: {s['unique_fields']}"
         )
     bot.send_message(message.chat.id, text, reply_markup=admin_keyboard(lang))
 

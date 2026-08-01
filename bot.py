@@ -21,7 +21,7 @@ TEXTS = {
             "📚 به ربات کتابخانه فیزیک خوش آمدید!\n\n"
             "این ربات مجموعه‌ای منتخب از کتاب‌ها و مقالات علمی فیزیک را در شاخه‌های مختلف این علم در اختیار شما قرار می‌دهد.\n\n"
             "🔍 جستجو — جستجو در همه منابع\n"
-            "📂 مرور — مرور کتاب‌ها، مقالات و فیلدهای فیزیک\n"
+            "📂 کتابخانه  —  کتاب‌ها، مقالات و فیلدهای فیزیک\n"
             "🌐 زبان — تغییر زبان رابط\n\n"
             "برای راهنمای کامل: درباره ← راهنما 👇"
         ),
@@ -67,8 +67,8 @@ TEXTS = {
         "en": "🌐 Language changed to English."
     },
     "fields_header": {
-        "fa": "🔬 فیلدهای فیزیک:\nروی هر فیلد بزن تا منابعش رو ببینی 👇",
-        "en": "🔬 Physics Fields:\nTap a field to see its resources 👇"
+        "fa": "🌌 فیلدهای فیزیک:\nروی هر فیلد بزن تا منابعش رو ببینی 👇",
+        "en": "🌌 Physics Fields:\nTap a field to see its resources 👇"
     },
     "no_fields": {
         "fa": "📭 هنوز هیچ منبعی اضافه نشده.",
@@ -95,7 +95,7 @@ TEXTS = {
         "en": "📋 Search results — tap to see details 👇"
     },
     "browse_header": {
-        "fa": "📂 مرور — یه گزینه انتخاب کن:",
+        "fa": "📂 کتابخانه — یه گزینه انتخاب کن:",
         "en": "📂 Browse — choose an option:"
     },
     "browse_books_header": {
@@ -132,10 +132,10 @@ TEXTS = {
         "fa": (
             "📖 راهنما:\n\n"
             "🔍 جستجو ← جستجو در عنوان، نویسنده و همه منابع\n"
-            "📂 مرور ← مرور کتاب‌ها، مقالات، فیلدهای فیزیک، پرطرفدارها و جدیدترین‌ها\n"
+            "📂 کتابخانه ←  کتاب‌ها، مقالات، فیلدهای فیزیک، پرطرفدارها و جدیدترین‌ها\n"
             "   ↳ 📘 کتاب‌ها ← همه / فیلد / پرطرفدار / جدید\n"
             "   ↳ 📄 مقالات ← همه / فیلد / پرطرفدار / جدید\n"
-            "   ↳ 🔬 فیلدهای فیزیک ← مرور بر اساس موضوع\n"
+            "   ↳ 🌌 فیلدهای فیزیک ← جستجو بر اساس موضوع\n"
             "   ↳ ⭐ پرطرفدارها ← پرطرفدارترین منابع\n"
             "   ↳ 🆕 جدیدترین‌ها ← آخرین منابع اضافه‌شده\n"
             "ℹ️ درباره ← راهنما / آمار / پرطرفدارها / درباره پروژه\n"
@@ -148,7 +148,7 @@ TEXTS = {
             "📂 Browse ← books, articles, physics fields, popular & recent\n"
             "   ↳ 📘 Books ← All / Field / Popular / Recent\n"
             "   ↳ 📄 Articles ← All / Field / Popular / Recent\n"
-            "   ↳ 🔬 Physics Fields ← browse by topic\n"
+            "   ↳ 🌌 Physics Fields ← browse by topic\n"
             "   ↳ ⭐ Top Resources ← most downloaded\n"
             "   ↳ 🆕 Recently Added ← latest resources\n"
             "ℹ️ About ← Help / Stats / Top / About Project\n"
@@ -163,20 +163,20 @@ TEXTS = {
 BTN = {
     # Main menu (4 buttons)
     "search":  {"fa": "🔍 جستجو",          "en": "🔍 Search"},
-    "browse":  {"fa": "📂 مرور",           "en": "📂 Browse"},
+    "browse":  {"fa": "📂 کتابخانه",           "en": "📂 Browse"},
     "about":   {"fa": "ℹ️ درباره",         "en": "ℹ️ About"},
     "lang":    {"fa": "🌐 English",        "en": "🌐 فارسی"},
 
     # Browse sub-menu inline buttons
     "b_books":    {"fa": "📘 کتاب‌ها",        "en": "📘 Books"},
     "b_articles": {"fa": "📄 مقالات",         "en": "📄 Articles"},
-    "b_fields":   {"fa": "🔬 فیلدهای فیزیک", "en": "🔬 Physics Fields"},
+    "b_fields":   {"fa": "🌌 فیلدهای فیزیک", "en": "🌌 Physics Fields"},
     "b_top":      {"fa": "⭐ پرطرفدارها",    "en": "⭐ Popular"},
     "b_recent":   {"fa": "🆕 جدیدترین‌ها",   "en": "🆕 Recently Added"},
 
     # Books/Articles sub-menu inline buttons
     "sb_all":    {"fa": "📋 همه",           "en": "📋 All"},
-    "sb_fields": {"fa": "🔬 فیلدها",        "en": "🔬 Fields"},
+    "sb_fields": {"fa": "🌌 فیلدها",        "en": "🌌 Fields"},
     "sb_top":    {"fa": "⭐ پرطرفدار",      "en": "⭐ Popular"},
     "sb_recent": {"fa": "🆕 جدید",          "en": "🆕 Recent"},
 
@@ -188,7 +188,7 @@ BTN = {
 
     # kept for backward-compat (used in old inline keyboards that may still exist)
     "books":   {"fa": "📚 همه کتاب‌ها",    "en": "📚 All Books"},
-    "fields":  {"fa": "🧲 فیلدهای فیزیک", "en": "🧲 Physics Fields"},
+    "fields":  {"fa": "🌌 فیلدهای فیزیک", "en": "🌌 Physics Fields"},
     "stats":   {"fa": "📊 آمار",           "en": "📊 Stats"},
     "top":     {"fa": "🏆 پرطرفدارها",    "en": "🏆 Top Books"},
     "help":    {"fa": "❓ راهنما",         "en": "❓ Help"},
@@ -475,8 +475,11 @@ def handle_fields(message: types.Message, user_override: types.User = None, reso
     buttons = []
     for field_key, (label_fa, label_en) in database.PHYSICS_FIELDS.items():
         label = label_fa if lang == "fa" else label_en
-        # use new fieldres callback if resource_type filter is needed
-        cb = f"fieldres:{field_key}:{resource_type}" if resource_type else f"field:{field_key}"
+        # Always use fieldres: so all three flows (no filter / book / article)
+        # go through field_resources() and call the same search_resources().
+        # rtype is empty string when there's no filter, checked with `or None` in handler.
+        rtype_part = resource_type or ""
+        cb = f"fieldres:{field_key}:{rtype_part}"
         buttons.append(types.InlineKeyboardButton(label, callback_data=cb))
 
     markup = types.InlineKeyboardMarkup()
@@ -711,19 +714,6 @@ def download(callback: types.CallbackQuery):
     bot.answer_callback_query(callback.id, t(user, "downloaded"))
 
 
-@bot.callback_query_handler(func=lambda c: c.data.startswith("field:"))
-def field_books(callback: types.CallbackQuery):
-    user = callback.from_user
-    field_key = callback.data.split(":", 1)[1]
-    rows = database.get_books_by_field(field_key, limit=20)
-
-    if not rows:
-        bot.answer_callback_query(callback.id, t(user, "no_books"), show_alert=True)
-        return
-
-    bot.answer_callback_query(callback.id)
-    send_book_list(callback.message.chat.id, user, rows, header_key="books_list_header")
-
 
 
 # callback: resinfo (unified resource card)
@@ -824,13 +814,16 @@ def about_callback(callback: types.CallbackQuery):
         bot.send_message(chat_id, t(user, "about_project"), reply_markup=main_keyboard(user))
 
 
-# callback: field filtered by resource_type (new: field:key:rtype or old: field:key)
+# callback: field filter — handles all three flows:
+# 1. Browse → Fields → Field          (fieldres:key:)    rtype=None → all
+# 2. Browse → Books → Fields → Field  (fieldres:key:book) rtype=book
+# 3. Browse → Articles → Fields → Field (fieldres:key:article) rtype=article
 @bot.callback_query_handler(func=lambda c: c.data.startswith("fieldres:"))
 def field_resources(callback: types.CallbackQuery):
     user = callback.from_user
     parts = callback.data.split(":")
     field_key = parts[1]
-    rtype = parts[2] if len(parts) > 2 else None
+    rtype = parts[2] if len(parts) > 2 and parts[2] else None  # empty string → None
     rows = database.search_resources(physics_field=field_key, resource_type=rtype, limit=20)
     if not rows:
         bot.answer_callback_query(callback.id, t(user, "no_books"), show_alert=True)
