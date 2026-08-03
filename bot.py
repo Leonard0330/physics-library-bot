@@ -51,10 +51,10 @@ TEXTS = {
         "fa": "🔍 جستجو در همه منابع فارسی:\n"
         "کلمه کلیدی موردنظر خود را تایپ کنید:\n\n"
         "To search among Persian-language resources, change the language and then search again.\n"
-        "برای جستجو میان منابع انگلیسی زبان را تغییر دهید و سپس دوباره جستجو کنید",
+        "برای جستجو در منابع انگلیسی، زبان را تغییر دهید و سپس دوباره جستجو کنید.",
         "en": "🔍 Search in all English resources:\n"
         "Type the keyword you want to search:\n\n"
-        "برای جستجو میان منابع انگلیسی، زبان را تغییر دهید و سپس دوباره جستجو کنید.\n"
+        "برای جستجو در منابع فارسی، زبان را تغییر دهید و سپس دوباره جستجو کنید.\n"
         "To search among Persian-language resources, change the language and then search again."
     },
     "not_found": {
