@@ -39,8 +39,14 @@ TEXTS = {
         "en": "📭 No resources found."
     },
     "search_prompt": {
-        "fa": "🔍 کلمه‌ای که می‌خوای جستجو کنی رو بنویس:",
-        "en": "🔍 Type the keyword you want to search:"
+        "fa": "🔍 جستجو در همه منابع فارسی:\n"
+        "کلمه کلیدی موردنظر خود را تایپ کنید:\n\n"
+        "To search among Persian-language resources, change the language and then search again."
+        "برای جستجو میان منابع انگلیسی زبان را تغییر دهید و سپس دوباره جستجو کنید",
+        "en": "🔍 Search in all English resources:\n"
+        "Type the keyword you want to search:\n\n"
+        "برای جستجو میان منابع انگلیسی، زبان را تغییر دهید و سپس دوباره جستجو کنید."
+        "To search among Persian-language resources, change the language and then search again."
     },
     "not_found": {
         "fa": "🔍 نتیجه‌ای پیدا نشد.",
@@ -501,7 +507,7 @@ def handle_stats(message: types.Message, user_override: types.User = None):
             f"📄 مقالات: {s.get('total_articles', 0)}\n"
             f"فارسی: {s['fa_books']}  |  انگلیسی: {s['en_books']}\n"
             f"⬇️ کل دانلودها: {s['total_downloads']}\n"
-            f"🔬 فیلدهای فعال: {s['unique_fields']}"
+            f"🌌 فیلدهای فعال: {s['unique_fields']}"
         )
     else:
         text = (
@@ -510,7 +516,7 @@ def handle_stats(message: types.Message, user_override: types.User = None):
             f"📄 Articles: {s.get('total_articles', 0)}\n"
             f"Persian: {s['fa_books']}  |  English: {s['en_books']}\n"
             f"⬇️ Total Downloads: {s['total_downloads']}\n"
-            f"🔬 Active Fields: {s['unique_fields']}"
+            f"🌌 Active Fields: {s['unique_fields']}"
         )
 
     bot.send_message(message.chat.id, text, reply_markup=main_keyboard(user))
@@ -571,7 +577,8 @@ def send_resource_list(chat_id: int, user: types.User, rows, header_key: str):
         disp = database.get_display_id(res)
         rtype = res["resource_type"] if "resource_type" in res.keys() else "book"
         icon = "📄" if rtype == "article" else "📘"
-        label = f"{icon} {disp} — {res['title'][:35]}"
+        edition_part = f" [{res['edition']}]" if rtype == "book" and res.get("edition") and str(res["edition"]).strip() else ""
+        label = f"{icon} {disp} — {res['title'][:35]}{edition_part}"
         markup.add(types.InlineKeyboardButton(label, callback_data=f"resinfo:{res['id']}"))
     bot.send_message(chat_id, header, reply_markup=markup)
 
@@ -587,11 +594,12 @@ def send_book_card(chat_id: int, user: types.User, book):
     lang_label = "فارسی" if book["language"] == "fa" else "English"
     disp = database.get_display_id(book)
 
+    edition_line = f"\n📖 {book['edition']}" if book.get("edition") and str(book["edition"]).strip() else ""
     text = (
-        f"📘 {book['title']}\n"
+        f"📘 {book['title']}{edition_line}\n"
         f"✍ {book['author']}\n"
         f"🌐 {lang_label}\n"
-        f"🧲 {field}\n"
+        f"🌌 {field}\n"
         f"🔖 {disp}\n"
         f"⬇️ {book['download_count']}"
     )
@@ -624,7 +632,7 @@ def send_resource_card(chat_id: int, user: types.User, res):
         f"📄 {res['title']}",
         f"✍ {res['author']}" if res.get("author") else "",
         f"🌐 {lang_label}",
-        f"🔬 {field}",
+        f"🌌 {field}",
         f"🔖 {disp}",
     ]
     if res.get("journal"):
@@ -645,7 +653,9 @@ def send_resource_card(chat_id: int, user: types.User, res):
     lines.append(f"⬇️ {res['download_count']}")
 
     markup = types.InlineKeyboardMarkup()
-    if res.get("file_id"):
+    # Show the download button for articles that have a PDF file OR an external
+    # link/DOI — the download handler sends a document or a text card accordingly.
+    if res.get("file_id") or res.get("url") or res.get("doi"):
         markup.add(types.InlineKeyboardButton(
             t(user, "download"), callback_data=f"download:{res['id']}"
         ))
@@ -672,45 +682,91 @@ def book_info(callback: types.CallbackQuery):
 @bot.callback_query_handler(func=lambda c: c.data.startswith("download:"))
 def download(callback: types.CallbackQuery):
     user = callback.from_user
-    book_id = int(callback.data.split(":")[1])
-    book = database.get_book(book_id)
+    res_id = int(callback.data.split(":")[1])
+    res = database.get_resource(res_id)
 
-    if not book:
+    if not res:
         bot.answer_callback_query(callback.id, t(user, "book_missing"))
         return
 
     lang = get_lang(user)
     field_fa, field_en = database.PHYSICS_FIELDS.get(
-        book["physics_field"], ("نامشخص", "Unknown")
+        res["physics_field"], ("نامشخص", "Unknown")
     )
     field = field_fa if lang == "fa" else field_en
-    lang_label = "فارسی" if book["language"] == "fa" else "English"
-    disp = database.get_display_id(book)
-    edition_val = book["edition"] if book["edition"] else ""
-    year_val    = book["year"]    if book["year"]    else ""
-    desc_val    = book["description"] if book["description"] else ""
+    lang_label = "فارسی" if res["language"] == "fa" else "English"
+    disp = database.get_display_id(res)
+    rtype = res["resource_type"] if "resource_type" in res.keys() else "book"
 
-    edition_line = f"\n📖 {edition_val}" if edition_val else ""
-    year_line    = f"\n📅 {year_val}"    if year_val    else ""
-    desc_line    = f"\n📝 {desc_val}"    if desc_val    else ""
+    if rtype == "article":
+        # --- Article download ---
+        lines = [
+            f"📄 {res['title']}",
+            f"✍ {res['author']}" if res.get("author") else "",
+            f"🌐 {lang_label}",
+            f"🌌 {field}",
+            f"🔖 {disp}",
+        ]
+        if res.get("journal"):
+            lines.append(f"📰 {res['journal']}")
+        if res.get("volume") or res.get("issue"):
+            vi = f"Vol.{res['volume']}" if res.get("volume") else ""
+            if res.get("issue"):
+                vi += f" No.{res['issue']}"
+            lines.append(f"🔢 {vi.strip()}")
+        if res.get("pages"):
+            lines.append(f"📄 pp. {res['pages']}")
+        if res.get("doi"):
+            lines.append(f"🔗 DOI: {res['doi']}")
+        if res.get("url"):
+            lines.append(f"🌐 {res['url']}")
+        if res.get("publication_date"):
+            lines.append(f"📅 {res['publication_date']}")
+        lines.append(f"⬇️ {res['download_count']}")
+        lines.append("")
+        lines.append("@PhysisLib_Bot")
 
-    caption = (
-        f"📘 {book['title']}{edition_line}\n"
-        f"✍ {book['author']}\n"
-        f"🌐 {lang_label}\n"
-        f"🧲 {field}\n"
-        f"🔖 {disp}\n"
-        f"⬇️ {book['download_count']}"
-        f"{year_line}"
-        f"{desc_line}\n\n"
-        f"@PhysisLib_Bot"
-    )
-    bot.send_document(
-        callback.message.chat.id,
-        book["file_id"],
-        caption=caption
-    )
-    database.record_download(book_id, user.id)
+        caption = "\n".join(l for l in lines if l is not None)
+
+        if res.get("file_id"):
+            # Article has an attached PDF — send it as a document
+            bot.send_document(
+                callback.message.chat.id,
+                res["file_id"],
+                caption=caption,
+            )
+        else:
+            # Link-only article — send the metadata as a text message
+            bot.send_message(callback.message.chat.id, caption)
+
+    else:
+        # --- Book download (original behaviour, unchanged) ---
+        edition_val = res["edition"] if res["edition"] else ""
+        year_val    = res["year"]    if res["year"]    else ""
+        desc_val    = res["description"] if res["description"] else ""
+
+        edition_line = f"\n📖 {edition_val}" if edition_val else ""
+        year_line    = f"\n📅 {year_val}"    if year_val    else ""
+        desc_line    = f"\n📝 {desc_val}"    if desc_val    else ""
+
+        caption = (
+            f"📘 {res['title']}{edition_line}\n"
+            f"✍ {res['author']}\n"
+            f"🌐 {lang_label}\n"
+            f"🧲 {field}\n"
+            f"🔖 {disp}\n"
+            f"⬇️ {res['download_count']}"
+            f"{year_line}"
+            f"{desc_line}\n\n"
+            f"@PhysisLib_Bot"
+        )
+        bot.send_document(
+            callback.message.chat.id,
+            res["file_id"],
+            caption=caption,
+        )
+
+    database.record_download(res_id, user.id)
     bot.answer_callback_query(callback.id, t(user, "downloaded"))
 
 

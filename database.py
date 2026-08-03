@@ -9,23 +9,39 @@ DB_PATH = os.getenv("DB_PATH", "physics_library.db")
 
 
 # Seed data for physics_fields table (populated once during init_db)
+#
+# Changes from v1:
+#   - removed:  modern_physics
+#   - split:    astrophysics_cosmology  →  astrophysics + cosmology
+#   - updated:  thermodynamics_statistical English name (Statistical Mechanics → Statistical Physics)
+#   - replaced: chemical_acoustics       →  chemical_physics + acoustics
+#   - replaced: nuclear_particle_plasma  →  nuclear_physics + particle_physics + plasma_physics
+#   - added:    history_philosophy
+#
+# Rows already in the DB for removed/split keys are NOT deleted automatically
+# (existing resources keep their physics_field value).  An admin migration
+# script should reassign those rows when ready.
 _PHYSICS_FIELDS_SEED = {
-    "classical_mechanics":        ("مکانیک کلاسیک", "Classical Mechanics",        "CM"),
-    "electromagnetism":           ("الکترومغناطیس", "Electromagnetism",           "EM"),
-    "modern_physics":             ("فیزیک مدرن", "Modern Physics",                "MOD"),
-    "general_physics":            ("فیزیک پایه", "General Physics",               "GEN"),
-    "quantum_mechanics":          ("مکانیک کوانتومی (و نظریه میدان)", "Quantum Mechanics (incl. QFT)", "QM"),
-    "relativity":                 ("نسبیت", "Relativity",                          "REL"),
-    "thermodynamics_statistical": ("ترمودینامیک و مکانیک آماری", "Thermodynamics & Statistical Mechanics", "THS"),
-    "mathematical_physics":       ("فیزیک ریاضی", "Mathematical Physics",         "MTH"),
+    "classical_mechanics":        ("مکانیک کلاسیک", "Classical Mechanics",                                              "CM"),
+    "electromagnetism":           ("الکترومغناطیس", "Electromagnetism",                                                "EM"),
+    "general_physics":            ("فیزیک پایه", "General Physics",                                                    "GEN"),
+    "quantum_mechanics":          ("مکانیک کوانتومی (و نظریه میدان)", "Quantum Mechanics (incl. QFT)",                "QM"),
+    "relativity":                 ("نسبیت", "Relativity",                                                              "REL"),
+    "thermodynamics_statistical": ("ترمودینامیک و مکانیک آماری", "Thermodynamics & Statistical Physics",             "THS"),
+    "mathematical_physics":       ("فیزیک ریاضی", "Mathematical Physics",                                             "MTH"),
     "condensed_matter":           ("فیزیک ماده چگال (حالت جامد، نرم، نانو، مواد)", "Condensed Matter Physics (Solid, Soft, Nano, Materials)", "CMP"),
-    "optics_amo":                 ("اپتیک، لیزر و فیزیک اتمی-مولکولی (AMO)", "Optics, Laser & AMO Physics", "OPT"),
-    "nuclear_particle_plasma":    ("فیزیک هسته‌ای، ذرات و پلاسما", "Nuclear, Particle & Plasma Physics", "NPP"),
-    "astrophysics_cosmology":     ("اخترفیزیک، کیهان‌شناسی و نجوم", "Astrophysics, Cosmology & Astronomy", "AST"),
-    "computational_nonlinear":    ("فیزیک محاسباتی و دینامیک غیرخطی", "Computational Physics & Nonlinear Dynamics", "CMN"),
-    "biophysics_medical":         ("بیوفیزیک و فیزیک پزشکی", "Biophysics & Medical Physics",    "BIO"),
-    "chemical_acoustics":         ("فیزیک شیمی و آکوستیک", "Chemical Physics & Acoustics",      "CHE"),
-    "other":                      ("سایر / میان‌رشته‌ای", "Other / Interdisciplinary",          "OTH"),
+    "optics_amo":                 ("اپتیک، لیزر و فیزیک اتمی-مولکولی (AMO)", "Optics, Laser & AMO Physics",         "OPT"),
+    "nuclear_physics":            ("فیزیک هسته‌ای", "Nuclear Physics",                                                "NUC"),
+    "particle_physics":           ("فیزیک ذرات", "Particle Physics",                                                  "PAR"),
+    "plasma_physics":             ("فیزیک پلاسما", "Plasma Physics",                                                  "PLA"),
+    "astrophysics":               ("اخترفیزیک و نجوم", "Astrophysics & Astronomy",                                    "AST"),
+    "cosmology":                  ("کیهان‌شناسی", "Cosmology",                                                        "COS"),
+    "computational_nonlinear":    ("فیزیک محاسباتی و دینامیک غیرخطی", "Computational Physics & Nonlinear Dynamics",  "CMN"),
+    "biophysics_medical":         ("بیوفیزیک و فیزیک پزشکی", "Biophysics & Medical Physics",                         "BIO"),
+    "chemical_physics":           ("فیزیک شیمی", "Chemical Physics",                                                  "CHP"),
+    "acoustics":                  ("آکوستیک", "Acoustics",                                                             "ACU"),
+    "history_philosophy":         ("تاریخ و فلسفه فیزیک", "History & Philosophy of Physics",                         "HPP"),
+    "other":                      ("سایر / میان‌رشته‌ای", "Other / Interdisciplinary",                               "OTH"),
 }
 
 # In-memory caches — loaded from DB by _load_field_caches() after init_db()
