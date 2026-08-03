@@ -7,6 +7,15 @@ import admin
 TOKEN = os.environ.get("BOT_TOKEN")
 bot = telebot.TeleBot(TOKEN)
 
+
+def _row_get(row, key: str, default=None):
+    """sqlite3.Row does not support .get().  Use this instead of row.get(key)."""
+    try:
+        val = row[key]
+        return val if val is not None else default
+    except (IndexError, KeyError):
+        return default
+
 database.init_db()
 
 
@@ -577,7 +586,7 @@ def send_resource_list(chat_id: int, user: types.User, rows, header_key: str):
         disp = database.get_display_id(res)
         rtype = res["resource_type"] if "resource_type" in res.keys() else "book"
         icon = "📄" if rtype == "article" else "📘"
-        edition_part = f" [{res['edition']}]" if rtype == "book" and res.get("edition") and str(res["edition"]).strip() else ""
+        edition_part = f" [{res['edition']}]" if rtype == "book" and _row_get(res, "edition") and str(res["edition"]).strip() else ""
         label = f"{icon} {disp} — {res['title'][:35]}{edition_part}"
         markup.add(types.InlineKeyboardButton(label, callback_data=f"resinfo:{res['id']}"))
     bot.send_message(chat_id, header, reply_markup=markup)
@@ -594,7 +603,7 @@ def send_book_card(chat_id: int, user: types.User, book):
     lang_label = "فارسی" if book["language"] == "fa" else "English"
     disp = database.get_display_id(book)
 
-    edition_line = f"\n📖 {book['edition']}" if book.get("edition") and str(book["edition"]).strip() else ""
+    edition_line = f"\n📖 {book['edition']}" if _row_get(book, "edition") and str(book["edition"]).strip() else ""
     text = (
         f"📘 {book['title']}{edition_line}\n"
         f"✍ {book['author']}\n"
@@ -630,32 +639,32 @@ def send_resource_card(chat_id: int, user: types.User, res):
 
     lines = [
         f"📄 {res['title']}",
-        f"✍ {res['author']}" if res.get("author") else "",
+        f"✍ {res['author']}" if _row_get(res, "author") else "",
         f"🌐 {lang_label}",
         f"🌌 {field}",
         f"🔖 {disp}",
     ]
-    if res.get("journal"):
+    if _row_get(res, "journal"):
         lines.append(f"📰 {res['journal']}")
-    if res.get("volume") or res.get("issue"):
-        vi = f"Vol.{res['volume']}" if res.get("volume") else ""
-        if res.get("issue"):
+    if _row_get(res, "volume") or _row_get(res, "issue"):
+        vi = f"Vol.{res['volume']}" if _row_get(res, "volume") else ""
+        if _row_get(res, "issue"):
             vi += f" No.{res['issue']}"
         lines.append(f"🔢 {vi.strip()}")
-    if res.get("pages"):
+    if _row_get(res, "pages"):
         lines.append(f"📄 pp. {res['pages']}")
-    if res.get("doi"):
+    if _row_get(res, "doi"):
         lines.append(f"🔗 DOI: {res['doi']}")
-    if res.get("url"):
+    if _row_get(res, "url"):
         lines.append(f"🌐 {res['url']}")
-    if res.get("publication_date"):
+    if _row_get(res, "publication_date"):
         lines.append(f"📅 {res['publication_date']}")
     lines.append(f"⬇️ {res['download_count']}")
 
     markup = types.InlineKeyboardMarkup()
     # Show the download button for articles that have a PDF file OR an external
     # link/DOI — the download handler sends a document or a text card accordingly.
-    if res.get("file_id") or res.get("url") or res.get("doi"):
+    if _row_get(res, "file_id") or _row_get(res, "url") or _row_get(res, "doi"):
         markup.add(types.InlineKeyboardButton(
             t(user, "download"), callback_data=f"download:{res['id']}"
         ))
@@ -702,25 +711,25 @@ def download(callback: types.CallbackQuery):
         # --- Article download ---
         lines = [
             f"📄 {res['title']}",
-            f"✍ {res['author']}" if res.get("author") else "",
+            f"✍ {res['author']}" if _row_get(res, "author") else "",
             f"🌐 {lang_label}",
             f"🌌 {field}",
             f"🔖 {disp}",
         ]
-        if res.get("journal"):
+        if _row_get(res, "journal"):
             lines.append(f"📰 {res['journal']}")
-        if res.get("volume") or res.get("issue"):
-            vi = f"Vol.{res['volume']}" if res.get("volume") else ""
-            if res.get("issue"):
+        if _row_get(res, "volume") or _row_get(res, "issue"):
+            vi = f"Vol.{res['volume']}" if _row_get(res, "volume") else ""
+            if _row_get(res, "issue"):
                 vi += f" No.{res['issue']}"
             lines.append(f"🔢 {vi.strip()}")
-        if res.get("pages"):
+        if _row_get(res, "pages"):
             lines.append(f"📄 pp. {res['pages']}")
-        if res.get("doi"):
+        if _row_get(res, "doi"):
             lines.append(f"🔗 DOI: {res['doi']}")
-        if res.get("url"):
+        if _row_get(res, "url"):
             lines.append(f"🌐 {res['url']}")
-        if res.get("publication_date"):
+        if _row_get(res, "publication_date"):
             lines.append(f"📅 {res['publication_date']}")
         lines.append(f"⬇️ {res['download_count']}")
         lines.append("")
@@ -728,7 +737,7 @@ def download(callback: types.CallbackQuery):
 
         caption = "\n".join(l for l in lines if l is not None)
 
-        if res.get("file_id"):
+        if _row_get(res, "file_id"):
             # Article has an attached PDF — send it as a document
             bot.send_document(
                 callback.message.chat.id,
