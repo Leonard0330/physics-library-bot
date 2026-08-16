@@ -7,20 +7,6 @@ from typing import Optional
 
 DB_PATH = os.getenv("DB_PATH", "physics_library.db")
 
-
-# Seed data for physics_fields table (populated once during init_db)
-#
-# Changes from v1:
-#   - removed:  modern_physics
-#   - split:    astrophysics_cosmology  →  astrophysics + cosmology
-#   - updated:  thermodynamics_statistical English name (Statistical Mechanics → Statistical Physics)
-#   - replaced: chemical_acoustics       →  chemical_physics + acoustics
-#   - replaced: nuclear_particle_plasma  →  nuclear_physics + particle_physics + plasma_physics
-#   - added:    history_philosophy
-#
-# Rows already in the DB for removed/split keys are NOT deleted automatically
-# (existing resources keep their physics_field value).  An admin migration
-# script should reassign those rows when ready.
 _PHYSICS_FIELDS_SEED = {
     "classical_mechanics":        ("مکانیک کلاسیک", "Classical Mechanics",                                              "CM"),
     "electromagnetism":           ("الکترومغناطیس", "Electromagnetism",                                                "EM"),
@@ -597,6 +583,7 @@ def get_library_stats() -> dict:
         total_en       = conn.execute("SELECT COUNT(*) FROM books WHERE language='en'").fetchone()[0]
         total_dl       = conn.execute("SELECT COALESCE(SUM(download_count),0) FROM books").fetchone()[0]
         unique_fields  = conn.execute("SELECT COUNT(DISTINCT physics_field) FROM books").fetchone()[0]
+        total_users    = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
     return {
         "total_books":      total_books,
         "total_articles":   total_articles,
@@ -605,6 +592,7 @@ def get_library_stats() -> dict:
         "en_books":         total_en,
         "total_downloads":  total_dl,
         "unique_fields":    unique_fields,
+        "total_users":      total_users,
     }
 
 

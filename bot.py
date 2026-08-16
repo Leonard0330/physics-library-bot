@@ -22,6 +22,140 @@ database.init_db()
 user_langs: dict[int, str] = {}
 waiting_search: set[int] = set()
 
+# ── Pagination 
+PAGE_SIZE = 10
+
+
+def _pagination_keyboard(context: str, page: int, has_next: bool) -> types.InlineKeyboardMarkup | None:
+    """Return an InlineKeyboardMarkup with ◀️ / ▶️ buttons, or None when not needed.
+
+    context  – opaque string that encodes the query (stored in callback_data).
+    page     – 0-based current page index.
+    has_next – whether there is at least one item on the next page.
+    """
+    show_prev = page > 0
+    show_next = has_next
+    if not show_prev and not show_next:
+        return None
+    row = []
+    if show_prev:
+        row.append(types.InlineKeyboardButton("◀️", callback_data=f"page:{context}:{page - 1}"))
+    if show_next:
+        row.append(types.InlineKeyboardButton("▶️", callback_data=f"page:{context}:{page + 1}"))
+    mk = types.InlineKeyboardMarkup()
+    mk.row(*row)
+    return mk
+
+
+def _send_paginated_list(
+    chat_id: int,
+    user: types.User,
+    context: str,
+    page: int,
+    header_key: str,
+    edit_message_id: int | None = None,
+):
+    """Fetch one page of results and send (or edit) the list message.
+
+    context format:  "<list_type>|<arg>"
+      list_type   arg
+      ─────────   ───────────────────────────────────────────
+      search      <query text>
+      books       (empty)
+      articles    (empty)
+      top_all     (empty)
+      top_books   (empty)
+      top_articles (empty)
+      recent_all  (empty)
+      field       <field_key>|<rtype>   (rtype may be empty)
+
+    header_key is embedded at the END of context as  "…|hdr:<key>" so it
+    survives round-trips without a separate store.
+    """
+    # ── decode header_key from context 
+    if "|hdr:" in context:
+        ctx_core, hkey = context.rsplit("|hdr:", 1)
+    else:
+        ctx_core, hkey = context, header_key  # fallback (first call)
+
+    offset = page * PAGE_SIZE
+    fetch_limit = PAGE_SIZE + 1          # fetch one extra to detect next page
+
+    # ── fetch rows based on list type
+    parts = ctx_core.split("|", 1)
+    list_type = parts[0]
+    arg = parts[1] if len(parts) > 1 else ""
+
+    if list_type == "search":
+        rows = database.search_resources(query=arg, limit=fetch_limit, offset=offset)
+    elif list_type == "books":
+        rows = database.search_resources(resource_type="book", limit=fetch_limit, offset=offset)
+    elif list_type == "articles":
+        rows = database.search_resources(resource_type="article", limit=fetch_limit, offset=offset)
+    elif list_type == "top_all":
+        rows = database.get_top_downloads(limit=fetch_limit, offset=offset)
+    elif list_type == "top_books":
+        rows = database.get_top_downloads(limit=fetch_limit, resource_type="book", offset=offset)
+    elif list_type == "top_articles":
+        rows = database.get_top_downloads(limit=fetch_limit, resource_type="article", offset=offset)
+    elif list_type == "recent_all":
+        rows = database.search_resources(limit=fetch_limit, offset=offset)
+    elif list_type == "field":
+        field_key, rtype = (arg.split("|", 1) + [""])[:2]
+        rtype = rtype or None
+        rows = database.search_resources(
+            physics_field=field_key, resource_type=rtype, limit=fetch_limit, offset=offset
+        )
+    else:
+        rows = []
+
+    has_next = len(rows) > PAGE_SIZE
+    page_rows = rows[:PAGE_SIZE]
+
+    if not page_rows:
+        bot.answer_callback_query  # nothing to show — should not normally happen
+        return
+
+    lang = get_lang(user)
+    header = TEXTS[hkey][lang]
+    total_label = f"  [{page * PAGE_SIZE + 1}–{page * PAGE_SIZE + len(page_rows)}]"
+    full_header = header + total_label
+
+    # Build item buttons
+    mk = types.InlineKeyboardMarkup()
+    for res in page_rows:
+        disp = database.get_display_id(res)
+        rtype_r = res["resource_type"] if "resource_type" in res.keys() else "book"
+        icon = "📄" if rtype_r == "article" else "📘"
+        edition_part = (
+            f" [{res['edition']}]"
+            if rtype_r == "book" and _row_get(res, "edition") and str(res["edition"]).strip()
+            else ""
+        )
+        label = f"{icon} {disp} — {res['title'][:35]}{edition_part}"
+        mk.add(types.InlineKeyboardButton(label, callback_data=f"resinfo:{res['id']}"))
+
+    # Append nav row if needed
+    full_context = f"{ctx_core}|hdr:{hkey}"
+    nav_mk = _pagination_keyboard(full_context, page, has_next)
+    if nav_mk:
+        for row in nav_mk.keyboard:
+            mk.row(*row)
+
+    if edit_message_id:
+        try:
+            bot.edit_message_text(
+                full_header,
+                chat_id=chat_id,
+                message_id=edit_message_id,
+                reply_markup=mk,
+            )
+        except Exception:
+            bot.send_message(chat_id, full_header, reply_markup=mk)
+    else:
+        bot.send_message(chat_id, full_header, reply_markup=mk)
+# ── End Pagination 
+
 # texts (FA / EN)
 
 TEXTS = {
@@ -50,7 +184,7 @@ TEXTS = {
     "search_prompt": {
         "fa": "🔍 جستجو در همه منابع فارسی:\n"
         "کلمه کلیدی موردنظر خود را تایپ کنید:\n\n"
-        "To search among Persian-language resources, change the language and then search again.\n"
+        "To search among English-language resources, change the language and then search again.\n"
         "برای جستجو در منابع انگلیسی، زبان را تغییر دهید و سپس دوباره جستجو کنید.",
         "en": "🔍 Search in all English resources:\n"
         "Type the keyword you want to search:\n\n"
@@ -132,7 +266,7 @@ TEXTS = {
             "این کتابخانه طیف گسترده‌ای از شاخه‌های فیزیک، از مباحث پایه تا زمینه‌های تخصصی، را پوشش می‌دهد و تلاش می‌کند دانشجویان، پژوهشگران و علاقه‌مندان به فیزیک بتوانند منابع موردنیاز خود را به‌سادگی پیدا کنند.\n"
             "این پروژه به‌صورت مستمر در حال توسعه است و به مرور زمان کتاب‌ها و مقالات جدیدی به آن افزوده خواهند شد.\n\n"
             "📬 ارتباط و پشتیبانی: @Kimhmda0705\n"
-            "Version: 2.0"
+            "Version: 2.2"
         ),
         "en": (
             "🔭 About the Project\n\n"
@@ -140,7 +274,7 @@ TEXTS = {
             "The library covers a wide range of topics, from foundational physics to specialized fields, and aims to help students, educators, and researchers quickly discover useful learning resources.The project is continuously expanding, with new books and articles being added over time.\n\n"
             "Thank you for using Physics Library and supporting its growth.\n"
             "📬 Contact & Support: @Kimhmda0705\n"
-            "Version: 2.0"
+            "Version: 2.2"
         ),
     },
     "help": {
@@ -236,7 +370,7 @@ def btn(user: types.User, key: str) -> str:
 
 
 def main_keyboard(user: types.User) -> types.ReplyKeyboardMarkup:
-    """کیبورد اصلی ثابت پایین صفحه — ۴ دکمه."""
+    """کیبورد اصلی ثابت پایین صفحه — ۴ دکمه (+ دکمه پنل ادمین برای ادمین‌ها)."""
     lang = get_lang(user)
     lang_label = f"🌐 {'فارسی' if lang == 'en' else 'English'}"
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
@@ -248,6 +382,8 @@ def main_keyboard(user: types.User) -> types.ReplyKeyboardMarkup:
         types.KeyboardButton(btn(user, "about")),
         types.KeyboardButton(lang_label),
     )
+    if admin.is_admin(user.id):
+        kb.add(types.KeyboardButton(admin.tr("open_panel_btn", lang)))
     return kb
 
 
@@ -323,13 +459,6 @@ def send_home(chat_id: int, user: types.User):
         t(user, "start"),
         reply_markup=main_keyboard(user)
     )
-    if admin.is_admin(user.id):
-        lang = get_lang(user)
-        bot.send_message(
-            chat_id,
-            admin.tr("open_panel_btn", lang),
-            reply_markup=admin.open_panel_markup(lang)
-        )
 
 
 # /start
@@ -423,6 +552,8 @@ def text_handler(message: types.Message):
     all_btns = {BTN[k][l] for k in BTN for l in ("fa", "en")}
     # also match dynamic lang button labels
     all_btns.update({"🌐 English", "🌐 فارسی"})
+    # admin panel button labels (both languages)
+    all_btns.update({admin.tr("open_panel_btn", "fa"), admin.tr("open_panel_btn", "en")})
 
     if text == btn(user, "search"):
         waiting_search.add(uid)
@@ -448,6 +579,9 @@ def text_handler(message: types.Message):
 
     elif text in ("🌐 English", "🌐 فارسی"):
         toggle_language(message)
+
+    elif text in (admin.tr("open_panel_btn", "fa"), admin.tr("open_panel_btn", "en")):
+        admin.handle_admin_command(bot, message)
 
     # backward-compat: old reply-keyboard buttons still work
     elif text == btn(user, "books"):
@@ -475,11 +609,15 @@ def handle_books(message: types.Message):
 
 def handle_search_query(message: types.Message, query: str):
     user = message.from_user
-    rows = database.search_resources(query=query, limit=20)
-    if not rows:
+    # Quick check: does anything match at all?
+    probe = database.search_resources(query=query, limit=1, offset=0)
+    if not probe:
         bot.send_message(message.chat.id, t(user, "not_found"), reply_markup=main_keyboard(user))
         return
-    send_resource_list(message.chat.id, user, rows, header_key="resources_list_header")
+    send_resource_list(
+        message.chat.id, user, probe, header_key="resources_list_header",
+        pg_context=f"search|{query}",
+    )
     bot.send_message(message.chat.id, "─" * 10, reply_markup=main_keyboard(user))
 
 
@@ -548,14 +686,8 @@ def toggle_language(message: types.Message):
     bot.send_message(
         message.chat.id,
         TEXTS[key][new_lang],
-        reply_markup=main_keyboard(user)   
+        reply_markup=main_keyboard(user)
     )
-    if admin.is_admin(user.id):
-        bot.send_message(
-            message.chat.id,
-            admin.tr("open_panel_btn", new_lang),
-            reply_markup=admin.open_panel_markup(new_lang)
-        )
 
 
 def send_book_list(chat_id: int, user: types.User, rows, header_key: str):
@@ -574,11 +706,22 @@ def send_book_list(chat_id: int, user: types.User, rows, header_key: str):
     bot.send_message(chat_id, header, reply_markup=markup)
 
 
-def send_resource_list(chat_id: int, user: types.User, rows, header_key: str):
-    """مثل send_book_list ولی برای همه انواع منابع (کتاب + مقاله)."""
+def send_resource_list(chat_id: int, user: types.User, rows, header_key: str,
+                       pg_context: str | None = None):
+    """مثل send_book_list ولی برای همه انواع منابع (کتاب + مقاله).
+
+    When pg_context is given the list is rendered via the paginated helper so
+    navigation buttons are included from the start.  Callers that already have
+    a full row-set but no context fall back to the legacy flat render (used by
+    the backward-compat handle_top path which limits to 10 items anyway).
+    """
     if not rows:
         bot.send_message(chat_id, t(user, "no_books"), reply_markup=main_keyboard(user))
         return
+    if pg_context is not None:
+        _send_paginated_list(chat_id, user, pg_context, page=0, header_key=header_key)
+        return
+    # legacy flat render (≤20 items, no pagination needed)
     lang = get_lang(user)
     header = TEXTS[header_key][lang]
     markup = types.InlineKeyboardMarkup()
@@ -811,11 +954,13 @@ def browse_callback(callback: types.CallbackQuery):
     elif action == "fields":
         handle_fields(callback.message, user_override=user)
     elif action == "top":
-        rows = database.get_top_downloads(limit=10)
-        send_resource_list(chat_id, user, rows, header_key="top_books_header")
+        probe = database.get_top_downloads(limit=1, offset=0)
+        send_resource_list(chat_id, user, probe, header_key="top_books_header",
+                           pg_context="top_all|")
     elif action == "recent":
-        rows = database.search_resources(limit=20)
-        send_resource_list(chat_id, user, rows, header_key="resources_list_header")
+        probe = database.search_resources(limit=1, offset=0)
+        send_resource_list(chat_id, user, probe, header_key="resources_list_header",
+                           pg_context="recent_all|")
 
 
 # callback: books sub-menu
@@ -827,16 +972,19 @@ def booksub_callback(callback: types.CallbackQuery):
     chat_id = callback.message.chat.id
 
     if action == "all":
-        rows = database.search_resources(resource_type="book", limit=20)
-        send_resource_list(chat_id, user, rows, header_key="books_list_header")
+        probe = database.search_resources(resource_type="book", limit=1, offset=0)
+        send_resource_list(chat_id, user, probe, header_key="books_list_header",
+                           pg_context="books|")
     elif action == "fields":
         handle_fields(callback.message, user_override=user, resource_type="book")
     elif action == "top":
-        rows = database.get_top_downloads(limit=10, resource_type="book")
-        send_resource_list(chat_id, user, rows, header_key="books_list_header")
+        probe = database.get_top_downloads(limit=1, resource_type="book", offset=0)
+        send_resource_list(chat_id, user, probe, header_key="books_list_header",
+                           pg_context="top_books|")
     elif action == "recent":
-        rows = database.search_resources(resource_type="book", limit=20)
-        send_resource_list(chat_id, user, rows, header_key="books_list_header")
+        probe = database.search_resources(resource_type="book", limit=1, offset=0)
+        send_resource_list(chat_id, user, probe, header_key="books_list_header",
+                           pg_context="books|")
 
 
 # callback: articles sub-menu
@@ -848,16 +996,19 @@ def artsub_callback(callback: types.CallbackQuery):
     chat_id = callback.message.chat.id
 
     if action == "all":
-        rows = database.search_resources(resource_type="article", limit=20)
-        send_resource_list(chat_id, user, rows, header_key="articles_list_header")
+        probe = database.search_resources(resource_type="article", limit=1, offset=0)
+        send_resource_list(chat_id, user, probe, header_key="articles_list_header",
+                           pg_context="articles|")
     elif action == "fields":
         handle_fields(callback.message, user_override=user, resource_type="article")
     elif action == "top":
-        rows = database.get_top_downloads(limit=10, resource_type="article")
-        send_resource_list(chat_id, user, rows, header_key="articles_list_header")
+        probe = database.get_top_downloads(limit=1, resource_type="article", offset=0)
+        send_resource_list(chat_id, user, probe, header_key="articles_list_header",
+                           pg_context="top_articles|")
     elif action == "recent":
-        rows = database.search_resources(resource_type="article", limit=20)
-        send_resource_list(chat_id, user, rows, header_key="articles_list_header")
+        probe = database.search_resources(resource_type="article", limit=1, offset=0)
+        send_resource_list(chat_id, user, probe, header_key="articles_list_header",
+                           pg_context="articles|")
 
 
 # callback: about sub-menu
@@ -873,8 +1024,9 @@ def about_callback(callback: types.CallbackQuery):
     elif action == "stats":
         handle_stats(callback.message, user_override=user)
     elif action == "top":
-        rows = database.get_top_downloads(limit=10)
-        send_resource_list(chat_id, user, rows, header_key="top_books_header")
+        probe = database.get_top_downloads(limit=1, offset=0)
+        send_resource_list(chat_id, user, probe, header_key="top_books_header",
+                           pg_context="top_all|")
     elif action == "project":
         bot.send_message(chat_id, t(user, "about_project"), reply_markup=main_keyboard(user))
 
@@ -888,14 +1040,44 @@ def field_resources(callback: types.CallbackQuery):
     user = callback.from_user
     parts = callback.data.split(":")
     field_key = parts[1]
-    rtype = parts[2] if len(parts) > 2 and parts[2] else None  # empty string → None
-    rows = database.search_resources(physics_field=field_key, resource_type=rtype, limit=20)
-    if not rows:
+    rtype_raw = parts[2] if len(parts) > 2 else ""
+    rtype = rtype_raw or None  # empty string → None
+    probe = database.search_resources(physics_field=field_key, resource_type=rtype, limit=1, offset=0)
+    if not probe:
         bot.answer_callback_query(callback.id, t(user, "no_books"), show_alert=True)
         return
     bot.answer_callback_query(callback.id)
     hkey = "articles_list_header" if rtype == "article" else "books_list_header" if rtype == "book" else "resources_list_header"
-    send_resource_list(callback.message.chat.id, user, rows, header_key=hkey)
+    # context: "field|<field_key>|<rtype_raw>"
+    send_resource_list(
+        callback.message.chat.id, user, probe, header_key=hkey,
+        pg_context=f"field|{field_key}|{rtype_raw}",
+    )
+
+
+# callback: pagination navigation
+@bot.callback_query_handler(func=lambda c: c.data.startswith("page:"))
+def page_callback(callback: types.CallbackQuery):
+    user = callback.from_user
+    # format: page:<context>:<page_number>
+    # context itself may contain colons, so split from the right for page number
+    _, rest = callback.data.split(":", 1)
+    page_str = rest.rsplit(":", 1)[1]
+    context  = rest.rsplit(":", 1)[0]
+    try:
+        page = int(page_str)
+    except ValueError:
+        bot.answer_callback_query(callback.id)
+        return
+    bot.answer_callback_query(callback.id)
+    _send_paginated_list(
+        chat_id=callback.message.chat.id,
+        user=user,
+        context=context,
+        page=page,
+        header_key="",          # extracted from context inside the function
+        edit_message_id=callback.message.message_id,
+    )
 
 
 print("Bot is running...")

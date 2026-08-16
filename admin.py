@@ -43,12 +43,12 @@ T = {
     "book_not_found":   {"fa": "❌ کتابی با شناسه {id} پیدا نشد.",               "en": "❌ No book found with ID {id}."},
     "book_deleted":     {"fa": "🗑 کتاب «{title}» ({disp}) حذف شد.",             "en": "🗑 Book \"{title}\" ({disp}) deleted."},
     "back_to_panel":    {"fa": "بازگشت به پنل:",                               "en": "Back to panel:"},
-    "send_pdf":         {"fa": "📤 فایل PDF کتاب رو بفرست:",                    "en": "📤 Send the book's PDF file:"},
+    "send_pdf":         {"fa": "📤 فایل PDF منبع رو بفرست:",                    "en": "📤 Send the resource's PDF file:"},
     "pdf_only":         {"fa": "❗️ فقط فایل PDF قبول میشه.",                    "en": "❗️ Only PDF files are accepted."},
-    "file_received":    {"fa": "✅ فایل دریافت شد: {name}\n\n📘 حالا عنوان کتاب رو بنویس:",
-                          "en": "✅ File received: {name}\n\n📘 Now type the book's title:"},
+    "file_received":    {"fa": "✅ فایل دریافت شد: {name}\n\n📘 حالا عنوان فایل رو بنویس:",
+                          "en": "✅ File received: {name}\n\n📘 Now type the file's title:"},
     "ask_author":       {"fa": "✍ نام نویسنده:",                                "en": "✍ Author's name:"},
-    "ask_lang":         {"fa": "🌐 زبان کتاب رو انتخاب کن:",                     "en": "🌐 Choose the book's language:"},
+    "ask_lang":         {"fa": "🌐 زبان منبع رو انتخاب کن:",                     "en": "🌐 Choose the resource's language:"},
     "ask_field":        {"fa": "🌌 فیلد فیزیکی رو انتخاب کن:",                   "en": "🌌 Choose the physics field:"},
     "ask_year":         {"fa": "📅 سال انتشار (مثلاً 2020) — یا رد کن:",         "en": "📅 Publication year (e.g. 2020) — or skip:"},
     "year_not_number":  {"fa": "❗️ سال رو به عدد وارد کن (مثلاً 2020):",         "en": "❗️ Enter the year as a number (e.g. 2020):"},
@@ -1325,7 +1325,8 @@ def _show_stats(bot, message: types.Message, lang: str):
             f"فارسی: {s['fa_books']}\n"
             f"انگلیسی: {s['en_books']}\n"
             f"⬇️ کل دانلودها: {s['total_downloads']}\n"
-            f"🌌 فیلدهای فعال: {s['unique_fields']}"
+            f"🌌 فیلدهای فعال: {s['unique_fields']}\n"
+            f"👥 کل کاربران: {s['total_users']}"
         )
     else:
         text = (
@@ -1335,7 +1336,8 @@ def _show_stats(bot, message: types.Message, lang: str):
             f"Persian: {s['fa_books']}\n"
             f"English: {s['en_books']}\n"
             f"⬇️ Total Downloads: {s['total_downloads']}\n"
-            f"🌌 Active Fields: {s['unique_fields']}"
+            f"🌌 Active Fields: {s['unique_fields']}\n"
+            f"👥 Total Users: {s['total_users']}"
         )
     bot.send_message(message.chat.id, text, reply_markup=admin_keyboard(lang))
 
