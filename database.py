@@ -534,7 +534,7 @@ def record_download(book_id: int, user_id: int) -> None:
         conn.commit()
 
 
-def get_top_downloads(limit: int = 10, resource_type: str = "") -> list[sqlite3.Row]:
+def get_top_downloads(limit: int = 10, resource_type: str = "", offset: int = 0) -> list[sqlite3.Row]:
     """Return the most-downloaded resources.
 
     Pass resource_type='book' or resource_type='article' to filter by type.
@@ -542,11 +542,11 @@ def get_top_downloads(limit: int = 10, resource_type: str = "") -> list[sqlite3.
     Uses SELECT * so callers receive field_number, edition, resource_type, etc.
     """
     if resource_type:
-        sql    = "SELECT * FROM books WHERE resource_type = ? ORDER BY download_count DESC LIMIT ?"
-        params = (resource_type, limit)
+        sql    = "SELECT * FROM books WHERE resource_type = ? ORDER BY download_count DESC LIMIT ? OFFSET ?"
+        params = (resource_type, limit, offset)
     else:
-        sql    = "SELECT * FROM books ORDER BY download_count DESC LIMIT ?"
-        params = (limit,)
+        sql    = "SELECT * FROM books ORDER BY download_count DESC LIMIT ? OFFSET ?"
+        params = (limit, offset)
     with get_connection() as conn:
         return conn.execute(sql, params).fetchall()
 
