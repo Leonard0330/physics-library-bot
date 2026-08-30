@@ -1,5 +1,5 @@
-"""admin.py / Admin's Panel"""
-
+import csv
+import io
 import os
 import sqlite3
 import tempfile
@@ -19,20 +19,15 @@ _backup_restore_lock = threading.Lock()
 _restore_sessions: dict[int, dict] = {} 
 RESTORE_TIMEOUT = 600                     
 
-
 def is_admin(user_id: int) -> bool:
     return database.is_admin(user_id)
-
 
 def get_lang(user_id: int) -> str:
     return database.get_user_lang(user_id) or DEFAULT_LANG
 
-
-
 # Bilingual Texts
-
 T = {
-    "no_access":       {"fa": "⛔️ دسترسی ندارید.",                              "en": "⛔️ You don't have access."},
+    "no_access":        {"fa": "⛔️ دسترسی ندارید.",                              "en": "⛔️ You don't have access."},
     "panel_title":      {"fa": "👨‍💼 پنل ادمین\nیکی از گزینه‌ها رو انتخاب کن:",   "en": "👨‍💼 Admin Panel\nChoose an option:"},
     "cancelled":        {"fa": "↩️ عملیات لغو شد.",                             "en": "↩️ Operation cancelled."},
     "ask_book_id_del":  {"fa": "🗑 شناسه کتاب یا مقاله رو بنویس (مثلاً REL-14 یا آیدی عددی):",
@@ -43,8 +38,8 @@ T = {
     "book_not_found":   {"fa": "❌ کتابی با شناسه {id} پیدا نشد.",               "en": "❌ No book found with ID {id}."},
     "book_deleted":     {"fa": "🗑 کتاب «{title}» ({disp}) حذف شد.",             "en": "🗑 Book \"{title}\" ({disp}) deleted."},
     "back_to_panel":    {"fa": "بازگشت به پنل:",                               "en": "Back to panel:"},
-    "send_pdf":         {"fa": "📤 فایل PDF منبع رو بفرست:",                    "en": "📤 Send the resource's PDF file:"},
-    "pdf_only":         {"fa": "❗️ فقط فایل PDF قبول میشه.",                    "en": "❗️ Only PDF files are accepted."},
+    "send_pdf":         {"fa": "📤 فایل منبع رو بفرست (PDF، ZIP یا DjVu):", "en": "📤 Send the resource file (PDF, ZIP, or DjVu):"},
+    "pdf_only":         {"fa": "❗️ فقط فایل‌های PDF، ZIP و DjVu قبول می‌شن.", "en": "❗️ Only PDF, ZIP, and DjVu files are accepted."},
     "file_received":    {"fa": "✅ فایل دریافت شد: {name}\n\n📘 حالا عنوان فایل رو بنویس:",
                           "en": "✅ File received: {name}\n\n📘 Now type the file's title:"},
     "ask_author":       {"fa": "✍ نام نویسنده:",                                "en": "✍ Author's name:"},
@@ -1055,7 +1050,8 @@ def handle_admin_document(bot, message: types.Message) -> bool:
 
     lang = get_lang(uid)
     doc = message.document
-    if not doc.file_name.lower().endswith(".pdf"):
+    ALLOWED_EXTENSIONS = {".pdf", ".zip", ".djvu"}
+    if not any(doc.file_name.lower().endswith(ext) for ext in ALLOWED_EXTENSIONS):
         bot.send_message(message.chat.id, tr("pdf_only", lang))
         return True
 
@@ -1300,18 +1296,107 @@ def _start_add(bot, message: types.Message, lang: str):
     bot.send_message(message.chat.id, "👇", reply_markup=resource_type_keyboard(lang))
 
 
+def _build_csv(books: list, articles: list) -> io.BytesIO:
+    """یک فایل CSV شامل همه کتاب‌ها و مقالات می‌سازد."""
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    # کتاب‌ها
+    writer.writerow(["--- BOOKS ---"])
+    writer.writerow(["ID", "Title", "Author", "Edition", "Year", "Field", "Language", "Downloads", "File"])
+    for b in books:
+        field_fa, field_en = database.PHYSICS_FIELDS.get(b["physics_field"], ("", b["physics_field"]))
+        writer.writerow([
+            _disp(b),
+            b["title"],
+            b["author"] or "",
+            b["edition"] or "",
+            b["year"] or "",
+            field_en,
+            b["language"],
+            b["download_count"],
+            b["file_name"] or "",
+        ])
+
+    writer.writerow([])
+
+    # مقالات
+    writer.writerow(["--- ARTICLES ---"])
+    writer.writerow(["ID", "Title", "Author", "Journal", "Volume", "Issue", "Pages", "DOI", "Field", "Language", "Downloads"])
+    for a in articles:
+        field_fa, field_en = database.PHYSICS_FIELDS.get(a["physics_field"], ("", a["physics_field"]))
+        writer.writerow([
+            _disp(a),
+            a["title"],
+            a["author"] or "",
+            a["journal"] or "",
+            a["volume"] or "",
+            a["issue"] or "",
+            a["pages"] or "",
+            a["doi"] or "",
+            field_en,
+            a["language"],
+            a["download_count"],
+        ])
+
+    output.seek(0)
+    return io.BytesIO(output.read().encode("utf-8-sig"))  # utf-8-sig برای باز شدن درست در Excel
+
+
 def _show_list(bot, message: types.Message, lang: str):
-    rows = database.search_resources(limit=30)
-    if not rows:
+    books    = database.search_resources(resource_type="book",    limit=10_000, offset=0)
+    articles = database.search_resources(resource_type="article", limit=10_000, offset=0)
+
+    if not books and not articles:
         bot.send_message(message.chat.id, tr("no_resources", lang), reply_markup=admin_keyboard(lang))
         return
-    lines = [tr("list_header_all", lang)]
-    for b in rows:
-        rtype = b["resource_type"] if "resource_type" in b.keys() else "book"
-        icon = "📄" if rtype == "article" else "📘"
-        edition_part = f" [{b['edition']}]" if rtype == "book" and b["edition"] and b["edition"].strip() else ""
-        lines.append(f"{icon} {_disp(b)} — {b['title']}{edition_part} | {b['author']} | ⬇️{b['download_count']}")
-    bot.send_message(message.chat.id, "\n".join(lines), reply_markup=admin_keyboard(lang))
+
+    PREVIEW = 10   # تعداد آیتم‌هایی که در متن نمایش داده می‌شود
+
+    # ── خلاصه متنی ────────────────────────────────────────────────────────
+    lines = []
+
+    if books:
+        lines.append(f"📘 {'کتاب‌ها' if lang == 'fa' else 'Books'} ({len(books)}):")
+        for b in books[:PREVIEW]:
+            edition_part = f" [{b['edition']}]" if b["edition"] and str(b["edition"]).strip() else ""
+            year_part    = f" ({b['year']})"    if b["year"] else ""
+            lines.append(f"  {_disp(b)} — {b['title']}{edition_part}{year_part} | ✍ {b['author']} | ⬇️{b['download_count']}")
+        if len(books) > PREVIEW:
+            remaining = len(books) - PREVIEW
+            lines.append(f"  … و {'و ' if lang == 'fa' else ''}{remaining} {'عنوان دیگر' if lang == 'fa' else 'more'} (در فایل CSV 👇)")
+
+    if articles:
+        if lines:
+            lines.append("")
+        lines.append(f"📄 {'مقالات' if lang == 'fa' else 'Articles'} ({len(articles)}):")
+        for a in articles[:PREVIEW]:
+            journal_part = f" | 📰 {a['journal']}" if a["journal"] else ""
+            lines.append(f"  {_disp(a)} — {a['title']}{journal_part} | ✍ {a['author'] or '-'} | ⬇️{a['download_count']}")
+        if len(articles) > PREVIEW:
+            remaining = len(articles) - PREVIEW
+            lines.append(f"  … و {remaining} {'عنوان دیگر' if lang == 'fa' else 'more'} (در فایل CSV 👇)")
+
+    bot.send_message(message.chat.id, "\n".join(lines))
+
+    # ── send CSV
+    csv_buf = _build_csv(books, articles)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+    filename  = f"library_{timestamp}.csv"
+    caption = (
+        f"📊 لیست کامل: {len(books)} کتاب، {len(articles)} مقاله\n"
+        f"قابل باز شدن در Excel یا Google Sheets"
+        if lang == "fa" else
+        f"📊 Full list: {len(books)} books, {len(articles)} articles\n"
+        f"Open with Excel or Google Sheets"
+    )
+    bot.send_document(
+        message.chat.id,
+        csv_buf,
+        caption=caption,
+        visible_file_name=filename,
+        reply_markup=admin_keyboard(lang),
+    )
 
 
 def _show_stats(bot, message: types.Message, lang: str):
