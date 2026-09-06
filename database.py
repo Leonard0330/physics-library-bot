@@ -1,5 +1,3 @@
-"""database.py"""
-
 import sqlite3
 import os
 from datetime import datetime
@@ -106,7 +104,7 @@ def _try_load_field_caches_if_ready() -> None:
             if "physics_fields" in tables:
                 _load_field_caches(conn)
     except Exception:
-        pass  # اگر DB هنوز آماده نیست، init_db() بعداً کش رو لود می‌کنه
+        pass  
 
 
 _try_load_field_caches_if_ready()
@@ -115,7 +113,7 @@ _try_load_field_caches_if_ready()
 def init_db() -> None:
     with get_connection() as conn:
 
-        # ── physics_fields table ─────────────────────────────────────────────
+        # ── physics_fields table
         conn.execute("""
             CREATE TABLE IF NOT EXISTS physics_fields (
                 key         TEXT PRIMARY KEY,
@@ -134,7 +132,7 @@ def init_db() -> None:
                 ON CONFLICT(key) DO NOTHING
             """, (key, name_fa, name_en, code))
 
-        # ── books table ──────────────────────────────────────────────────────
+        # ── books table 
         conn.execute("""
             CREATE TABLE IF NOT EXISTS books (
                 id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -190,7 +188,7 @@ def init_db() -> None:
             "WHERE physics_field = 'General Physics'"
         )
 
-        # ── New columns on books (article support + resource_type) ────────────
+        # ── New columns on books (article support + resource_type) 
         book_cols = {row["name"] for row in conn.execute("PRAGMA table_info(books)")}
         _new_book_cols = [
             ("resource_type",    "TEXT NOT NULL DEFAULT 'book'"),
@@ -241,7 +239,7 @@ def init_db() -> None:
     print(f"[DB] دیتابیس آماده شد: {DB_PATH}")
 
 
-# ── Generic resource functions ───────────────────────────────────────────────
+# ── Generic resource functions 
 
 def add_resource(
     title: str,
@@ -407,7 +405,7 @@ def find_resource_by_display_id(text: str) -> Optional[sqlite3.Row]:
     return None
 
 
-# ── Book CRUD (thin wrappers around generic functions) ───────────────────────
+# ── Book CRUD (thin wrappers around generic functions) 
 
 def add_book(
     title: str,
@@ -523,10 +521,6 @@ def search_books(
 
 
 def suggest_similar(query: str, limit: int = 3) -> list[sqlite3.Row]:
-    """برای هر کلمه query، جستجوی جداگانه‌ای انجام می‌دهد و نتایج غیرتکراری بر‌می‌گرداند.
-
-    سبک و بدون وابستگی خارجی — مناسب برای پیشنهاد در صورت نبود نتیجه.
-    """
     words = [w.strip() for w in query.split() if len(w.strip()) >= 2]
     if not words:
         return []
@@ -579,14 +573,8 @@ def record_download(book_id: int, user_id: int) -> None:
         )
         conn.commit()
 
-
+# Most Downloaded Resources
 def get_top_downloads(limit: int = 10, resource_type: str = "", offset: int = 0) -> list[sqlite3.Row]:
-    """Return the most-downloaded resources.
-
-    Pass resource_type='book' or resource_type='article' to filter by type.
-    Omit (or pass empty string) to return all resource types combined.
-    Uses SELECT * so callers receive field_number, edition, resource_type, etc.
-    """
     if resource_type:
         sql    = "SELECT * FROM books WHERE resource_type = ? ORDER BY download_count DESC LIMIT ? OFFSET ?"
         params = (resource_type, limit, offset)
@@ -674,9 +662,8 @@ def is_admin(user_id: int) -> bool:
         ).fetchone()
     return bool(row and row["is_admin"])
 
-
+# Admin Lists
 def list_admins() -> list[sqlite3.Row]:
-    """لیست همهٔ ادمین‌های فعلی."""
     with get_connection() as conn:
         return conn.execute(
             "SELECT user_id, username, first_name FROM users WHERE is_admin = 1 "

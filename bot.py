@@ -285,15 +285,15 @@ TEXTS = {
         "en": "⭐ Top Resources"
     },
     "books_list_header": {
-        "fa": "📘 لیست کتاب‌ها — روی هر کتاب بزن 👇",
+        "fa": "📘 لیست کتاب‌ها — روی کتاب موردنظر کلیک کن 👇",
         "en": "📘 Books — tap to see details 👇"
     },
     "articles_list_header": {
-        "fa": "📄 لیست مقالات — روی هر مقاله بزن 👇",
+        "fa": "📄 لیست مقالات — روی مقاله موردنظر کلیک کن 👇",
         "en": "📄 Articles — tap to see details 👇"
     },
     "resources_list_header": {
-        "fa": "📋 نتایج جستجو — روی هر مورد بزن 👇",
+        "fa": "📋 نتایج جستجو — روی هر مورد کلیک کن 👇",
         "en": "📋 Search results — tap to see details 👇"
     },
     "browse_header": {
@@ -430,7 +430,6 @@ def btn(user: types.User, key: str) -> str:
 
 
 def main_keyboard(user: types.User) -> types.ReplyKeyboardMarkup:
-    """کیبورد اصلی ثابت پایین صفحه — ۴ دکمه (+ دکمه پنل ادمین برای ادمین‌ها)."""
     lang = get_lang(user)
     lang_label = f"🌐 {'فارسی' if lang == 'en' else 'English'}"
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
@@ -514,7 +513,7 @@ def about_keyboard(user: types.User) -> types.InlineKeyboardMarkup:
 
 
 def search_filter_keyboard(user: types.User) -> types.InlineKeyboardMarkup:
-    """کیبورد انتخاب فیلترهای جستجوی پیشرفته."""
+
     lang = get_lang(user)
     uid = user.id
     f = search_filters.get(uid, {})
@@ -858,13 +857,6 @@ def send_book_list(chat_id: int, user: types.User, rows, header_key: str):
 
 def send_resource_list(chat_id: int, user: types.User, rows, header_key: str,
                        pg_context: str | None = None):
-    """مثل send_book_list ولی برای همه انواع منابع (کتاب + مقاله).
-
-    When pg_context is given the list is rendered via the paginated helper so
-    navigation buttons are included from the start.  Callers that already have
-    a full row-set but no context fall back to the legacy flat render (used by
-    the backward-compat handle_top path which limits to 10 items anyway).
-    """
     if not rows:
         bot.send_message(chat_id, t(user, "no_books"), reply_markup=main_keyboard(user))
         return
@@ -915,9 +907,8 @@ def send_book_card(chat_id: int, user: types.User, book):
     )
     bot.send_message(chat_id, text, reply_markup=markup)
 
-
+# Book / Article Card
 def send_resource_card(chat_id: int, user: types.User, res):
-    """کارت نمایش منبع — کتاب یا مقاله."""
     lang = get_lang(user)
     rtype = res["resource_type"] if "resource_type" in res.keys() else "book"
     if rtype == "book":
@@ -1298,10 +1289,6 @@ def about_callback(callback: types.CallbackQuery):
         bot.send_message(chat_id, t(user, "about_project"), reply_markup=main_keyboard(user))
 
 
-# callback: field filter — handles all three flows:
-# 1. Browse → Fields → Field          (fieldres:key:)    rtype=None → all
-# 2. Browse → Books → Fields → Field  (fieldres:key:book) rtype=book
-# 3. Browse → Articles → Fields → Field (fieldres:key:article) rtype=article
 @bot.callback_query_handler(func=lambda c: c.data.startswith("fieldres:"))
 def field_resources(callback: types.CallbackQuery):
     user = callback.from_user
