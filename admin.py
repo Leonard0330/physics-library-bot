@@ -390,11 +390,13 @@ def summary_text(data: dict, lang: str) -> str:
 
 
 def _book_summary_text(book, lang: str) -> str:
+    keys = book.keys() if hasattr(book, "keys") else book
     return summary_text({
         "title": book["title"],
         "author": book["author"],
         "language": book["language"],
         "physics_field": book["physics_field"],
+        "resource_type": book["resource_type"] if "resource_type" in keys else "book",
         "year": book["year"],
         "edition": book["edition"],
         "description": book["description"],
@@ -602,14 +604,17 @@ def handle_restore_command(bot, message: types.Message):
     if not _backup_restore_lock.acquire(blocking=False):
         bot.send_message(message.chat.id, tr("backup_busy", lang))
         return
-    # lock
-    _restore_sessions[uid] = {
-        "step": "wait_file",
-        "expire": datetime.now().timestamp() + RESTORE_TIMEOUT,
-        "emergency_path": None,
-        "tmp_db_path": None,
-    }
-    bot.send_message(message.chat.id, tr("restore_prompt", lang))
+    try:
+        _restore_sessions[uid] = {
+            "step": "wait_file",
+            "expire": datetime.now().timestamp() + RESTORE_TIMEOUT,
+            "emergency_path": None,
+            "tmp_db_path": None,
+        }
+        bot.send_message(message.chat.id, tr("restore_prompt", lang))
+    except Exception:
+        _backup_restore_lock.release()
+        raise
 
 
 def handle_cancel_command(bot, message: types.Message):
@@ -1051,7 +1056,7 @@ def handle_admin_document(bot, message: types.Message) -> bool:
     lang = get_lang(uid)
     doc = message.document
     ALLOWED_EXTENSIONS = {".pdf", ".zip", ".djvu"}
-    if not any(doc.file_name.lower().endswith(ext) for ext in ALLOWED_EXTENSIONS):
+    if not any((doc.file_name or "").lower().endswith(ext) for ext in ALLOWED_EXTENSIONS):
         bot.send_message(message.chat.id, tr("pdf_only", lang))
         return True
 
@@ -1081,9 +1086,6 @@ def _handle_article_skip_file(bot, message: types.Message, uid: int, lang: str) 
         admin_sessions[uid]["data"].setdefault("file_id", "")
         admin_sessions[uid]["data"].setdefault("file_name", "")
         admin_sessions[uid]["data"].setdefault("file_size", 0)
-        admin_sessions[uid]["step"] = "wait_title"
-        bot.send_message(message.chat.id, tr("ask_author", lang), reply_markup=cancel_keyboard(lang))
-        # Actually ask title first (matching book flow)
         admin_sessions[uid]["step"] = "wait_title"
         bot.send_message(
             message.chat.id,

@@ -314,6 +314,7 @@ def search_resources(
     resource_type: str = "",
     limit: int = 10,
     offset: int = 0,
+    order_by: str = "default",   # "default" | "recent" | "popular"
 ) -> list[sqlite3.Row]:
     conditions: list[str] = []
     params: list = []
@@ -336,10 +337,19 @@ def search_resources(
         params.append(resource_type)
 
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+
+    if order_by == "recent":
+        order_clause = "ORDER BY created_at DESC, id DESC"
+    elif order_by == "popular":
+        order_clause = "ORDER BY download_count DESC, created_at DESC"
+    else:
+        # default: alphabetical — neutral ordering for "all" lists
+        order_clause = "ORDER BY title ASC"
+
     sql = f"""
         SELECT * FROM books
         {where}
-        ORDER BY download_count DESC, created_at DESC
+        {order_clause}
         LIMIT ? OFFSET ?
     """
     params += [limit, offset]
@@ -491,6 +501,7 @@ def search_books(
     language: str = "",
     limit: int = 10,
     offset: int = 0,
+    order_by: str = "default",
 ) -> list[sqlite3.Row]:
     return search_resources(
         query=query,
@@ -499,6 +510,7 @@ def search_books(
         resource_type="book",
         limit=limit,
         offset=offset,
+        order_by=order_by,
     )
 
 

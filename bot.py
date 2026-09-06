@@ -99,7 +99,11 @@ def _send_paginated_list(
     elif list_type == "top_articles":
         rows = database.get_top_downloads(limit=fetch_limit, resource_type="article", offset=offset)
     elif list_type == "recent_all":
-        rows = database.search_resources(limit=fetch_limit, offset=offset)
+        rows = database.search_resources(limit=fetch_limit, offset=offset, order_by="recent")
+    elif list_type == "recent_books":
+        rows = database.search_resources(resource_type="book", limit=fetch_limit, offset=offset, order_by="recent")
+    elif list_type == "recent_articles":
+        rows = database.search_resources(resource_type="article", limit=fetch_limit, offset=offset, order_by="recent")
     elif list_type == "field":
         field_key, rtype = (arg.split("|", 1) + [""])[:2]
         rtype = rtype or None
@@ -905,7 +909,7 @@ def download(callback: types.CallbackQuery):
             f"📘 {res['title']}{edition_line}\n"
             f"✍ {res['author']}\n"
             f"🌐 {lang_label}\n"
-            f"🧲 {field}\n"
+            f"🌌 {field}\n"
             f"🔖 {disp}\n"
             f"⬇️ {res['download_count']}"
             f"{year_line}"
@@ -958,7 +962,7 @@ def browse_callback(callback: types.CallbackQuery):
         send_resource_list(chat_id, user, probe, header_key="top_books_header",
                            pg_context="top_all|")
     elif action == "recent":
-        probe = database.search_resources(limit=1, offset=0)
+        probe = database.search_resources(limit=1, offset=0, order_by="recent")
         send_resource_list(chat_id, user, probe, header_key="resources_list_header",
                            pg_context="recent_all|")
 
@@ -982,9 +986,9 @@ def booksub_callback(callback: types.CallbackQuery):
         send_resource_list(chat_id, user, probe, header_key="books_list_header",
                            pg_context="top_books|")
     elif action == "recent":
-        probe = database.search_resources(resource_type="book", limit=1, offset=0)
+        probe = database.search_resources(resource_type="book", limit=1, offset=0, order_by="recent")
         send_resource_list(chat_id, user, probe, header_key="books_list_header",
-                           pg_context="books|")
+                           pg_context="recent_books|")
 
 
 # callback: articles sub-menu
@@ -1006,9 +1010,9 @@ def artsub_callback(callback: types.CallbackQuery):
         send_resource_list(chat_id, user, probe, header_key="articles_list_header",
                            pg_context="top_articles|")
     elif action == "recent":
-        probe = database.search_resources(resource_type="article", limit=1, offset=0)
+        probe = database.search_resources(resource_type="article", limit=1, offset=0, order_by="recent")
         send_resource_list(chat_id, user, probe, header_key="articles_list_header",
-                           pg_context="articles|")
+                           pg_context="recent_articles|")
 
 
 # callback: about sub-menu
