@@ -22,7 +22,12 @@ database.init_db()
 user_langs: dict[int, str] = {}
 waiting_search: set[int] = set()
 
-# ── Pagination 
+# ── Advanced search filter state ──────────────────────────────────────────────
+# Stores active filters per user while they are building a filtered search.
+# Format: {user_id: {"language": "en"|"fa"|"", "physics_field": ".."|"", "resource_type": "book"|"article"|""}}
+search_filters: dict[int, dict] = {}
+
+# Pagination 
 PAGE_SIZE = 10
 
 
@@ -86,7 +91,25 @@ def _send_paginated_list(
     list_type = parts[0]
     arg = parts[1] if len(parts) > 1 else ""
 
-    if list_type == "search":
+    if list_type == "searchf":
+        # arg format: "<query>|lang:<lf>|field:<ff>|rtype:<rf>"
+        parts_f = arg.split("|")
+        q_f  = parts_f[0] if parts_f else ""
+        lf   = ""
+        ff   = ""
+        rf   = ""
+        for p in parts_f[1:]:
+            if p.startswith("lang:"):
+                lf = p[5:]
+            elif p.startswith("field:"):
+                ff = p[6:]
+            elif p.startswith("rtype:"):
+                rf = p[6:]
+        rows = database.search_resources(
+            query=q_f, language=lf, physics_field=ff,
+            resource_type=rf, limit=fetch_limit, offset=offset,
+        )
+    elif list_type == "search":
         rows = database.search_resources(query=arg, limit=fetch_limit, offset=offset)
     elif list_type == "books":
         rows = database.search_resources(resource_type="book", limit=fetch_limit, offset=offset)
@@ -198,6 +221,32 @@ TEXTS = {
     "not_found": {
         "fa": "🔍 نتیجه‌ای پیدا نشد.",
         "en": "🔍 No results found."
+    },
+    "not_found_suggest": {
+        "fa": "🔍 نتیجه‌ای پیدا نشد.\nشاید منظورتان «{suggestion}» بوده؟",
+        "en": "🔍 No results found.\nDid you mean \"{suggestion}\"?"
+    },
+    "search_filter_prompt": {
+        "fa": (
+            "🔍 جستجوی پیشرفته\n"
+            "فیلترهای دلخواه را انتخاب کن و سپس کلیدواژه را تایپ کن.\n\n"
+            "فیلترهای فعال: {active_filters}\n\n"
+            "کلیدواژه خود را بنویس:"
+        ),
+        "en": (
+            "🔍 Advanced Search\n"
+            "Select your filters, then type your keyword.\n\n"
+            "Active filters: {active_filters}\n\n"
+            "Type your keyword:"
+        ),
+    },
+    "search_filter_none": {
+        "fa": "هیچ",
+        "en": "None"
+    },
+    "search_filter_header": {
+        "fa": "🔍 فیلترهای جستجو را انتخاب کن:",
+        "en": "🔍 Choose search filters:"
     },
     "download": {
         "fa": "📥 دریافت",
@@ -339,6 +388,13 @@ BTN = {
     "ab_top":     {"fa": "⭐ پرطرفدارها",     "en": "⭐ Top Resources"},
     "ab_about":   {"fa": "🔭 درباره پروژه",    "en": "🔭 About Project"},
 
+    # Advanced search filter buttons
+    "sf_lang":       {"fa": "🌐 زبان",            "en": "🌐 Language"},
+    "sf_field":      {"fa": "🌌 فیلد فیزیک",      "en": "🌌 Physics Field"},
+    "sf_type":       {"fa": "📂 نوع منبع",         "en": "📂 Resource Type"},
+    "sf_clear":      {"fa": "🗑 پاک کردن فیلترها", "en": "🗑 Clear Filters"},
+    "sf_search":     {"fa": "🔍 جستجو",            "en": "🔍 Search"},
+
     # kept for backward-compat (used in old inline keyboards that may still exist)
     "books":   {"fa": "📚 همه کتاب‌ها",    "en": "📚 All Books"},
     "fields":  {"fa": "🌌 فیلدهای فیزیک", "en": "🌌 Physics Fields"},
@@ -457,6 +513,36 @@ def about_keyboard(user: types.User) -> types.InlineKeyboardMarkup:
     return mk
 
 
+def search_filter_keyboard(user: types.User) -> types.InlineKeyboardMarkup:
+    """کیبورد انتخاب فیلترهای جستجوی پیشرفته."""
+    lang = get_lang(user)
+    uid = user.id
+    f = search_filters.get(uid, {})
+
+    lang_val  = f.get("language", "")
+    field_val = f.get("physics_field", "")
+    rtype_val = f.get("resource_type", "")
+
+    # نشان‌گذار فیلترهای فعال
+    lang_label  = f"🌐 {lang_val.upper()} ✓" if lang_val  else BTN["sf_lang"][lang]
+    field_label = f"🌌 {database.PHYSICS_FIELDS.get(field_val, ('?','?'))[0 if lang=='fa' else 1][:15]} ✓" if field_val else BTN["sf_field"][lang]
+    rtype_label = f"📂 {'کتاب' if rtype_val=='book' else 'مقاله'} ✓" if rtype_val else BTN["sf_type"][lang]
+
+    mk = types.InlineKeyboardMarkup()
+    mk.row(
+        types.InlineKeyboardButton(lang_label,  callback_data="sf:lang"),
+        types.InlineKeyboardButton(field_label, callback_data="sf:field"),
+    )
+    mk.row(
+        types.InlineKeyboardButton(rtype_label, callback_data="sf:type"),
+        types.InlineKeyboardButton(BTN["sf_clear"][lang], callback_data="sf:clear"),
+    )
+    mk.row(
+        types.InlineKeyboardButton(BTN["sf_search"][lang], callback_data="sf:go"),
+    )
+    return mk
+
+
 def send_home(chat_id: int, user: types.User):
     bot.send_message(
         chat_id,
@@ -560,12 +646,9 @@ def text_handler(message: types.Message):
     all_btns.update({admin.tr("open_panel_btn", "fa"), admin.tr("open_panel_btn", "en")})
 
     if text == btn(user, "search"):
-        waiting_search.add(uid)
-        bot.send_message(
-            message.chat.id,
-            t(user, "search_prompt"),
-            reply_markup=cancel_keyboard(user)
-        )
+        # نمایش پنل فیلترهای پیشرفته جستجو
+        search_filters.pop(uid, None)   # reset filters
+        _send_search_filter_panel(message.chat.id, user)
 
     elif text == btn(user, "browse"):
         bot.send_message(
@@ -604,6 +687,37 @@ def text_handler(message: types.Message):
 
 
 # handlers
+def _send_search_filter_panel(chat_id: int, user: types.User, edit_message_id: int | None = None):
+    """ارسال یا ویرایش پنل فیلترهای جستجو."""
+    lang = get_lang(user)
+    uid  = user.id
+    f    = search_filters.get(uid, {})
+
+    active_parts = []
+    if f.get("language"):
+        active_parts.append(f"زبان: {f['language'].upper()}" if lang == "fa" else f"Lang: {f['language'].upper()}")
+    if f.get("physics_field"):
+        fa_n, en_n = database.PHYSICS_FIELDS.get(f["physics_field"], (f["physics_field"], f["physics_field"]))
+        active_parts.append(fa_n if lang == "fa" else en_n)
+    if f.get("resource_type"):
+        rtype_labels = {"book": ("کتاب", "Book"), "article": ("مقاله", "Article")}
+        label = rtype_labels.get(f["resource_type"], (f["resource_type"], f["resource_type"]))
+        active_parts.append(label[0] if lang == "fa" else label[1])
+
+    active_str = "، ".join(active_parts) if active_parts else TEXTS["search_filter_none"][lang]
+    header = TEXTS["search_filter_header"][lang]
+    full_text = f"{header}\n\n{'فیلترهای فعال' if lang=='fa' else 'Active filters'}: {active_str}"
+
+    mk = search_filter_keyboard(user)
+    if edit_message_id:
+        try:
+            bot.edit_message_text(full_text, chat_id=chat_id, message_id=edit_message_id, reply_markup=mk)
+            return
+        except Exception:
+            pass
+    bot.send_message(chat_id, full_text, reply_markup=mk)
+
+
 def handle_books(message: types.Message):
     #list of all books
     user = message.from_user
@@ -613,14 +727,46 @@ def handle_books(message: types.Message):
 
 def handle_search_query(message: types.Message, query: str):
     user = message.from_user
+    uid  = user.id
+
+    # Read active filters for this user
+    f         = search_filters.pop(uid, {})
+    lang_f    = f.get("language", "")
+    field_f   = f.get("physics_field", "")
+    rtype_f   = f.get("resource_type", "")
+
     # Quick check: does anything match at all?
-    probe = database.search_resources(query=query, limit=1, offset=0)
+    probe = database.search_resources(
+        query=query,
+        language=lang_f,
+        physics_field=field_f,
+        resource_type=rtype_f,
+        limit=1,
+        offset=0,
+    )
     if not probe:
-        bot.send_message(message.chat.id, t(user, "not_found"), reply_markup=main_keyboard(user))
+        # Try to suggest a similar result (ignoring filters for broader match)
+        suggestions = database.suggest_similar(query)
+        if suggestions:
+            sug = suggestions[0]["title"]
+            msg = TEXTS["not_found_suggest"][get_lang(user)].format(suggestion=sug)
+        else:
+            msg = t(user, "not_found")
+        bot.send_message(message.chat.id, msg, reply_markup=main_keyboard(user))
         return
+
+    # Build a context string that encodes all active filters so pagination works
+    # Format: search_f|<query>|lang:<lang_f>|field:<field_f>|rtype:<rtype_f>
+    # We keep the existing "search|<query>" format when no filters are active,
+    # and use "searchf|..." when filters are present.
+    if lang_f or field_f or rtype_f:
+        pg_ctx = f"searchf|{query}|lang:{lang_f}|field:{field_f}|rtype:{rtype_f}"
+    else:
+        pg_ctx = f"search|{query}"
+
     send_resource_list(
         message.chat.id, user, probe, header_key="resources_list_header",
-        pg_context=f"search|{query}",
+        pg_context=pg_ctx,
     )
     bot.send_message(message.chat.id, "─" * 10, reply_markup=main_keyboard(user))
 
@@ -926,6 +1072,123 @@ def download(callback: types.CallbackQuery):
     bot.answer_callback_query(callback.id, t(user, "downloaded"))
 
 
+
+
+# callback: advanced search filters
+@bot.callback_query_handler(func=lambda c: c.data.startswith("sf:"))
+def search_filter_callback(callback: types.CallbackQuery):
+    user   = callback.from_user
+    uid    = user.id
+    lang   = get_lang(user)
+    action = callback.data.split(":", 1)[1]
+    bot.answer_callback_query(callback.id)
+
+    if action == "clear":
+        search_filters.pop(uid, None)
+        _send_search_filter_panel(callback.message.chat.id, user,
+                                  edit_message_id=callback.message.message_id)
+        return
+
+    if action == "go":
+        # Start waiting for keyword text
+        search_filters.setdefault(uid, {})
+        waiting_search.add(uid)
+        f    = search_filters.get(uid, {})
+        active_parts = []
+        if f.get("language"):
+            active_parts.append(f"زبان: {f['language'].upper()}" if lang == "fa" else f"Lang: {f['language'].upper()}")
+        if f.get("physics_field"):
+            fa_n, en_n = database.PHYSICS_FIELDS.get(f["physics_field"], (f["physics_field"], f["physics_field"]))
+            active_parts.append(fa_n if lang == "fa" else en_n)
+        if f.get("resource_type"):
+            rtype_labels = {"book": ("کتاب", "Book"), "article": ("مقاله", "Article")}
+            label = rtype_labels.get(f["resource_type"], (f["resource_type"], f["resource_type"]))
+            active_parts.append(label[0] if lang == "fa" else label[1])
+        active_str = "، ".join(active_parts) if active_parts else TEXTS["search_filter_none"][lang]
+        prompt = TEXTS["search_filter_prompt"][lang].format(active_filters=active_str)
+        bot.send_message(callback.message.chat.id, prompt, reply_markup=cancel_keyboard(user))
+        return
+
+    if action == "lang":
+        # Inline keyboard for language selection
+        mk = types.InlineKeyboardMarkup()
+        mk.row(
+            types.InlineKeyboardButton("🇮🇷 فارسی", callback_data="sf_lang:fa"),
+            types.InlineKeyboardButton("🇬🇧 English", callback_data="sf_lang:en"),
+        )
+        if lang == "fa":
+            mk.row(types.InlineKeyboardButton("✖️ بدون فیلتر زبان", callback_data="sf_lang:"))
+        else:
+            mk.row(types.InlineKeyboardButton("✖️ No language filter", callback_data="sf_lang:"))
+        bot.send_message(callback.message.chat.id,
+                         "🌐 زبان:" if lang == "fa" else "🌐 Language:",
+                         reply_markup=mk)
+        return
+
+    if action == "field":
+        # Build physics field inline keyboard
+        mk = types.InlineKeyboardMarkup()
+        buttons = []
+        for key, (lfa, len_) in database.PHYSICS_FIELDS.items():
+            label = lfa if lang == "fa" else len_
+            buttons.append(types.InlineKeyboardButton(label, callback_data=f"sf_field:{key}"))
+        for i in range(0, len(buttons), 2):
+            mk.row(*buttons[i:i+2])
+        clear_label = "✖️ بدون فیلتر فیلد" if lang == "fa" else "✖️ No field filter"
+        mk.row(types.InlineKeyboardButton(clear_label, callback_data="sf_field:"))
+        bot.send_message(callback.message.chat.id,
+                         "🌌 فیلد فیزیک:" if lang == "fa" else "🌌 Physics Field:",
+                         reply_markup=mk)
+        return
+
+    if action == "type":
+        mk = types.InlineKeyboardMarkup()
+        if lang == "fa":
+            mk.row(
+                types.InlineKeyboardButton("📘 کتاب",  callback_data="sf_type:book"),
+                types.InlineKeyboardButton("📄 مقاله", callback_data="sf_type:article"),
+            )
+            mk.row(types.InlineKeyboardButton("✖️ بدون فیلتر نوع", callback_data="sf_type:"))
+        else:
+            mk.row(
+                types.InlineKeyboardButton("📘 Book",    callback_data="sf_type:book"),
+                types.InlineKeyboardButton("📄 Article", callback_data="sf_type:article"),
+            )
+            mk.row(types.InlineKeyboardButton("✖️ No type filter", callback_data="sf_type:"))
+        bot.send_message(callback.message.chat.id,
+                         "📂 نوع منبع:" if lang == "fa" else "📂 Resource Type:",
+                         reply_markup=mk)
+        return
+
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith("sf_lang:"))
+def sf_lang_callback(callback: types.CallbackQuery):
+    uid = callback.from_user.id
+    val = callback.data.split(":", 1)[1]
+    search_filters.setdefault(uid, {})["language"] = val
+    bot.answer_callback_query(callback.id, "✅")
+    _send_search_filter_panel(callback.message.chat.id, callback.from_user,
+                              edit_message_id=None)
+
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith("sf_field:"))
+def sf_field_callback(callback: types.CallbackQuery):
+    uid = callback.from_user.id
+    val = callback.data.split(":", 1)[1]
+    search_filters.setdefault(uid, {})["physics_field"] = val
+    bot.answer_callback_query(callback.id, "✅")
+    _send_search_filter_panel(callback.message.chat.id, callback.from_user,
+                              edit_message_id=None)
+
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith("sf_type:"))
+def sf_type_callback(callback: types.CallbackQuery):
+    uid = callback.from_user.id
+    val = callback.data.split(":", 1)[1]
+    search_filters.setdefault(uid, {})["resource_type"] = val
+    bot.answer_callback_query(callback.id, "✅")
+    _send_search_filter_panel(callback.message.chat.id, callback.from_user,
+                              edit_message_id=None)
 
 
 # callback: resinfo (unified resource card)

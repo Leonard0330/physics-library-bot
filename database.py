@@ -320,9 +320,11 @@ def search_resources(
     params: list = []
 
     if query:
-        conditions.append("(title LIKE ? OR author LIKE ?)")
+        conditions.append(
+            "(title LIKE ? OR author LIKE ? OR description LIKE ? OR doi LIKE ?)"
+        )
         like = f"%{query}%"
-        params += [like, like]
+        params += [like, like, like, like]
 
     if physics_field:
         conditions.append("physics_field = ?")
@@ -454,9 +456,15 @@ def find_book_by_display_id(text: str) -> Optional[sqlite3.Row]:
 
 def update_book(book_id: int, **kwargs) -> bool:
     allowed = {
+        # shared fields
         "title", "author", "language", "physics_field",
-        "description", "edition", "year",
+        "description", "year",
         "file_id", "file_name", "file_size", "cover_file_id",
+        # book-specific
+        "edition",
+        # article-specific
+        "doi", "journal", "volume", "issue", "pages",
+        "publication_date", "url",
     }
     fields = {k: v for k, v in kwargs.items() if k in allowed}
     if not fields:
@@ -512,6 +520,32 @@ def search_books(
         offset=offset,
         order_by=order_by,
     )
+
+
+def suggest_similar(query: str, limit: int = 3) -> list[sqlite3.Row]:
+    """برای هر کلمه query، جستجوی جداگانه‌ای انجام می‌دهد و نتایج غیرتکراری بر‌می‌گرداند.
+
+    سبک و بدون وابستگی خارجی — مناسب برای پیشنهاد در صورت نبود نتیجه.
+    """
+    words = [w.strip() for w in query.split() if len(w.strip()) >= 2]
+    if not words:
+        return []
+    seen: set[int] = set()
+    results: list[sqlite3.Row] = []
+    with get_connection() as conn:
+        for word in words:
+            like = f"%{word}%"
+            rows = conn.execute(
+                "SELECT * FROM books WHERE title LIKE ? OR author LIKE ? LIMIT ?",
+                (like, like, limit)
+            ).fetchall()
+            for row in rows:
+                if row["id"] not in seen:
+                    seen.add(row["id"])
+                    results.append(row)
+            if len(results) >= limit:
+                break
+    return results[:limit]
 
 
 def get_books_by_field(physics_field: str, limit: int = 20) -> list[sqlite3.Row]:

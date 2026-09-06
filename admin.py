@@ -108,8 +108,16 @@ T = {
     "edit_field_edition":  {"fa": "🔖 ویرایش",  "en": "🔖 Edition"},
     "edit_field_desc":     {"fa": "📝 توضیحات", "en": "📝 Description"},
     "edit_field_physics":  {"fa": "🌌 فیلد فیزیکی", "en": "🌌 Physics Field"},
+    # Article-specific edit fields
+    "edit_field_doi":           {"fa": "🔗 DOI",           "en": "🔗 DOI"},
+    "edit_field_journal":       {"fa": "📰 مجله",           "en": "📰 Journal"},
+    "edit_field_volume":        {"fa": "🔢 جلد",            "en": "🔢 Volume"},
+    "edit_field_issue":         {"fa": "🔢 شماره",          "en": "🔢 Issue"},
+    "edit_field_pages":         {"fa": "📄 صفحات",          "en": "📄 Pages"},
+    "edit_field_pub_date":      {"fa": "📅 تاریخ انتشار",   "en": "📅 Publication Date"},
+    "edit_field_url":           {"fa": "🌐 URL",            "en": "🌐 URL"},
     "ask_new_value":    {"fa": "مقدار جدید رو بنویس:",                          "en": "Enter the new value:"},
-    "edit_saved":       {"fa": "✅ کتاب {disp} به‌روزرسانی شد.",                 "en": "✅ Book {disp} updated."},
+    "edit_saved":       {"fa": "✅ منبع {disp} به‌روزرسانی شد.",                 "en": "✅ Resource {disp} updated."},
 
     # Summary
 
@@ -322,20 +330,45 @@ def resource_type_keyboard(lang: str) -> types.InlineKeyboardMarkup:
     return markup
 
 
-def edit_field_keyboard(lang: str) -> types.InlineKeyboardMarkup:
+def edit_field_keyboard(lang: str, resource_type: str = "book") -> types.InlineKeyboardMarkup:
+    """کیبورد انتخاب فیلد ویرایش — بر اساس resource_type فیلدهای مناسب نمایش داده می‌شود."""
     markup = types.InlineKeyboardMarkup()
+    # فیلدهای مشترک بین کتاب و مقاله
     markup.row(
         types.InlineKeyboardButton(tr("edit_field_title", lang),   callback_data="adm_editfield:title"),
         types.InlineKeyboardButton(tr("edit_field_author", lang),  callback_data="adm_editfield:author"),
     )
     markup.row(
-        types.InlineKeyboardButton(tr("edit_field_year", lang),    callback_data="adm_editfield:year"),
-        types.InlineKeyboardButton(tr("edit_field_edition", lang), callback_data="adm_editfield:edition"),
-    )
-    markup.row(
         types.InlineKeyboardButton(tr("edit_field_desc", lang),    callback_data="adm_editfield:description"),
         types.InlineKeyboardButton(tr("edit_field_physics", lang), callback_data="adm_editfield:physics_field"),
     )
+
+    if resource_type == "article":
+        # فیلدهای اختصاصی مقاله
+        markup.row(
+            types.InlineKeyboardButton(tr("edit_field_journal", lang), callback_data="adm_editfield:journal"),
+            types.InlineKeyboardButton(tr("edit_field_doi", lang),     callback_data="adm_editfield:doi"),
+        )
+        markup.row(
+            types.InlineKeyboardButton(tr("edit_field_volume", lang),  callback_data="adm_editfield:volume"),
+            types.InlineKeyboardButton(tr("edit_field_issue", lang),   callback_data="adm_editfield:issue"),
+        )
+        markup.row(
+            types.InlineKeyboardButton(tr("edit_field_pages", lang),   callback_data="adm_editfield:pages"),
+            types.InlineKeyboardButton(tr("edit_field_pub_date", lang), callback_data="adm_editfield:publication_date"),
+        )
+        markup.row(
+            types.InlineKeyboardButton(tr("edit_field_url", lang),     callback_data="adm_editfield:url"),
+        )
+        markup.row(
+            types.InlineKeyboardButton(tr("edit_field_year", lang),    callback_data="adm_editfield:year"),
+        )
+    else:
+        # فیلدهای اختصاصی کتاب
+        markup.row(
+            types.InlineKeyboardButton(tr("edit_field_year", lang),    callback_data="adm_editfield:year"),
+            types.InlineKeyboardButton(tr("edit_field_edition", lang), callback_data="adm_editfield:edition"),
+        )
     return markup
 
 
@@ -391,16 +424,31 @@ def summary_text(data: dict, lang: str) -> str:
 
 def _book_summary_text(book, lang: str) -> str:
     keys = book.keys() if hasattr(book, "keys") else book
+
+    def _g(k):
+        try:
+            v = book[k]
+            return v if v is not None else ""
+        except (KeyError, IndexError):
+            return ""
+
     return summary_text({
-        "title": book["title"],
-        "author": book["author"],
-        "language": book["language"],
-        "physics_field": book["physics_field"],
-        "resource_type": book["resource_type"] if "resource_type" in keys else "book",
-        "year": book["year"],
-        "edition": book["edition"],
-        "description": book["description"],
-        "file_name": book["file_name"],
+        "title":            _g("title"),
+        "author":           _g("author"),
+        "language":         _g("language"),
+        "physics_field":    _g("physics_field"),
+        "resource_type":    book["resource_type"] if "resource_type" in keys else "book",
+        "year":             _g("year"),
+        "edition":          _g("edition"),
+        "description":      _g("description"),
+        "file_name":        _g("file_name"),
+        "doi":              _g("doi"),
+        "journal":          _g("journal"),
+        "volume":           _g("volume"),
+        "issue":            _g("issue"),
+        "pages":            _g("pages"),
+        "url":              _g("url"),
+        "publication_date": _g("publication_date"),
     }, lang) + f"\n🔖 {_disp(book)}"
 
 
@@ -960,36 +1008,45 @@ def handle_admin_text(bot, message: types.Message) -> bool:
             admin_sessions.pop(uid, None)
             bot.send_message(message.chat.id, tr("back_to_panel", lang), reply_markup=admin_keyboard(lang))
             return True
-        admin_sessions[uid] = {"step": "edit_choose_field", "book_id": resource["id"]}
+        rtype = "article" if resource["resource_type"] == "article" else "book"
+        admin_sessions[uid] = {
+            "step": "edit_choose_field",
+            "book_id": resource["id"],
+            "resource_type": rtype,
+        }
         bot.send_message(
             message.chat.id,
             tr("edit_found", lang, summary=_book_summary_text(resource, lang)),
             reply_markup=admin_keyboard(lang)
         )
-        bot.send_message(message.chat.id, "👇", reply_markup=edit_field_keyboard(lang))
+        bot.send_message(message.chat.id, "👇", reply_markup=edit_field_keyboard(lang, rtype))
         return True
 
     if step == "wait_edit_value":
-        field = admin_sessions[uid]["edit_field"]
+        field   = admin_sessions[uid]["edit_field"]
         book_id = admin_sessions[uid]["book_id"]
         value: object = text
 
-        if field == "year":
-            if text == tr("btn_skip", lang):
-                value = None
-            else:
-                try:
-                    value = int(text)
-                except ValueError:
-                    bot.send_message(message.chat.id, tr("year_not_number", lang))
-                    return True
+        # فیلدهایی که قابل Skip هستند
+        skippable = {
+            "year", "doi", "journal", "volume", "issue",
+            "pages", "publication_date", "url", "edition", "description",
+        }
+        if field in skippable and text == tr("btn_skip", lang):
+            value = None if field == "year" else ""
+        elif field == "year":
+            try:
+                value = int(text)
+            except ValueError:
+                bot.send_message(message.chat.id, tr("year_not_number", lang))
+                return True
 
         database.update_book(book_id, **{field: value})
-        book = database.get_book(book_id)
+        resource = database.get_resource(book_id)
         admin_sessions.pop(uid, None)
         bot.send_message(
             message.chat.id,
-            tr("edit_saved", lang, disp=_disp(book)),
+            tr("edit_saved", lang, disp=_disp(resource)),
             reply_markup=admin_keyboard(lang)
         )
         return True
@@ -1265,7 +1322,12 @@ def handle_admin_callback(bot, callback: types.CallbackQuery) -> bool:
 
         admin_sessions[uid]["step"] = "wait_edit_value"
         admin_sessions[uid]["edit_field"] = field
-        kb = skip_cancel_keyboard(lang) if field == "year" else cancel_keyboard(lang)
+        # فیلدهایی که می‌توان رد کرد (Skip)
+        skippable = {
+            "year", "edition", "description",
+            "doi", "journal", "volume", "issue", "pages", "publication_date", "url",
+        }
+        kb = skip_cancel_keyboard(lang) if field in skippable else cancel_keyboard(lang)
         bot.send_message(callback.message.chat.id, tr("ask_new_value", lang), reply_markup=kb)
         return True
 
@@ -1277,12 +1339,12 @@ def handle_admin_callback(bot, callback: types.CallbackQuery) -> bool:
         new_field = data.split(":", 1)[1]
         book_id = admin_sessions[uid]["book_id"]
         database.update_book(book_id, physics_field=new_field)
-        book = database.get_book(book_id)
+        resource = database.get_resource(book_id)
         bot.answer_callback_query(callback.id, "✅")
         admin_sessions.pop(uid, None)
         bot.send_message(
             callback.message.chat.id,
-            tr("edit_saved", lang, disp=_disp(book)),
+            tr("edit_saved", lang, disp=_disp(resource)),
             reply_markup=admin_keyboard(lang)
         )
         return True
