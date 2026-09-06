@@ -319,7 +319,7 @@ TEXTS = {
             "این کتابخانه طیف گسترده‌ای از شاخه‌های فیزیک، از مباحث پایه تا زمینه‌های تخصصی، را پوشش می‌دهد و تلاش می‌کند دانشجویان، پژوهشگران و علاقه‌مندان به فیزیک بتوانند منابع موردنیاز خود را به‌سادگی پیدا کنند.\n"
             "این پروژه به‌صورت مستمر در حال توسعه است و به مرور زمان کتاب‌ها و مقالات جدیدی به آن افزوده خواهند شد.\n\n"
             "📬 ارتباط و پشتیبانی: @Kimhmda0705\n"
-            "Version: 2.2"
+            "Version: 2.3"
         ),
         "en": (
             "🔭 About the Project\n\n"
@@ -327,7 +327,7 @@ TEXTS = {
             "The library covers a wide range of topics, from foundational physics to specialized fields, and aims to help students, educators, and researchers quickly discover useful learning resources.The project is continuously expanding, with new books and articles being added over time.\n\n"
             "Thank you for using Physics Library and supporting its growth.\n"
             "📬 Contact & Support: @Kimhmda0705\n"
-            "Version: 2.2"
+            "Version: 2.3"
         ),
     },
     "help": {
