@@ -1467,27 +1467,42 @@ def subscribe_callback(callback: types.CallbackQuery):
 
 
 # ── Notify subscribers (called from admin after adding resource) ───────────────
-def notify_field_subscribers(bot_instance, physics_field: str, title: str, resource_id: int = None):
-    subscribers = database.get_field_subscribers(physics_field)
-    if not subscribers:
-        return
-    fa_n, en_n = database.PHYSICS_FIELDS.get(physics_field, (physics_field, physics_field))
-    for uid in subscribers:
-        lang = database.get_user_lang(uid) or "fa"
-        field_name = fa_n if lang == "fa" else en_n
-        msg = TEXTS["notify_new"][lang].format(field=field_name, title=title)
-        # Attach a "View Resource" button if we have the resource id
-        mk = None
-        if resource_id is not None:
-            mk = types.InlineKeyboardMarkup()
-            mk.add(types.InlineKeyboardButton(
-                TEXTS["view_resource"][lang],
-                callback_data=f"resinfo:{resource_id}"
-            ))
-        try:
-            bot_instance.send_message(uid, msg, reply_markup=mk)
-        except Exception:
-            pass
+def notify_field_subscribers(bot_instance, physics_field: str, title: str,
+                             resource_id: int = None, resource_type: str = "book"):
+    """Notify all subscribers of *physics_field* about a newly added resource.
+
+    Runs in a background thread so it never blocks the bot's main loop,
+    regardless of how many subscribers there are.
+    Each user's send is wrapped individually — a failure for one user does
+    not affect the rest.
+    """
+    import threading
+    import logging
+
+    def _send():
+        subscribers = database.get_field_subscribers(physics_field)
+        if not subscribers:
+            return
+        fa_n, en_n = database.PHYSICS_FIELDS.get(physics_field, (physics_field, physics_field))
+        icon = "📄" if resource_type == "article" else "📘"
+        for uid in subscribers:
+            lang = database.get_user_lang(uid) or "fa"
+            field_name = fa_n if lang == "fa" else en_n
+            msg = TEXTS["notify_new"][lang].format(field=field_name, title=f"{icon} {title}")
+            mk = None
+            if resource_id is not None:
+                mk = types.InlineKeyboardMarkup()
+                mk.add(types.InlineKeyboardButton(
+                    TEXTS["view_resource"][lang],
+                    callback_data=f"resinfo:{resource_id}"
+                ))
+            try:
+                bot_instance.send_message(uid, msg, reply_markup=mk)
+            except Exception as exc:
+                # User may have blocked the bot or deactivated their account — skip silently.
+                logging.warning("notify_field_subscribers: failed to notify uid=%s: %s", uid, exc)
+
+    threading.Thread(target=_send, daemon=True).start()
 
 
 # Register notify function so admin.py can call it after saving a resource

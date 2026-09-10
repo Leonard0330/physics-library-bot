@@ -1284,7 +1284,7 @@ def handle_admin_callback(bot, callback: types.CallbackQuery) -> bool:
                     reply_markup=admin_keyboard(lang)
                 )
                 if _notify_callback:
-                    _notify_callback(bot, d["physics_field"], d["title"], resource_id)
+                    _notify_callback(bot, d["physics_field"], d["title"], resource_id, "article")
             else:
                 book_id = database.add_book(
                     title         = d["title"],
@@ -1306,7 +1306,7 @@ def handle_admin_callback(bot, callback: types.CallbackQuery) -> bool:
                     reply_markup=admin_keyboard(lang)
                 )
                 if _notify_callback:
-                    _notify_callback(bot, d["physics_field"], d["title"], book_id)
+                    _notify_callback(bot, d["physics_field"], d["title"], book_id, "book")
         except Exception as e:
             bot.send_message(
                 callback.message.chat.id,

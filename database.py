@@ -348,12 +348,25 @@ def search_resources(
     conditions: list[str] = []
     params: list = []
 
+    # For ranking we need to know the words before building WHERE.
+    words: list[str] = []
+
     if query:
-        conditions.append(
-            "(title LIKE ? OR author LIKE ? OR description LIKE ? OR doi LIKE ?)"
-        )
-        like = f"%{query}%"
-        params += [like, like, like, like]
+        # Split query into words; require every word to appear in at least one
+        # searchable field (AND across words, OR across fields per word).
+        # "griffiths quantum" → title/author/... must match "griffiths" AND
+        # title/author/... must match "quantum".
+        # Single-word queries behave identically to the previous implementation.
+        words = [w for w in query.split() if w]
+        if not words:
+            words = [query]
+        for word in words:
+            like = f"%{word}%"
+            conditions.append(
+                "(title LIKE ? OR author LIKE ? OR description LIKE ?"
+                " OR doi LIKE ? OR journal LIKE ?)"
+            )
+            params += [like, like, like, like, like]
 
     if physics_field:
         conditions.append("physics_field = ?")
@@ -371,11 +384,34 @@ def search_resources(
 
     if order_by == "recent":
         order_clause = "ORDER BY created_at DESC, id DESC"
+        rank_params: list = []
     elif order_by == "popular":
         order_clause = "ORDER BY download_count DESC, created_at DESC"
+        rank_params = []
+    elif words:
+        # Relevance ranking with a lightweight CASE expression:
+        #   tier 0 — any search word appears in the title
+        #   tier 1 — any search word appears in the author field
+        #   tier 2 — match only in description / doi / journal
+        # Within each tier results are sorted alphabetically.
+        title_likes  = " OR ".join("title LIKE ?"  for _ in words)
+        author_likes = " OR ".join("author LIKE ?" for _ in words)
+        rank_params  = [f"%{w}%" for w in words] + [f"%{w}%" for w in words]
+        order_clause = (
+            f"ORDER BY "
+            f"CASE WHEN ({title_likes})  THEN 0 "
+            f"     WHEN ({author_likes}) THEN 1 "
+            f"     ELSE 2 END ASC, "
+            f"title ASC"
+        )
     else:
         # default: alphabetical — neutral ordering for "all" lists
         order_clause = "ORDER BY title ASC"
+        rank_params = []
+
+    # rank_params go before WHERE params because ORDER BY is evaluated after
+    # WHERE but SQLite needs the CASE literals in positional order.
+    all_params = rank_params + params + [limit, offset]
 
     sql = f"""
         SELECT * FROM books
@@ -383,10 +419,9 @@ def search_resources(
         {order_clause}
         LIMIT ? OFFSET ?
     """
-    params += [limit, offset]
 
     with get_connection() as conn:
-        return conn.execute(sql, params).fetchall()
+        return conn.execute(sql, all_params).fetchall()
 
 
 def find_resource_by_display_id(text: str) -> Optional[sqlite3.Row]:
@@ -562,8 +597,9 @@ def suggest_similar(query: str, limit: int = 3) -> list[sqlite3.Row]:
         for word in words:
             like = f"%{word}%"
             rows = conn.execute(
-                "SELECT * FROM books WHERE title LIKE ? OR author LIKE ? OR description LIKE ? OR doi LIKE ? LIMIT ?",
-                (like, like, like, like, limit)
+                "SELECT * FROM books WHERE title LIKE ? OR author LIKE ?"
+                " OR description LIKE ? OR doi LIKE ? OR journal LIKE ? LIMIT ?",
+                (like, like, like, like, like, limit)
             ).fetchall()
             for row in rows:
                 if row["id"] not in seen:
