@@ -234,6 +234,37 @@ def init_db() -> None:
         if "lang" not in existing_cols:
             conn.execute("ALTER TABLE users ADD COLUMN lang TEXT")
 
+        # ── bookmarks
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS bookmarks (
+                user_id  INTEGER NOT NULL,
+                book_id  INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+                saved_at TEXT NOT NULL DEFAULT (datetime('now')),
+                PRIMARY KEY (user_id, book_id)
+            )
+        """)
+
+        # ── field subscriptions
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS subscriptions (
+                user_id       INTEGER NOT NULL,
+                physics_field TEXT    NOT NULL,
+                subscribed_at TEXT    NOT NULL DEFAULT (datetime('now')),
+                PRIMARY KEY (user_id, physics_field)
+            )
+        """)
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS ratings (
+                user_id    INTEGER NOT NULL,
+                book_id    INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+                rating     INTEGER NOT NULL CHECK(rating BETWEEN 1 AND 5),
+                updated_at TEXT    NOT NULL DEFAULT (datetime('now')),
+                PRIMARY KEY (user_id, book_id)
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_ratings_book ON ratings(book_id)")
+
         conn.commit()
         _load_field_caches(conn)
     print(f"[DB] دیتابیس آماده شد: {DB_PATH}")
@@ -471,12 +502,13 @@ def update_book(book_id: int, **kwargs) -> bool:
     with get_connection() as conn:
         if "physics_field" in fields:
             current = conn.execute(
-                "SELECT physics_field FROM books WHERE id = ?", (book_id,)
+                "SELECT physics_field, resource_type FROM books WHERE id = ?", (book_id,)
             ).fetchone()
             if current and current["physics_field"] != fields["physics_field"]:
                 row = conn.execute(
-                    "SELECT COALESCE(MAX(field_number), 0) AS mx FROM books WHERE physics_field = ?",
-                    (fields["physics_field"],)
+                    "SELECT COALESCE(MAX(field_number), 0) AS mx FROM books "
+                    "WHERE physics_field = ? AND resource_type = ?",
+                    (fields["physics_field"], current["resource_type"])
                 ).fetchone()
                 fields["field_number"] = row["mx"] + 1
 
@@ -530,8 +562,8 @@ def suggest_similar(query: str, limit: int = 3) -> list[sqlite3.Row]:
         for word in words:
             like = f"%{word}%"
             rows = conn.execute(
-                "SELECT * FROM books WHERE title LIKE ? OR author LIKE ? LIMIT ?",
-                (like, like, limit)
+                "SELECT * FROM books WHERE title LIKE ? OR author LIKE ? OR description LIKE ? OR doi LIKE ? LIMIT ?",
+                (like, like, like, like, limit)
             ).fetchall()
             for row in rows:
                 if row["id"] not in seen:
@@ -540,6 +572,140 @@ def suggest_similar(query: str, limit: int = 3) -> list[sqlite3.Row]:
             if len(results) >= limit:
                 break
     return results[:limit]
+
+
+# ── Bookmarks ──────────────────────────────────────────────────────────────────
+
+def toggle_bookmark(user_id: int, book_id: int) -> bool:
+    """Toggle bookmark. Returns True if added, False if removed."""
+    with get_connection() as conn:
+        exists = conn.execute(
+            "SELECT 1 FROM bookmarks WHERE user_id=? AND book_id=?", (user_id, book_id)
+        ).fetchone()
+        if exists:
+            conn.execute("DELETE FROM bookmarks WHERE user_id=? AND book_id=?", (user_id, book_id))
+            conn.commit()
+            return False
+        conn.execute("INSERT INTO bookmarks (user_id, book_id) VALUES (?,?)", (user_id, book_id))
+        conn.commit()
+        return True
+
+
+def get_bookmarks(user_id: int) -> list[sqlite3.Row]:
+    with get_connection() as conn:
+        return conn.execute(
+            "SELECT b.* FROM books b JOIN bookmarks bm ON b.id=bm.book_id "
+            "WHERE bm.user_id=? ORDER BY bm.saved_at DESC",
+            (user_id,)
+        ).fetchall()
+
+
+def is_bookmarked(user_id: int, book_id: int) -> bool:
+    with get_connection() as conn:
+        return bool(conn.execute(
+            "SELECT 1 FROM bookmarks WHERE user_id=? AND book_id=?", (user_id, book_id)
+        ).fetchone())
+
+
+# ── Subscriptions ──────────────────────────────────────────────────────────────
+
+def toggle_subscription(user_id: int, physics_field: str) -> bool:
+    """Toggle field subscription. Returns True if subscribed, False if unsubscribed."""
+    with get_connection() as conn:
+        exists = conn.execute(
+            "SELECT 1 FROM subscriptions WHERE user_id=? AND physics_field=?",
+            (user_id, physics_field)
+        ).fetchone()
+        if exists:
+            conn.execute(
+                "DELETE FROM subscriptions WHERE user_id=? AND physics_field=?",
+                (user_id, physics_field)
+            )
+            conn.commit()
+            return False
+        conn.execute(
+            "INSERT INTO subscriptions (user_id, physics_field) VALUES (?,?)",
+            (user_id, physics_field)
+        )
+        conn.commit()
+        return True
+
+
+def get_field_subscribers(physics_field: str) -> list[int]:
+    """Return list of user_ids subscribed to a field."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT user_id FROM subscriptions WHERE physics_field=?", (physics_field,)
+        ).fetchall()
+    return [r["user_id"] for r in rows]
+
+
+def get_user_subscriptions(user_id: int) -> list[str]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT physics_field FROM subscriptions WHERE user_id=?", (user_id,)
+        ).fetchall()
+    return [r["physics_field"] for r in rows]
+
+
+def is_subscribed(user_id: int, physics_field: str) -> bool:
+    with get_connection() as conn:
+        return bool(conn.execute(
+            "SELECT 1 FROM subscriptions WHERE user_id=? AND physics_field=?",
+            (user_id, physics_field)
+        ).fetchone())
+
+
+# ── Download History ───────────────────────────────────────────────────────────
+
+def get_download_history(user_id: int, limit: int = 20) -> list[sqlite3.Row]:
+    """Return distinct resources downloaded by user, most recent first."""
+    with get_connection() as conn:
+        return conn.execute(
+            "SELECT b.*, MAX(dl.downloaded_at) AS downloaded_at FROM books b "
+            "JOIN download_logs dl ON b.id = dl.book_id "
+            "WHERE dl.user_id = ? GROUP BY b.id "
+            "ORDER BY downloaded_at DESC LIMIT ?",
+            (user_id, limit)
+        ).fetchall()
+
+
+# ── Ratings ────────────────────────────────────────────────────────────────────
+
+def rate_resource(user_id: int, book_id: int, rating: int) -> None:
+    """Insert or update a user's rating for a resource (1-5)."""
+    with get_connection() as conn:
+        conn.execute("""
+            INSERT INTO ratings (user_id, book_id, rating, updated_at)
+            VALUES (?, ?, ?, datetime('now'))
+            ON CONFLICT(user_id, book_id) DO UPDATE SET
+                rating     = excluded.rating,
+                updated_at = excluded.updated_at
+        """, (user_id, book_id, rating))
+        conn.commit()
+
+
+def get_rating_stats(book_id: int) -> dict:
+    """Return avg rating (1 decimal) and count for a resource."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT ROUND(AVG(rating), 1) AS avg, COUNT(*) AS cnt "
+            "FROM ratings WHERE book_id = ?",
+            (book_id,)
+        ).fetchone()
+    avg = row["avg"] if row and row["avg"] is not None else None
+    cnt = row["cnt"] if row else 0
+    return {"avg": avg, "cnt": cnt}
+
+
+def get_user_rating(user_id: int, book_id: int) -> Optional[int]:
+    """Return the user's existing rating for a resource, or None."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT rating FROM ratings WHERE user_id = ? AND book_id = ?",
+            (user_id, book_id)
+        ).fetchone()
+    return row["rating"] if row else None
 
 
 def get_books_by_field(physics_field: str, limit: int = 20) -> list[sqlite3.Row]:
@@ -575,14 +741,51 @@ def record_download(book_id: int, user_id: int) -> None:
 
 # Most Downloaded Resources
 def get_top_downloads(limit: int = 10, resource_type: str = "", offset: int = 0) -> list[sqlite3.Row]:
-    if resource_type:
-        sql    = "SELECT * FROM books WHERE resource_type = ? ORDER BY download_count DESC LIMIT ? OFFSET ?"
-        params = (resource_type, limit, offset)
-    else:
-        sql    = "SELECT * FROM books ORDER BY download_count DESC LIMIT ? OFFSET ?"
-        params = (limit, offset)
+    """Rank by a Bayesian score that blends download_count with average rating.
+
+    score = download_count + (rating_weight * bayesian_avg)
+    bayesian_avg = (n*avg + C*m) / (n + C)
+      n = number of ratings for this resource
+      avg = resource's mean rating
+      m = global mean rating across all rated resources (fallback 3.0)
+      C = confidence constant (min ratings before rating pulls the score)
+    rating_weight scales rating contribution relative to downloads.
+    """
+    where = "WHERE resource_type = ?" if resource_type else ""
+    params_list: list = [resource_type] if resource_type else []
+
+    # Global mean and confidence constant
+    C = 5          # need at least 5 ratings before they heavily influence rank
+    W = 20         # one full "quality point" == W extra imaginary downloads
+    # (tune: a 5-star resource with >=C ratings earns up to ~2*W extra virtual downloads)
+
+    sql = f"""
+        SELECT b.*,
+               COALESCE(r.avg_r, 0)   AS avg_rating,
+               COALESCE(r.cnt_r, 0)   AS rating_count,
+               (
+                   b.download_count
+                   + {W} * (
+                       (COALESCE(r.cnt_r,0) * COALESCE(r.avg_r,0) + {C} * COALESCE(gm.global_mean, 3.0))
+                       / (COALESCE(r.cnt_r,0) + {C})
+                       - COALESCE(gm.global_mean, 3.0)
+                   )
+               ) AS score
+        FROM books b
+        LEFT JOIN (
+            SELECT book_id, AVG(rating) AS avg_r, COUNT(*) AS cnt_r
+            FROM ratings GROUP BY book_id
+        ) r ON r.book_id = b.id
+        LEFT JOIN (
+            SELECT AVG(rating) AS global_mean FROM ratings
+        ) gm ON 1=1
+        {where}
+        ORDER BY score DESC
+        LIMIT ? OFFSET ?
+    """
+    params_list += [limit, offset]
     with get_connection() as conn:
-        return conn.execute(sql, params).fetchall()
+        return conn.execute(sql, params_list).fetchall()
 
 
 def get_book_stats(book_id: int) -> dict:

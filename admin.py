@@ -14,6 +14,13 @@ admin_sessions: dict[int, dict] = {}
 
 DEFAULT_LANG = "fa"
 
+# Notify callback — set by bot.py after init
+_notify_callback = None
+
+def set_notify_callback(fn) -> None:
+    global _notify_callback
+    _notify_callback = fn
+
 # Backup / Restore state 
 _backup_restore_lock = threading.Lock()  
 _restore_sessions: dict[int, dict] = {} 
@@ -1276,6 +1283,8 @@ def handle_admin_callback(bot, callback: types.CallbackQuery) -> bool:
                     tr("saved_ok_article", lang, disp=_disp(resource), title=d["title"]),
                     reply_markup=admin_keyboard(lang)
                 )
+                if _notify_callback:
+                    _notify_callback(bot, d["physics_field"], d["title"], resource_id)
             else:
                 book_id = database.add_book(
                     title         = d["title"],
@@ -1296,6 +1305,8 @@ def handle_admin_callback(bot, callback: types.CallbackQuery) -> bool:
                     tr("saved_ok", lang, disp=_disp(book), title=d["title"]),
                     reply_markup=admin_keyboard(lang)
                 )
+                if _notify_callback:
+                    _notify_callback(bot, d["physics_field"], d["title"], book_id)
         except Exception as e:
             bot.send_message(
                 callback.message.chat.id,

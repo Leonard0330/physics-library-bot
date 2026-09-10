@@ -260,6 +260,22 @@ TEXTS = {
         "fa": "❌ منبع پیدا نشد.",
         "en": "❌ Resource not found."
     },
+    "rate_prompt":  {"fa": "امتیاز خود را انتخاب کن:", "en": "Choose your rating:"},
+    "rate_saved":   {"fa": "✅ امتیاز ثبت شد.",         "en": "✅ Rating saved."},
+    "rating_label": {"fa": "⭐ {avg} ({cnt})",           "en": "⭐ {avg} ({cnt})"},
+    "rating_none":  {"fa": "⭐ بدون امتیاز",             "en": "⭐ No ratings yet"},
+    "bookmark_added":   {"fa": "🔖 ذخیره شد.",               "en": "🔖 Bookmarked."},
+    "bookmark_removed": {"fa": "🗑 از ذخیره‌شده‌ها حذف شد.", "en": "🗑 Bookmark removed."},
+    "bookmarks_empty":  {"fa": "📭 هیچ منبعی ذخیره نشده.",   "en": "📭 No bookmarks yet."},
+    "bookmarks_header": {"fa": "🔖 منابع ذخیره‌شده:",         "en": "🔖 Saved resources:"},
+    "history_empty":    {"fa": "📭 تاریخچه دانلودی وجود ندارد.", "en": "📭 No download history."},
+    "history_header":   {"fa": "📥 تاریخچه دانلودها:",         "en": "📥 Download history:"},
+    "subscribed":       {"fa": "🔔 مشترک فیلد «{field}» شدید.", "en": "🔔 Subscribed to «{field}»."},
+    "unsubscribed":     {"fa": "🔕 اشتراک فیلد «{field}» لغو شد.", "en": "🔕 Unsubscribed from «{field}»."},
+    "notify_new":       {"fa": "🔔 منبع جدید در فیلد «{field}» اضافه شد:\n📘 {title}", "en": "🔔 New resource in «{field}»:\n📘 {title}"},
+    "subscribe_btn":    {"fa": "🔔 اشتراک فیلد", "en": "🔔 Subscribe to Field"},
+    "unsubscribe_btn":  {"fa": "🔕 لغو اشتراک فیلد", "en": "🔕 Unsubscribe from Field"},
+    "view_resource":    {"fa": "👁 مشاهده منبع", "en": "👁 View Resource"},
     "lang_changed_fa": {
         "fa": "🌐 زبان به فارسی تغییر کرد.",
         "en": "🌐 Language changed to Persian (FA)."
@@ -319,7 +335,7 @@ TEXTS = {
             "این کتابخانه طیف گسترده‌ای از شاخه‌های فیزیک، از مباحث پایه تا زمینه‌های تخصصی، را پوشش می‌دهد و تلاش می‌کند دانشجویان، پژوهشگران و علاقه‌مندان به فیزیک بتوانند منابع موردنیاز خود را به‌سادگی پیدا کنند.\n"
             "این پروژه به‌صورت مستمر در حال توسعه است و به مرور زمان کتاب‌ها و مقالات جدیدی به آن افزوده خواهند شد.\n\n"
             "📬 ارتباط و پشتیبانی: @Kimhmda0705\n"
-            "Version: 2.3"
+            "Version: 3.0.1"
         ),
         "en": (
             "🔭 About the Project\n\n"
@@ -395,6 +411,10 @@ BTN = {
     "sf_clear":      {"fa": "🗑 پاک کردن فیلترها", "en": "🗑 Clear Filters"},
     "sf_search":     {"fa": "🔍 جستجو",            "en": "🔍 Search"},
 
+    # user features
+    "my_bookmarks": {"fa": "🔖 ذخیره‌شده‌ها", "en": "🔖 Bookmarks"},
+    "my_history":   {"fa": "📥 تاریخچه",       "en": "📥 History"},
+
     # kept for backward-compat (used in old inline keyboards that may still exist)
     "books":   {"fa": "📚 همه کتاب‌ها",    "en": "📚 All Books"},
     "fields":  {"fa": "🌌 فیلدهای فیزیک", "en": "🌌 Physics Fields"},
@@ -440,6 +460,10 @@ def main_keyboard(user: types.User) -> types.ReplyKeyboardMarkup:
     kb.add(
         types.KeyboardButton(btn(user, "about")),
         types.KeyboardButton(lang_label),
+    )
+    kb.add(
+        types.KeyboardButton(BTN["my_bookmarks"][lang]),
+        types.KeyboardButton(BTN["my_history"][lang]),
     )
     if admin.is_admin(user.id):
         kb.add(types.KeyboardButton(admin.tr("open_panel_btn", lang)))
@@ -525,7 +549,8 @@ def search_filter_keyboard(user: types.User) -> types.InlineKeyboardMarkup:
     # نشان‌گذار فیلترهای فعال
     lang_label  = f"🌐 {lang_val.upper()} ✓" if lang_val  else BTN["sf_lang"][lang]
     field_label = f"🌌 {database.PHYSICS_FIELDS.get(field_val, ('?','?'))[0 if lang=='fa' else 1][:15]} ✓" if field_val else BTN["sf_field"][lang]
-    rtype_label = f"📂 {'کتاب' if rtype_val=='book' else 'مقاله'} ✓" if rtype_val else BTN["sf_type"][lang]
+    _rtype_names = {"book": {"fa": "کتاب", "en": "Book"}, "article": {"fa": "مقاله", "en": "Article"}}
+    rtype_label = f"📂 {_rtype_names.get(rtype_val, {}).get(lang, rtype_val)} ✓" if rtype_val else BTN["sf_type"][lang]
 
     mk = types.InlineKeyboardMarkup()
     mk.row(
@@ -668,6 +693,12 @@ def text_handler(message: types.Message):
 
     elif text in (admin.tr("open_panel_btn", "fa"), admin.tr("open_panel_btn", "en")):
         admin.handle_admin_command(bot, message)
+
+    elif text in (BTN["my_bookmarks"]["fa"], BTN["my_bookmarks"]["en"]):
+        handle_my_bookmarks(message)
+
+    elif text in (BTN["my_history"]["fa"], BTN["my_history"]["en"]):
+        handle_my_history(message)
 
     # backward-compat: old reply-keyboard buttons still work
     elif text == btn(user, "books"):
@@ -889,6 +920,11 @@ def send_book_card(chat_id: int, user: types.User, book):
     disp = database.get_display_id(book)
 
     edition_line = f"\n📖 {book['edition']}" if _row_get(book, "edition") and str(book["edition"]).strip() else ""
+    rs = database.get_rating_stats(book["id"])
+    if rs["avg"] is not None:
+        rating_line = "\n" + TEXTS["rating_label"][lang].format(avg=rs["avg"], cnt=rs["cnt"])
+    else:
+        rating_line = "\n" + TEXTS["rating_none"][lang]
     text = (
         f"📘 {book['title']}{edition_line}\n"
         f"✍ {book['author']}\n"
@@ -896,15 +932,25 @@ def send_book_card(chat_id: int, user: types.User, book):
         f"🌌 {field}\n"
         f"🔖 {disp}\n"
         f"⬇️ {book['download_count']}"
+        f"{rating_line}"
     )
 
     markup = types.InlineKeyboardMarkup()
-    markup.add(
+    markup.add(types.InlineKeyboardButton(t(user, "download"), callback_data=f"download:{book['id']}"))
+    # Star rating row — highlight the user's current rating if any
+    user_r = database.get_user_rating(user.id, book["id"])
+    markup.row(*[
         types.InlineKeyboardButton(
-            t(user, "download"),
-            callback_data=f"download:{book['id']}"
-        )
-    )
+            f"{'★' if user_r == i else '☆'}{i}",
+            callback_data=f"rate:{book['id']}:{i}"
+        ) for i in range(1, 6)
+    ])
+    bm_label = "🔖✓" if database.is_bookmarked(user.id, book["id"]) else "🔖"
+    markup.add(types.InlineKeyboardButton(bm_label, callback_data=f"bookmark:{book['id']}"))
+    # Subscribe / unsubscribe to field
+    field_key = book["physics_field"]
+    sub_label = TEXTS["unsubscribe_btn"][lang] if database.is_subscribed(user.id, field_key) else TEXTS["subscribe_btn"][lang]
+    markup.add(types.InlineKeyboardButton(sub_label, callback_data=f"subscribe:{field_key}"))
     bot.send_message(chat_id, text, reply_markup=markup)
 
 # Book / Article Card
@@ -944,14 +990,30 @@ def send_resource_card(chat_id: int, user: types.User, res):
     if _row_get(res, "publication_date"):
         lines.append(f"📅 {res['publication_date']}")
     lines.append(f"⬇️ {res['download_count']}")
+    rs = database.get_rating_stats(res["id"])
+    if rs["avg"] is not None:
+        lines.append(TEXTS["rating_label"][lang].format(avg=rs["avg"], cnt=rs["cnt"]))
+    else:
+        lines.append(TEXTS["rating_none"][lang])
 
     markup = types.InlineKeyboardMarkup()
-    # Show the download button for articles that have a PDF file OR an external
-    # link/DOI — the download handler sends a document or a text card accordingly.
     if _row_get(res, "file_id") or _row_get(res, "url") or _row_get(res, "doi"):
         markup.add(types.InlineKeyboardButton(
             t(user, "download"), callback_data=f"download:{res['id']}"
         ))
+    user_r = database.get_user_rating(user.id, res["id"])
+    markup.row(*[
+        types.InlineKeyboardButton(
+            f"{'★' if user_r == i else '☆'}{i}",
+            callback_data=f"rate:{res['id']}:{i}"
+        ) for i in range(1, 6)
+    ])
+    bm_label = "🔖✓" if database.is_bookmarked(user.id, res["id"]) else "🔖"
+    markup.add(types.InlineKeyboardButton(bm_label, callback_data=f"bookmark:{res['id']}"))
+    # Subscribe / unsubscribe to field
+    field_key = res["physics_field"]
+    sub_label = TEXTS["unsubscribe_btn"][lang] if database.is_subscribed(user.id, field_key) else TEXTS["subscribe_btn"][lang]
+    markup.add(types.InlineKeyboardButton(sub_label, callback_data=f"subscribe:{field_key}"))
     bot.send_message(chat_id, "\n".join(l for l in lines if l), reply_markup=markup)
 
 
@@ -1332,6 +1394,159 @@ def page_callback(callback: types.CallbackQuery):
         header_key="",          # extracted from context inside the function
         edit_message_id=callback.message.message_id,
     )
+
+
+# ── Rate callback ─────────────────────────────────────────────────────────────
+@bot.callback_query_handler(func=lambda c: c.data.startswith("rate:"))
+def rate_callback(callback: types.CallbackQuery):
+    user = callback.from_user
+    _, res_id_str, rating_str = callback.data.split(":")
+    res_id = int(res_id_str)
+    rating = int(rating_str)
+    database.rate_resource(user.id, res_id, rating)
+    bot.answer_callback_query(callback.id, TEXTS["rate_saved"][get_lang(user)], show_alert=False)
+    # Refresh the star row in-place
+    try:
+        old_mk = callback.message.reply_markup
+        if old_mk:
+            new_rows = []
+            for row in old_mk.keyboard:
+                # Detect the star row: all buttons have callback_data starting with "rate:"
+                if all(b.callback_data and b.callback_data.startswith("rate:") for b in row):
+                    new_rows.append([
+                        types.InlineKeyboardButton(
+                            f"{'★' if i == rating else '☆'}{i}",
+                            callback_data=f"rate:{res_id}:{i}"
+                        ) for i in range(1, 6)
+                    ])
+                else:
+                    new_rows.append(list(row))
+            bot.edit_message_reply_markup(
+                callback.message.chat.id, callback.message.message_id,
+                reply_markup=types.InlineKeyboardMarkup(new_rows)
+            )
+    except Exception:
+        pass
+
+
+# ── Bookmark callback ──────────────────────────────────────────────────────────
+@bot.callback_query_handler(func=lambda c: c.data.startswith("bookmark:"))
+def bookmark_callback(callback: types.CallbackQuery):
+    user = callback.from_user
+    res_id = int(callback.data.split(":")[1])
+    added = database.toggle_bookmark(user.id, res_id)
+    key = "bookmark_added" if added else "bookmark_removed"
+    bot.answer_callback_query(callback.id, TEXTS[key][get_lang(user)], show_alert=True)
+    # Refresh the 🔖 button label in-place
+    try:
+        old_mk = callback.message.reply_markup
+        if old_mk:
+            new_bm_label = "🔖✓" if added else "🔖"
+            new_rows = []
+            for row in old_mk.keyboard:
+                new_row = []
+                for btn_item in row:
+                    if btn_item.callback_data and btn_item.callback_data.startswith("bookmark:"):
+                        new_row.append(types.InlineKeyboardButton(
+                            new_bm_label, callback_data=btn_item.callback_data
+                        ))
+                    else:
+                        new_row.append(btn_item)
+                new_rows.append(new_row)
+            new_mk = types.InlineKeyboardMarkup(new_rows)
+            bot.edit_message_reply_markup(
+                callback.message.chat.id, callback.message.message_id, reply_markup=new_mk
+            )
+    except Exception:
+        pass
+
+
+# ── Subscribe callback ─────────────────────────────────────────────────────────
+@bot.callback_query_handler(func=lambda c: c.data.startswith("subscribe:"))
+def subscribe_callback(callback: types.CallbackQuery):
+    user = callback.from_user
+    lang = get_lang(user)
+    field_key = callback.data.split(":", 1)[1]
+    subscribed = database.toggle_subscription(user.id, field_key)
+    fa_n, en_n = database.PHYSICS_FIELDS.get(field_key, (field_key, field_key))
+    field_name = fa_n if lang == "fa" else en_n
+    key = "subscribed" if subscribed else "unsubscribed"
+    bot.answer_callback_query(callback.id,
+        TEXTS[key][lang].format(field=field_name), show_alert=True)
+
+
+# ── Notify subscribers (called from admin after adding resource) ───────────────
+def notify_field_subscribers(bot_instance, physics_field: str, title: str, resource_id: int = None):
+    subscribers = database.get_field_subscribers(physics_field)
+    if not subscribers:
+        return
+    fa_n, en_n = database.PHYSICS_FIELDS.get(physics_field, (physics_field, physics_field))
+    for uid in subscribers:
+        lang = database.get_user_lang(uid) or "fa"
+        field_name = fa_n if lang == "fa" else en_n
+        msg = TEXTS["notify_new"][lang].format(field=field_name, title=title)
+        # Attach a "View Resource" button if we have the resource id
+        mk = None
+        if resource_id is not None:
+            mk = types.InlineKeyboardMarkup()
+            mk.add(types.InlineKeyboardButton(
+                TEXTS["view_resource"][lang],
+                callback_data=f"resinfo:{resource_id}"
+            ))
+        try:
+            bot_instance.send_message(uid, msg, reply_markup=mk)
+        except Exception:
+            pass
+
+
+# Register notify function so admin.py can call it after saving a resource
+admin.set_notify_callback(notify_field_subscribers)
+
+
+# ── Bookmarks & History text routes ───────────────────────────────────────────
+def handle_my_bookmarks(message: types.Message):
+    user = message.from_user
+    lang = get_lang(user)
+    rows = database.get_bookmarks(user.id)
+    if not rows:
+        bot.send_message(message.chat.id, TEXTS["bookmarks_empty"][lang],
+                         reply_markup=main_keyboard(user))
+        return
+    # Send reply keyboard first so it stays visible, then inline list
+    bot.send_message(message.chat.id, TEXTS["bookmarks_header"][lang],
+                     reply_markup=main_keyboard(user))
+    markup = types.InlineKeyboardMarkup()
+    for res in rows:
+        disp = database.get_display_id(res)
+        rtype = res["resource_type"] if "resource_type" in res.keys() else "book"
+        icon = "📄" if rtype == "article" else "📘"
+        markup.add(types.InlineKeyboardButton(
+            f"{icon} {disp} — {res['title'][:35]}",
+            callback_data=f"resinfo:{res['id']}"
+        ))
+    bot.send_message(message.chat.id, "👇", reply_markup=markup)
+
+
+def handle_my_history(message: types.Message):
+    user = message.from_user
+    lang = get_lang(user)
+    rows = database.get_download_history(user.id, limit=20)
+    if not rows:
+        bot.send_message(message.chat.id, TEXTS["history_empty"][lang],
+                         reply_markup=main_keyboard(user))
+        return
+    bot.send_message(message.chat.id, TEXTS["history_header"][lang],
+                     reply_markup=main_keyboard(user))
+    markup = types.InlineKeyboardMarkup()
+    for res in rows:
+        disp = database.get_display_id(res)
+        rtype = res["resource_type"] if "resource_type" in res.keys() else "book"
+        icon = "📄" if rtype == "article" else "📘"
+        markup.add(types.InlineKeyboardButton(
+            f"{icon} {disp} — {res['title'][:35]}",
+            callback_data=f"resinfo:{res['id']}"
+        ))
+    bot.send_message(message.chat.id, "👇", reply_markup=markup)
 
 
 print("Bot is running...")
