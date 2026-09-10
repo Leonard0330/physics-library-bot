@@ -752,6 +752,20 @@ def get_books_by_field(physics_field: str, limit: int = 20) -> list[sqlite3.Row]
         ).fetchall()
 
 
+def get_field_counts(physics_field: str) -> dict:
+    """Return the number of books and articles for a given physics field."""
+    with get_connection() as conn:
+        book_count = conn.execute(
+            "SELECT COUNT(*) FROM books WHERE physics_field = ? AND resource_type = 'book'",
+            (physics_field,)
+        ).fetchone()[0]
+        article_count = conn.execute(
+            "SELECT COUNT(*) FROM books WHERE physics_field = ? AND resource_type = 'article'",
+            (physics_field,)
+        ).fetchone()[0]
+    return {"books": book_count, "articles": article_count}
+
+
 def list_all_fields() -> list[str]:
     with get_connection() as conn:
         rows = conn.execute(

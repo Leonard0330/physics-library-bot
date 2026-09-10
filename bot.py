@@ -271,6 +271,12 @@ TEXTS = {
     "notify_new":       {"fa": "🔔 منبع جدید در «{field}»:\n📘 {title}", "en": "🔔 New resource in «{field}»:\n📘 {title}"},
     "subscribe_btn":    {"fa": "🔔 دنبال کردن فیلد", "en": "🔔 Follow Field"},
     "unsubscribe_btn":  {"fa": "🔕 دنبال نکردن فیلد", "en": "🔕 Unfollow Field"},
+    "field_subscribe_btn":   {"fa": "🔔 دنبال کردن این فیلد",  "en": "🔔 Subscribe to this field"},
+    "field_unsubscribe_btn": {"fa": "🔕 دنبال نکردن این فیلد", "en": "🔕 Unsubscribe from this field"},
+    "field_back_btn":        {"fa": "🔙 بازگشت به فیلدها",     "en": "🔙 Back to Physics Fields"},
+    "field_books_count":     {"fa": "📘 کتاب‌ها: {count}",      "en": "📘 Books: {count}"},
+    "field_articles_count":  {"fa": "📄 مقالات: {count}",       "en": "📄 Articles: {count}"},
+    "field_resources_header":{"fa": "📋 منابع این فیلد:",       "en": "📋 Resources in this field:"},
     "view_resource":    {"fa": "👁 مشاهده منبع", "en": "👁 View Resource"},
     "lang_changed_fa": {
         "fa": "🌐 زبان به فارسی تغییر کرد.",
@@ -368,6 +374,248 @@ TEXTS = {
             "ℹ️ About ← Help / Stats / Top / About Project\n"
             "🌐 Language ← switch FA / EN\n\n"
             "⚠️ Stuck? Use /start"
+        ),
+    },
+}
+
+# Fixed field descriptions (provided verbatim — do not modify)
+FIELD_DESCRIPTIONS: dict[str, dict[str, str]] = {
+    "classical_mechanics": {
+        "fa": (
+            "مطالعه حرکت و برهم‌کنش اجسام و سامانه‌های فیزیکی در چارچوب مکانیک کلاسیک، "
+            "شامل قوانین نیوتن و صورت‌بندی‌های لاگرانژی و همیلتونی، همراه با مفاهیمی مانند "
+            "انرژی، تکانه، حرکت دورانی و نوسان‌ها."
+        ),
+        "en": (
+            "The study of motion and interactions of physical bodies and systems within classical "
+            "mechanics, including Newtonian, Lagrangian, and Hamiltonian formulations, as well as "
+            "energy, momentum, rotational motion, and oscillations."
+        ),
+    },
+    "electromagnetism": {
+        "fa": (
+            "مطالعه میدان‌ها و پدیده‌های الکتریکی و مغناطیسی و برهم‌کنش آن‌ها با بارها و "
+            "جریان‌ها، شامل الکترواستاتیک، مغناطیس، الکترودینامیک، القای الکترومغناطیسی و "
+            "امواج الکترومغناطیسی."
+        ),
+        "en": (
+            "The study of electric and magnetic fields and their interactions with charges and "
+            "currents, including electrostatics, magnetism, electrodynamics, electromagnetic "
+            "induction, and electromagnetic waves."
+        ),
+    },
+    "general_physics": {
+        "fa": (
+            "مباحث بنیادی و مقدماتی فیزیک در حوزه‌های مختلف، از جمله مکانیک، گرما و "
+            "ترمودینامیک، الکتریسیته و مغناطیس، امواج و اپتیک، و آشنایی مقدماتی با مفاهیم "
+            "فیزیک نوین."
+        ),
+        "en": (
+            "Fundamental and introductory topics across physics, including mechanics, thermal "
+            "physics and thermodynamics, electricity and magnetism, waves and optics, together "
+            "with introductory concepts from modern physics."
+        ),
+    },
+    "quantum_mechanics": {
+        "fa": (
+            "مطالعه چارچوب کوانتومی برای توصیف سامانه‌های فیزیکی، شامل حالت‌ها، "
+            "مشاهده‌پذیرها، اندازه‌گیری، برهم‌نهی، اسپین، تکانه زاویه‌ای، برهم‌کنش‌ها و "
+            "نظریه میدان کوانتومی و کاربردهای آن در توصیف ذرات و میدان‌های بنیادی."
+        ),
+        "en": (
+            "The study of the quantum framework for describing physical systems, including states, "
+            "observables, measurement, superposition, spin, angular momentum, interactions, and "
+            "quantum field theory and its application to fundamental particles and fields."
+        ),
+    },
+    "relativity": {
+        "fa": (
+            "مطالعه نسبیت خاص و عام و ساختار فضا-زمان، شامل نسبیت حرکت و زمان و مکان، "
+            "چهار‌بردارها، هندسه فضا-زمان، اصل هم‌ارزی، گرانش و معادلات میدان اینشتین."
+        ),
+        "en": (
+            "The study of special and general relativity and the structure of spacetime, including "
+            "relativistic motion, space and time, four-vectors, spacetime geometry, the equivalence "
+            "principle, gravity, and Einstein's field equations."
+        ),
+    },
+    "thermodynamics_statistical": {
+        "fa": (
+            "مطالعه قوانین و خواص ترمودینامیکی سامانه‌های ماکروسکوپی و ارتباط آن‌ها با "
+            "توصیف میکروسکوپی، شامل دما، آنتروپی، انرژی آزاد، تعادل و فرآیندهای "
+            "ترمودینامیکی، ensembles آماری و رفتار جمعی سامانه‌های چندذره‌ای."
+        ),
+        "en": (
+            "The study of thermodynamic laws and macroscopic properties and their connection to "
+            "microscopic descriptions, including temperature, entropy, free energy, equilibrium and "
+            "thermodynamic processes, statistical ensembles, and collective behavior in many-particle "
+            "systems."
+        ),
+    },
+    "mathematical_physics": {
+        "fa": (
+            "مطالعه و به‌کارگیری ساختارها، روش‌ها و نظریه‌های ریاضی برای صورت‌بندی، تحلیل و "
+            "حل مسائل فیزیکی، از جمله معادلات دیفرانسیل، آنالیز، جبر، هندسه، نظریه گروه‌ها و "
+            "روش‌های ریاضی مرتبط با فیزیک."
+        ),
+        "en": (
+            "The study and application of mathematical structures, methods, and theories for "
+            "formulating, analyzing, and solving problems in physics, including differential "
+            "equations, analysis, algebra, geometry, group theory, and related mathematical methods."
+        ),
+    },
+    "condensed_matter": {
+        "fa": (
+            "مطالعه خواص و رفتار سامانه‌های ماده چگال، شامل جامدات و مایعات، مواد نرم، "
+            "سامانه‌های کم‌بعد و نانومقیاس، مواد و ساختارهای پیچیده و پدیده‌هایی مانند رسانش، "
+            "مغناطیس، ابررسانایی و گذارهای فازی."
+        ),
+        "en": (
+            "The study of the properties and behavior of condensed systems, including solids and "
+            "liquids, soft matter, low-dimensional and nanoscale systems, complex materials and "
+            "structures, and phenomena such as conduction, magnetism, superconductivity, and "
+            "phase transitions."
+        ),
+    },
+    "optics_amo": {
+        "fa": (
+            "مطالعه نور و برهم‌کنش آن با ماده و همچنین خواص اتم‌ها و مولکول‌ها، شامل اپتیک "
+            "کلاسیک و کوانتومی، لیزرها، طیف‌سنجی، فیزیک اتمی و مولکولی و فرآیندهای مرتبط با "
+            "برهم‌کنش نور و ماده."
+        ),
+        "en": (
+            "The study of light and its interaction with matter, together with the properties of "
+            "atoms and molecules, including classical and quantum optics, lasers, spectroscopy, "
+            "atomic and molecular physics, and light–matter interactions."
+        ),
+    },
+    "nuclear_physics": {
+        "fa": (
+            "مطالعه ساختار، خواص، پویایی و برهم‌کنش‌های هسته‌های اتمی، شامل ساختار هسته، "
+            "واپاشی‌های هسته‌ای، واکنش‌های هسته‌ای، نیروهای هسته‌ای و پدیده‌های مرتبط با هسته."
+        ),
+        "en": (
+            "The study of the structure, properties, dynamics, and interactions of atomic nuclei, "
+            "including nuclear structure, radioactive decay, nuclear reactions, nuclear forces, and "
+            "related nuclear phenomena."
+        ),
+    },
+    "particle_physics": {
+        "fa": (
+            "مطالعه بنیادی‌ترین اجزای شناخته‌شده ماده و میدان‌ها و برهم‌کنش‌های بنیادی، شامل "
+            "مدل استاندارد، کوارک‌ها و لپتون‌ها، بوزون‌های پیمانه‌ای، سازوکار هیگز و نظریه‌ها "
+            "و جست‌وجوهای فراتر از مدل استاندارد."
+        ),
+        "en": (
+            "The study of the fundamental constituents of matter and fundamental fields and "
+            "interactions, including the Standard Model, quarks and leptons, gauge bosons, the "
+            "Higgs mechanism, and theories and searches beyond the Standard Model."
+        ),
+    },
+    "plasma_physics": {
+        "fa": (
+            "مطالعه پلاسما و رفتار جمعی ذرات باردار در سامانه‌های متأثر از میدان‌های الکتریکی "
+            "و مغناطیسی، شامل امواج و ناپایداری‌های پلاسما، انتقال و برهم‌کنش ذرات و پدیده‌های "
+            "مرتبط با پلاسماهای طبیعی و آزمایشگاهی."
+        ),
+        "en": (
+            "The study of plasmas and the collective behavior of charged particles under electric "
+            "and magnetic fields, including plasma waves and instabilities, particle transport and "
+            "interactions, and phenomena in natural and laboratory plasmas."
+        ),
+    },
+    "astrophysics": {
+        "fa": (
+            "مطالعه اجرام، ساختارها و پدیده‌های آسمانی و فرآیندهای فیزیکی حاکم بر آن‌ها، از "
+            "منظومه‌های سیاره‌ای و ستارگان تا کهکشان‌ها و اجرام فشرده، با تکیه بر مشاهده و "
+            "مدل‌سازی فیزیکی."
+        ),
+        "en": (
+            "The study of astronomical objects, structures, and phenomena and the physical "
+            "processes governing them, from planetary systems and stars to galaxies and compact "
+            "objects, using observations and physical modeling."
+        ),
+    },
+    "cosmology": {
+        "fa": (
+            "مطالعه جهان در بزرگ‌ترین مقیاس‌ها، شامل ساختار و تحول جهان، مبدأ و تاریخ "
+            "کیهانی، انبساط جهان، تشکیل ساختارها و نقش ماده، تابش، ماده تاریک و انرژی تاریک "
+            "در تحول کیهان."
+        ),
+        "en": (
+            "The study of the universe on its largest scales, including its structure and "
+            "evolution, cosmic origin and history, expansion, structure formation, and the roles "
+            "of matter, radiation, dark matter, and dark energy in cosmic evolution."
+        ),
+    },
+    "computational_nonlinear": {
+        "fa": (
+            "توسعه و به‌کارگیری روش‌های محاسباتی، عددی و الگوریتمی برای مدل‌سازی و حل مسائل "
+            "فیزیکی، همراه با مطالعه سامانه‌های غیرخطی، پویایی پیچیده، آشوب، bifurcationها و "
+            "رفتارهای جمعی و emergent."
+        ),
+        "en": (
+            "The development and application of computational, numerical, and algorithmic methods "
+            "for modeling and solving physical problems, together with the study of nonlinear "
+            "systems, complex dynamics, chaos, bifurcations, and collective and emergent behavior."
+        ),
+    },
+    "biophysics_medical": {
+        "fa": (
+            "کاربرد اصول و روش‌های فیزیک برای مطالعه سامانه‌ها و فرآیندهای زیستی و برای توسعه "
+            "و استفاده از روش‌های فیزیکی در پزشکی، شامل زیست‌مولکول‌ها، غشاها و سامانه‌های "
+            "زیستی، تصویربرداری پزشکی، پرتودرمانی و حفاظت در برابر پرتو."
+        ),
+        "en": (
+            "The application of physical principles and methods to biological systems and processes "
+            "and to medicine, including biomolecules, membranes and biological systems, medical "
+            "imaging, radiation therapy, and radiation protection."
+        ),
+    },
+    "chemical_physics": {
+        "fa": (
+            "مطالعه ساختار، خواص و پویایی سامانه‌های شیمیایی با استفاده از اصول فیزیک، "
+            "به‌ویژه مکانیک کوانتومی، مکانیک آماری، ترمودینامیک، فیزیک مولکولی و روش‌های "
+            "طیف‌سنجی."
+        ),
+        "en": (
+            "The study of the structure, properties, and dynamics of chemical systems using "
+            "physical principles, particularly quantum mechanics, statistical mechanics, "
+            "thermodynamics, molecular physics, and spectroscopic methods."
+        ),
+    },
+    "acoustics": {
+        "fa": (
+            "مطالعه تولید، انتشار، پراکندگی، بازتاب و دریافت امواج مکانیکی صوتی در محیط‌های "
+            "مختلف، شامل ارتعاشات، آکوستیک فیزیکی، آکوستیک مهندسی و پدیده‌های صوتی در "
+            "گازها، مایعات و جامدات."
+        ),
+        "en": (
+            "The study of the generation, propagation, scattering, reflection, and detection of "
+            "mechanical sound waves in different media, including vibrations, physical acoustics, "
+            "engineering acoustics, and acoustic phenomena in gases, liquids, and solids."
+        ),
+    },
+    "history_philosophy": {
+        "fa": (
+            "مطالعه تحول تاریخی نظریه‌ها، مفاهیم و روش‌های فیزیک و بررسی پرسش‌های فلسفی "
+            "درباره ماهیت نظریه‌های فیزیکی، تبیین علمی، اندازه‌گیری، واقع‌گرایی و حدود شناخت "
+            "در فیزیک."
+        ),
+        "en": (
+            "The study of the historical development of physical theories, concepts, and methods, "
+            "together with philosophical questions concerning physical theories, scientific "
+            "explanation, measurement, realism, and the limits of knowledge in physics."
+        ),
+    },
+    "other": {
+        "fa": (
+            "منابعی که به‌طور مشخص در یکی از فیلدهای اصلی این کتابخانه قرار نمی‌گیرند یا "
+            "به‌صورت معنادار میان چند حوزه فیزیک و علوم مرتبط ارتباط برقرار می‌کنند."
+        ),
+        "en": (
+            "Resources that do not clearly belong to one of the library's main physics fields or "
+            "that meaningfully connect multiple areas of physics and related scientific disciplines."
         ),
     },
 }
@@ -790,18 +1038,21 @@ def handle_search_query(message: types.Message, query: str):
     bot.send_message(message.chat.id, "─" * 10, reply_markup=main_keyboard(user))
 
 
-def handle_fields(message: types.Message, user_override: types.User = None, resource_type: str = None):
+def handle_fields(message: types.Message, user_override: types.User = None,
+                  resource_type: str = None, from_browse: bool = False):
     user = user_override or message.from_user
     lang = get_lang(user)
 
     buttons = []
     for field_key, (label_fa, label_en) in database.PHYSICS_FIELDS.items():
         label = label_fa if lang == "fa" else label_en
-        # Always use fieldres: so all three flows (no filter / book / article)
-        # go through field_resources() and call the same search_resources().
-        # rtype is empty string when there's no filter, checked with `or None` in handler.
-        rtype_part = resource_type or ""
-        cb = f"fieldres:{field_key}:{rtype_part}"
+        if from_browse:
+            # In Browse → Physics Fields: open the dedicated field page
+            cb = f"fieldpage:{field_key}"
+        else:
+            # In Books/Articles sub-menus: open filtered resource list (existing behaviour)
+            rtype_part = resource_type or ""
+            cb = f"fieldres:{field_key}:{rtype_part}"
         buttons.append(types.InlineKeyboardButton(label, callback_data=cb))
 
     markup = types.InlineKeyboardMarkup()
@@ -1263,7 +1514,7 @@ def browse_callback(callback: types.CallbackQuery):
         bot.send_message(chat_id, t(user, "browse_articles_header"),
                          reply_markup=articles_submenu_keyboard(user))
     elif action == "fields":
-        handle_fields(callback.message, user_override=user)
+        handle_fields(callback.message, user_override=user, from_browse=True)
     elif action == "top":
         probe = database.get_top_downloads(limit=1, offset=0)
         send_resource_list(chat_id, user, probe, header_key="top_books_header",
@@ -1340,6 +1591,83 @@ def about_callback(callback: types.CallbackQuery):
                            pg_context="top_all|")
     elif action == "project":
         bot.send_message(chat_id, t(user, "about_project"), reply_markup=main_keyboard(user))
+
+
+def send_field_page(chat_id: int, user: types.User, field_key: str,
+                    edit_message_id: int | None = None):
+    """Send (or edit) the dedicated field page for Browse → Physics Fields."""
+    lang = get_lang(user)
+    fa_name, en_name = database.PHYSICS_FIELDS.get(field_key, (field_key, field_key))
+    field_name = fa_name if lang == "fa" else en_name
+
+    desc_dict = FIELD_DESCRIPTIONS.get(field_key, {})
+    description = desc_dict.get(lang, desc_dict.get("en", ""))
+
+    counts = database.get_field_counts(field_key)
+    books_line    = TEXTS["field_books_count"][lang].format(count=counts["books"])
+    articles_line = TEXTS["field_articles_count"][lang].format(count=counts["articles"])
+
+    text = f"🌌 {field_name}\n\n{description}\n\n{books_line}\n{articles_line}"
+
+    # Build keyboard
+    mk = types.InlineKeyboardMarkup()
+
+    # Subscribe / unsubscribe button
+    if database.is_subscribed(user.id, field_key):
+        sub_label = TEXTS["field_unsubscribe_btn"][lang]
+    else:
+        sub_label = TEXTS["field_subscribe_btn"][lang]
+    mk.add(types.InlineKeyboardButton(sub_label, callback_data=f"fieldsub:{field_key}"))
+
+    # Resources list button (opens paginated list of all resources in this field)
+    total = counts["books"] + counts["articles"]
+    if total > 0:
+        res_label = TEXTS["field_resources_header"][lang]
+        mk.add(types.InlineKeyboardButton(res_label, callback_data=f"fieldres:{field_key}:"))
+
+    # Back button → Physics Fields list
+    mk.add(types.InlineKeyboardButton(
+        TEXTS["field_back_btn"][lang],
+        callback_data="browse:fields"
+    ))
+
+    if edit_message_id:
+        try:
+            bot.edit_message_text(text, chat_id=chat_id,
+                                  message_id=edit_message_id, reply_markup=mk)
+            return
+        except Exception:
+            pass
+    bot.send_message(chat_id, text, reply_markup=mk)
+
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith("fieldpage:"))
+def field_page_callback(callback: types.CallbackQuery):
+    """Open the dedicated field page (only triggered from Browse → Physics Fields)."""
+    user = callback.from_user
+    field_key = callback.data.split(":", 1)[1]
+    bot.answer_callback_query(callback.id)
+    send_field_page(callback.message.chat.id, user, field_key)
+
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith("fieldsub:"))
+def field_subscribe_callback(callback: types.CallbackQuery):
+    """Subscribe/unsubscribe from the field page and refresh it in-place."""
+    user = callback.from_user
+    lang = get_lang(user)
+    field_key = callback.data.split(":", 1)[1]
+    subscribed = database.toggle_subscription(user.id, field_key)
+    fa_n, en_n = database.PHYSICS_FIELDS.get(field_key, (field_key, field_key))
+    field_name = fa_n if lang == "fa" else en_n
+    key = "subscribed" if subscribed else "unsubscribed"
+    bot.answer_callback_query(
+        callback.id,
+        TEXTS[key][lang].format(field=field_name),
+        show_alert=True
+    )
+    # Refresh the field page in-place so the subscribe button label toggles
+    send_field_page(callback.message.chat.id, user, field_key,
+                    edit_message_id=callback.message.message_id)
 
 
 @bot.callback_query_handler(func=lambda c: c.data.startswith("fieldres:"))
