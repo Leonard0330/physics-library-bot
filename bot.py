@@ -140,8 +140,7 @@ def _send_paginated_list(
     page_rows = rows[:PAGE_SIZE]
 
     if not page_rows:
-        bot.answer_callback_query  # nothing to show — should not normally happen
-        return
+        return  # nothing to show — should not normally happen
 
     lang = get_lang(user)
     header = TEXTS[hkey][lang]
@@ -409,7 +408,7 @@ BTN = {
     "sf_field":      {"fa": "🌌 فیلد فیزیک",      "en": "🌌 Physics Field"},
     "sf_type":       {"fa": "📂 نوع منبع",         "en": "📂 Resource Type"},
     "sf_clear":      {"fa": "🗑 پاک کردن فیلترها", "en": "🗑 Clear Filters"},
-    "sf_search":     {"fa": "🔍 جستجو",            "en": "🔍 Search"},
+    "sf_search":     {"fa": "🔍 شروع جستجو",        "en": "🔍 Start Search"},
 
     # user features
     "my_bookmarks": {"fa": "🔖 ذخیره‌شده‌ها", "en": "🔖 Bookmarks"},
@@ -458,12 +457,12 @@ def main_keyboard(user: types.User) -> types.ReplyKeyboardMarkup:
         types.KeyboardButton(btn(user, "browse")),
     )
     kb.add(
-        types.KeyboardButton(btn(user, "about")),
-        types.KeyboardButton(lang_label),
-    )
-    kb.add(
         types.KeyboardButton(BTN["my_bookmarks"][lang]),
         types.KeyboardButton(BTN["my_history"][lang]),
+    )
+    kb.add(
+        types.KeyboardButton(btn(user, "about")),
+        types.KeyboardButton(lang_label),
     )
     if admin.is_admin(user.id):
         kb.add(types.KeyboardButton(admin.tr("open_panel_btn", lang)))
@@ -879,9 +878,11 @@ def send_book_list(chat_id: int, user: types.User, rows, header_key: str):
     markup = types.InlineKeyboardMarkup()
     for book in rows:
         disp = database.get_display_id(book)
-        edition_part = f" [{book['edition']}]" if book["edition"] and book["edition"].strip() else ""
-        label = f"{disp} — {book['title'][:35]}{edition_part}"
-        markup.add(types.InlineKeyboardButton(label, callback_data=f"bookinfo:{book['id']}"))
+        rtype = book["resource_type"] if "resource_type" in book.keys() else "book"
+        icon = "📄" if rtype == "article" else "📘"
+        edition_part = f" [{book['edition']}]" if rtype == "book" and _row_get(book, "edition") and str(book["edition"]).strip() else ""
+        label = f"{icon} {disp} — {book['title'][:35]}{edition_part}"
+        markup.add(types.InlineKeyboardButton(label, callback_data=f"resinfo:{book['id']}"))
 
     bot.send_message(chat_id, header, reply_markup=markup)
 
@@ -1017,19 +1018,19 @@ def send_resource_card(chat_id: int, user: types.User, res):
     bot.send_message(chat_id, "\n".join(l for l in lines if l), reply_markup=markup)
 
 
-# callback: book specs from list
+# callback: book specs from list (legacy — kept for old inline keyboards still in circulation)
 @bot.callback_query_handler(func=lambda c: c.data.startswith("bookinfo:"))
 def book_info(callback: types.CallbackQuery):
     user = callback.from_user
-    book_id = int(callback.data.split(":")[1])
-    book = database.get_book(book_id)
+    res_id = int(callback.data.split(":")[1])
+    res = database.get_resource(res_id)
 
-    if not book:
+    if not res:
         bot.answer_callback_query(callback.id, t(user, "book_missing"), show_alert=True)
         return
 
     bot.answer_callback_query(callback.id)
-    send_book_card(callback.message.chat.id, user, book)
+    send_resource_card(callback.message.chat.id, user, res)
 
 
 # callback: download
@@ -1122,7 +1123,7 @@ def download(callback: types.CallbackQuery):
         )
 
     database.record_download(res_id, user.id)
-    bot.answer_callback_query(callback.id, t(user, "downloaded"))
+    bot.answer_callback_query(callback.id, TEXTS["downloaded"][lang])
 
 
 
@@ -1512,7 +1513,7 @@ def handle_my_bookmarks(message: types.Message):
         bot.send_message(message.chat.id, TEXTS["bookmarks_empty"][lang],
                          reply_markup=main_keyboard(user))
         return
-    # Send reply keyboard first so it stays visible, then inline list
+    # Send the reply keyboard first (keeps it anchored), then the inline list
     bot.send_message(message.chat.id, TEXTS["bookmarks_header"][lang],
                      reply_markup=main_keyboard(user))
     markup = types.InlineKeyboardMarkup()
@@ -1524,7 +1525,8 @@ def handle_my_bookmarks(message: types.Message):
             f"{icon} {disp} — {res['title'][:35]}",
             callback_data=f"resinfo:{res['id']}"
         ))
-    bot.send_message(message.chat.id, "👇", reply_markup=markup)
+    count_label = f"({len(rows)})" 
+    bot.send_message(message.chat.id, count_label, reply_markup=markup)
 
 
 def handle_my_history(message: types.Message):
@@ -1546,7 +1548,8 @@ def handle_my_history(message: types.Message):
             f"{icon} {disp} — {res['title'][:35]}",
             callback_data=f"resinfo:{res['id']}"
         ))
-    bot.send_message(message.chat.id, "👇", reply_markup=markup)
+    count_label = f"({len(rows)})"
+    bot.send_message(message.chat.id, count_label, reply_markup=markup)
 
 
 print("Bot is running...")
