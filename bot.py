@@ -22,9 +22,7 @@ database.init_db()
 user_langs: dict[int, str] = {}
 waiting_search: set[int] = set()
 
-# ── Advanced search filter state ──────────────────────────────────────────────
-# Stores active filters per user while they are building a filtered search.
-# Format: {user_id: {"language": "en"|"fa"|"", "physics_field": ".."|"", "resource_type": "book"|"article"|""}}
+# Advanced search filter state
 search_filters: dict[int, dict] = {}
 
 # Pagination 
@@ -180,10 +178,9 @@ def _send_paginated_list(
             bot.send_message(chat_id, full_header, reply_markup=mk)
     else:
         bot.send_message(chat_id, full_header, reply_markup=mk)
-# ── End Pagination 
+# End Pagination 
 
 # texts (FA / EN)
-
 TEXTS = {
     "start": {
         "fa": (
@@ -262,18 +259,18 @@ TEXTS = {
     "rate_prompt":  {"fa": "امتیاز خود را انتخاب کن:", "en": "Choose your rating:"},
     "rate_saved":   {"fa": "✅ امتیاز ثبت شد.",         "en": "✅ Rating saved."},
     "rating_label": {"fa": "⭐ {avg} ({cnt})",           "en": "⭐ {avg} ({cnt})"},
-    "rating_none":  {"fa": "⭐ بدون امتیاز",             "en": "⭐ No ratings yet"},
+    "rating_none":  {"fa": "⭐ هنوز امتیازی ثبت نشده",   "en": "⭐ No ratings yet"},
     "bookmark_added":   {"fa": "🔖 ذخیره شد.",               "en": "🔖 Bookmarked."},
     "bookmark_removed": {"fa": "🗑 از ذخیره‌شده‌ها حذف شد.", "en": "🗑 Bookmark removed."},
     "bookmarks_empty":  {"fa": "📭 هیچ منبعی ذخیره نشده.",   "en": "📭 No bookmarks yet."},
     "bookmarks_header": {"fa": "🔖 منابع ذخیره‌شده:",         "en": "🔖 Saved resources:"},
-    "history_empty":    {"fa": "📭 تاریخچه دانلودی وجود ندارد.", "en": "📭 No download history."},
-    "history_header":   {"fa": "📥 تاریخچه دانلودها:",         "en": "📥 Download history:"},
-    "subscribed":       {"fa": "🔔 مشترک فیلد «{field}» شدید.", "en": "🔔 Subscribed to «{field}»."},
-    "unsubscribed":     {"fa": "🔕 اشتراک فیلد «{field}» لغو شد.", "en": "🔕 Unsubscribed from «{field}»."},
-    "notify_new":       {"fa": "🔔 منبع جدید در فیلد «{field}» اضافه شد:\n📘 {title}", "en": "🔔 New resource in «{field}»:\n📘 {title}"},
-    "subscribe_btn":    {"fa": "🔔 اشتراک فیلد", "en": "🔔 Subscribe to Field"},
-    "unsubscribe_btn":  {"fa": "🔕 لغو اشتراک فیلد", "en": "🔕 Unsubscribe from Field"},
+    "history_empty":    {"fa": "📭 هنوز چیزی دریافت نکردید.",   "en": "📭 No download history."},
+    "history_header":   {"fa": "📥 تاریخچه دریافت‌ها:",        "en": "📥 Download history:"},
+    "subscribed":       {"fa": "🔔 فیلد «{field}» رو دنبال می‌کنید.", "en": "🔔 Following «{field}»."},
+    "unsubscribed":     {"fa": "🔕 دیگر فیلد «{field}» رو دنبال نمی‌کنید.", "en": "🔕 Unfollowed «{field}»."},
+    "notify_new":       {"fa": "🔔 منبع جدید در «{field}»:\n📘 {title}", "en": "🔔 New resource in «{field}»:\n📘 {title}"},
+    "subscribe_btn":    {"fa": "🔔 دنبال کردن فیلد", "en": "🔔 Follow Field"},
+    "unsubscribe_btn":  {"fa": "🔕 دنبال نکردن فیلد", "en": "🔕 Unfollow Field"},
     "view_resource":    {"fa": "👁 مشاهده منبع", "en": "👁 View Resource"},
     "lang_changed_fa": {
         "fa": "🌐 زبان به فارسی تغییر کرد.",
@@ -334,7 +331,7 @@ TEXTS = {
             "این کتابخانه طیف گسترده‌ای از شاخه‌های فیزیک، از مباحث پایه تا زمینه‌های تخصصی، را پوشش می‌دهد و تلاش می‌کند دانشجویان، پژوهشگران و علاقه‌مندان به فیزیک بتوانند منابع موردنیاز خود را به‌سادگی پیدا کنند.\n"
             "این پروژه به‌صورت مستمر در حال توسعه است و به مرور زمان کتاب‌ها و مقالات جدیدی به آن افزوده خواهند شد.\n\n"
             "📬 ارتباط و پشتیبانی: @Kimhmda0705\n"
-            "Version: 3.0.1"
+            "Version: 3.0"
         ),
         "en": (
             "🔭 About the Project\n\n"
@@ -342,7 +339,7 @@ TEXTS = {
             "The library covers a wide range of topics, from foundational physics to specialized fields, and aims to help students, educators, and researchers quickly discover useful learning resources.The project is continuously expanding, with new books and articles being added over time.\n\n"
             "Thank you for using Physics Library and supporting its growth.\n"
             "📬 Contact & Support: @Kimhmda0705\n"
-            "Version: 2.3"
+            "Version: 3.0"
         ),
     },
     "help": {
@@ -376,7 +373,6 @@ TEXTS = {
 }
 
 # Main Buttons
-
 BTN = {
     # Main menu (4 buttons)
     "search":  {"fa": "🔍 جستجو",          "en": "🔍 Search"},
@@ -405,14 +401,14 @@ BTN = {
 
     # Advanced search filter buttons
     "sf_lang":       {"fa": "🌐 زبان",            "en": "🌐 Language"},
-    "sf_field":      {"fa": "🌌 فیلد فیزیک",      "en": "🌌 Physics Field"},
+    "sf_field":      {"fa": "🌌 فیلد فیزیکی",     "en": "🌌 Physics Field"},
     "sf_type":       {"fa": "📂 نوع منبع",         "en": "📂 Resource Type"},
-    "sf_clear":      {"fa": "🗑 پاک کردن فیلترها", "en": "🗑 Clear Filters"},
-    "sf_search":     {"fa": "🔍 شروع جستجو",        "en": "🔍 Start Search"},
+    "sf_clear":      {"fa": "🗑 حذف فیلترها",      "en": "🗑 Clear Filters"},
+    "sf_search":     {"fa": "🔍 شروع جستجو",        "en": "🔍 Start Searching"},
 
     # user features
     "my_bookmarks": {"fa": "🔖 ذخیره‌شده‌ها", "en": "🔖 Bookmarks"},
-    "my_history":   {"fa": "📥 تاریخچه",       "en": "📥 History"},
+    "my_history":   {"fa": "📥 تاریخچه دانلودها", "en": "📥 History"},
 
     # kept for backward-compat (used in old inline keyboards that may still exist)
     "books":   {"fa": "📚 همه کتاب‌ها",    "en": "📚 All Books"},
@@ -421,8 +417,6 @@ BTN = {
     "top":     {"fa": "🏆 پرطرفدارها",    "en": "🏆 Top Books"},
     "help":    {"fa": "❓ راهنما",         "en": "❓ Help"},
 }
-
-
 
 # helpers
 def get_lang(user: types.User) -> str:
@@ -545,7 +539,7 @@ def search_filter_keyboard(user: types.User) -> types.InlineKeyboardMarkup:
     field_val = f.get("physics_field", "")
     rtype_val = f.get("resource_type", "")
 
-    # نشان‌گذار فیلترهای فعال
+    # checkmarker
     lang_label  = f"🌐 {lang_val.upper()} ✓" if lang_val  else BTN["sf_lang"][lang]
     field_label = f"🌌 {database.PHYSICS_FIELDS.get(field_val, ('?','?'))[0 if lang=='fa' else 1][:15]} ✓" if field_val else BTN["sf_field"][lang]
     _rtype_names = {"book": {"fa": "کتاب", "en": "Book"}, "article": {"fa": "مقاله", "en": "Article"}}
@@ -615,8 +609,7 @@ def cancel_command(message: types.Message):
 
 
 
-# document handler (ادمین آپلود PDF)
-
+# document handler 
 @bot.message_handler(content_types=["document"])
 def document_handler(message: types.Message):
     admin.handle_admin_document(bot, message)
@@ -630,12 +623,9 @@ def forward_handler(message: types.Message):
 
 
 # admin callback
-
 @bot.callback_query_handler(func=lambda c: c.data.startswith("adm_"))
 def admin_callback(callback: types.CallbackQuery):
     admin.handle_admin_callback(bot, callback)
-
-
 
 @bot.message_handler(content_types=["text"])
 def text_handler(message: types.Message):
@@ -1167,8 +1157,8 @@ def search_filter_callback(callback: types.CallbackQuery):
         # Inline keyboard for language selection
         mk = types.InlineKeyboardMarkup()
         mk.row(
-            types.InlineKeyboardButton("🇮🇷 فارسی", callback_data="sf_lang:fa"),
-            types.InlineKeyboardButton("🇬🇧 English", callback_data="sf_lang:en"),
+            types.InlineKeyboardButton(" فارسی", callback_data="sf_lang:fa"),
+            types.InlineKeyboardButton(" English", callback_data="sf_lang:en"),
         )
         if lang == "fa":
             mk.row(types.InlineKeyboardButton("✖️ بدون فیلتر زبان", callback_data="sf_lang:"))
@@ -1191,7 +1181,7 @@ def search_filter_callback(callback: types.CallbackQuery):
         clear_label = "✖️ بدون فیلتر فیلد" if lang == "fa" else "✖️ No field filter"
         mk.row(types.InlineKeyboardButton(clear_label, callback_data="sf_field:"))
         bot.send_message(callback.message.chat.id,
-                         "🌌 فیلد فیزیک:" if lang == "fa" else "🌌 Physics Field:",
+                         "🌌 فیلد فیزیکی:" if lang == "fa" else "🌌 Physics Field:",
                          reply_markup=mk)
         return
 
