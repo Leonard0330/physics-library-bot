@@ -245,7 +245,7 @@ TEXTS = {
         "en": "🔍 Choose search filters:"
     },
     "download": {
-        "fa": "📥 دریافت",
+        "fa": "📥 دانلود",
         "en": "📥 Download"
     },
     "downloaded": {
@@ -264,8 +264,8 @@ TEXTS = {
     "bookmark_removed": {"fa": "🗑 از ذخیره‌شده‌ها حذف شد.", "en": "🗑 Bookmark removed."},
     "bookmarks_empty":  {"fa": "📭 هیچ منبعی ذخیره نشده.",   "en": "📭 No bookmarks yet."},
     "bookmarks_header": {"fa": "🔖 منابع ذخیره‌شده:",         "en": "🔖 Saved resources:"},
-    "history_empty":    {"fa": "📭 هنوز چیزی دریافت نکردید.",   "en": "📭 No download history."},
-    "history_header":   {"fa": "📥 تاریخچه دریافت‌ها:",        "en": "📥 Download history:"},
+    "history_empty":    {"fa": "📭 هنوز چیزی دانلود نکردید.",   "en": "📭 No download history."},
+    "history_header":   {"fa": "📥 تاریخچه دانلودها:",        "en": "📥 Download history:"},
     "subscribed":       {"fa": "🔔 فیلد «{field}» رو دنبال می‌کنید.", "en": "🔔 Following «{field}»."},
     "unsubscribed":     {"fa": "🔕 دیگر فیلد «{field}» رو دنبال نمی‌کنید.", "en": "🔕 Unfollowed «{field}»."},
     "notify_new":       {"fa": "🔔 منبع جدید در «{field}»:\n📘 {title}", "en": "🔔 New resource in «{field}»:\n📘 {title}"},
