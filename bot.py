@@ -75,9 +75,19 @@ def _send_paginated_list(
     header_key is embedded at the END of context as  "…|hdr:<key>" so it
     survives round-trips without a separate store.
     """
-    # ── decode header_key from context 
+    # ── header_key abbreviation maps (keeps callback_data under 64 bytes)
+    _HDR_ENCODE = {
+        "books_list_header":     "bl",
+        "articles_list_header":  "al",
+        "resources_list_header": "rl",
+        "top_books_header":      "tb",
+    }
+    _HDR_DECODE = {v: k for k, v in _HDR_ENCODE.items()}
+
+    # ── decode header_key from context
     if "|hdr:" in context:
-        ctx_core, hkey = context.rsplit("|hdr:", 1)
+        ctx_core, hkey_raw = context.rsplit("|hdr:", 1)
+        hkey = _HDR_DECODE.get(hkey_raw, hkey_raw)  # expand abbreviation if present
     else:
         ctx_core, hkey = context, header_key  # fallback (first call)
 
@@ -160,7 +170,8 @@ def _send_paginated_list(
         mk.add(types.InlineKeyboardButton(label, callback_data=f"resinfo:{res['id']}"))
 
     # Append nav row if needed
-    full_context = f"{ctx_core}|hdr:{hkey}"
+    hkey_stored = _HDR_ENCODE.get(hkey, hkey)  # abbreviate before storing in callback_data
+    full_context = f"{ctx_core}|hdr:{hkey_stored}"
     nav_mk = _pagination_keyboard(full_context, page, has_next)
     if nav_mk:
         for row in nav_mk.keyboard:
