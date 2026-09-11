@@ -1173,6 +1173,7 @@ def send_book_card(chat_id: int, user: types.User, book):
     disp = database.get_display_id(book)
 
     edition_line = f"\n📖 {book['edition']}" if _row_get(book, "edition") and str(book["edition"]).strip() else ""
+    desc_line = f"\n📝 {book['description']}" if _row_get(book, "description") and str(book["description"]).strip() else ""
     rs = database.get_rating_stats(book["id"])
     if rs["avg"] is not None:
         rating_line = "\n" + TEXTS["rating_label"][lang].format(avg=rs["avg"], cnt=rs["cnt"])
@@ -1185,6 +1186,7 @@ def send_book_card(chat_id: int, user: types.User, book):
         f"🌌 {field}\n"
         f"🔖 {disp}\n"
         f"⬇️ {book['download_count']}"
+        f"{desc_line}"
         f"{rating_line}"
     )
 
@@ -1242,6 +1244,8 @@ def send_resource_card(chat_id: int, user: types.User, res):
         lines.append(f"🌐 {res['url']}")
     if _row_get(res, "publication_date"):
         lines.append(f"📅 {res['publication_date']}")
+    if _row_get(res, "description"):
+        lines.append(f"📝 {res['description']}")
     lines.append(f"⬇️ {res['download_count']}")
     rs = database.get_rating_stats(res["id"])
     if rs["avg"] is not None:
@@ -1330,6 +1334,8 @@ def download(callback: types.CallbackQuery):
             lines.append(f"🌐 {res['url']}")
         if _row_get(res, "publication_date"):
             lines.append(f"📅 {res['publication_date']}")
+        if _row_get(res, "description"):
+            lines.append(f"📝 {res['description']}")
         lines.append(f"⬇️ {res['download_count']}")
         lines.append("")
         lines.append("@PhysisLib_Bot")

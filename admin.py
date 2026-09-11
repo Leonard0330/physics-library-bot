@@ -916,15 +916,21 @@ def handle_admin_text(bot, message: types.Message) -> bool:
             except ValueError:
                 bot.send_message(message.chat.id, tr("year_not_number", lang))
                 return True
-        admin_sessions[uid]["step"] = "wait_edition"
-        bot.send_message(
-            message.chat.id,
-            tr("ask_edition", lang),
-            reply_markup=skip_cancel_keyboard(lang)
-        )
+        rtype = admin_sessions[uid]["data"].get("resource_type", "book")
+        if rtype == "article":
+            # Articles don't have an "edition" — skip straight to journal info.
+            admin_sessions[uid]["step"] = "wait_journal"
+            bot.send_message(message.chat.id, tr("ask_journal", lang), reply_markup=skip_cancel_keyboard(lang))
+        else:
+            admin_sessions[uid]["step"] = "wait_edition"
+            bot.send_message(
+                message.chat.id,
+                tr("ask_edition", lang),
+                reply_markup=skip_cancel_keyboard(lang)
+            )
         return True
 
-    # Edition
+    # Edition (books only)
     if step == "wait_edition":
         admin_sessions[uid]["data"]["edition"] = "" if text == tr("btn_skip", lang) else text
         admin_sessions[uid]["step"] = "wait_desc"
@@ -935,18 +941,13 @@ def handle_admin_text(bot, message: types.Message) -> bool:
         )
         return True
 
-    # Description / Comment
+    # Description / Comment — last field before confirmation, for both books and articles
     if step == "wait_desc":
         admin_sessions[uid]["data"]["description"] = "" if text == tr("btn_skip", lang) else text
-        rtype = admin_sessions[uid]["data"].get("resource_type", "book")
-        if rtype == "article":
-            admin_sessions[uid]["step"] = "wait_journal"
-            bot.send_message(message.chat.id, tr("ask_journal", lang), reply_markup=skip_cancel_keyboard(lang))
-        else:
-            admin_sessions[uid]["step"] = "confirm"
-            data = admin_sessions[uid]["data"]
-            bot.send_message(message.chat.id, summary_text(data, lang), reply_markup=admin_keyboard(lang))
-            bot.send_message(message.chat.id, tr("confirm_question", lang), reply_markup=confirm_keyboard(lang))
+        admin_sessions[uid]["step"] = "confirm"
+        data = admin_sessions[uid]["data"]
+        bot.send_message(message.chat.id, summary_text(data, lang), reply_markup=admin_keyboard(lang))
+        bot.send_message(message.chat.id, tr("confirm_question", lang), reply_markup=confirm_keyboard(lang))
         return True
 
     # Article-specific steps
@@ -989,10 +990,12 @@ def handle_admin_text(bot, message: types.Message) -> bool:
 
     if step == "wait_pub_date":
         admin_sessions[uid]["data"]["publication_date"] = "" if text == tr("btn_skip", lang) else text
-        admin_sessions[uid]["step"] = "confirm"
-        data = admin_sessions[uid]["data"]
-        bot.send_message(message.chat.id, summary_text(data, lang), reply_markup=admin_keyboard(lang))
-        bot.send_message(message.chat.id, tr("confirm_question", lang), reply_markup=confirm_keyboard(lang))
+        admin_sessions[uid]["step"] = "wait_desc"
+        bot.send_message(
+            message.chat.id,
+            tr("ask_desc", lang),
+            reply_markup=skip_cancel_keyboard(lang)
+        )
         return True
 
     # Delete Book or Article
