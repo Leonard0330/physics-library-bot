@@ -48,7 +48,7 @@ T = {
     "send_pdf":         {"fa": "📤 فایل منبع رو بفرست (PDF، ZIP یا DjVu):", "en": "📤 Send the resource file (PDF, ZIP, or DjVu):"},
     "pdf_only":         {"fa": "❗️ فقط فایل‌های PDF، ZIP و DjVu قبول می‌شن.", "en": "❗️ Only PDF, ZIP, and DjVu files are accepted."},
     "file_received":    {"fa": "✅ فایل دریافت شد: {name}\n\n📘 حالا عنوان فایل رو بنویس:",
-                          "en": "✅ File received: {name}\n\n📘 Now type the file's title:"},
+                          "en": "✅ File received: {name}\n\n📕 Now type the file's title:"},
     "ask_author":       {"fa": "✍ نام نویسنده:",                                "en": "✍ Author's name:"},
     "ask_lang":         {"fa": "🌐 زبان منبع رو انتخاب کن:",                     "en": "🌐 Choose the resource's language:"},
     "ask_field":        {"fa": "🌌 فیلد فیزیکی رو انتخاب کن:",                   "en": "🌌 Choose the physics field:"},
@@ -61,7 +61,7 @@ T = {
     "missing_fields":   {"fa": "❌ این فیلدها خالی هستن: {fields}\nدوباره از ابتدا شروع کن.",
                           "en": "❌ These fields are missing: {fields}\nPlease start over."},
     "saved_ok":         {"fa": "✅ کتاب با موفقیت ذخیره شد!\n🔖 شناسه: {disp}\n📘 {title}",
-                          "en": "✅ Book saved successfully!\n🔖 ID: {disp}\n📘 {title}"},
+                          "en": "✅ Book saved successfully!\n🔖 ID: {disp}\n📕 {title}"},
     "save_error":       {"fa": "❌ خطا در ذخیره:\n{err}",                       "en": "❌ Error while saving:\n{err}"},
     "no_books":         {"fa": "📭 هنوز کتابی ثبت نشده.",                       "en": "📭 No books have been added yet."},
     "list_header":      {"fa": "📋 لیست کتاب‌ها:\n",                            "en": "📋 List of books:\n"},
@@ -109,7 +109,7 @@ T = {
 
     "edit_found":       {"fa": "کتاب پیدا شد:\n\n{summary}\n\nکدوم فیلد رو می‌خوای ویرایش کنی؟",
                           "en": "Book found:\n\n{summary}\n\nWhich field do you want to edit?"},
-    "edit_field_title":    {"fa": "📘 عنوان",   "en": "📘 Title"},
+    "edit_field_title":    {"fa": "📘 عنوان",   "en": "📕 Title"},
     "edit_field_author":   {"fa": "✍ نویسنده",  "en": "✍ Author"},
     "edit_field_year":     {"fa": "📅 سال",     "en": "📅 Year"},
     "edit_field_edition":  {"fa": "🔖 ویرایش",  "en": "🔖 Edition"},
@@ -129,7 +129,7 @@ T = {
     # Summary
 
     "summary_title":    {"fa": "📋 خلاصه اطلاعات کتاب:\n",  "en": "📋 Book Summary:\n"},
-    "summary_book":     {"fa": "📘 عنوان: {v}",  "en": "📘 Title: {v}"},
+    "summary_book":     {"fa": "📘 عنوان: {v}",  "en": "📕 Title: {v}"},
     "summary_author":   {"fa": "✍ نویسنده: {v}", "en": "✍ Author: {v}"},
     "summary_lang":     {"fa": "🌐 زبان: {v}",    "en": "🌐 Language: {v}"},
     "summary_field":    {"fa": "🌌 فیلد: {v}",    "en": "🌌 Field: {v}"},
@@ -141,7 +141,7 @@ T = {
     # Resource type selection
 
     "ask_resource_type":  {"fa": "📂 نوع منبع رو انتخاب کن:",              "en": "📂 Choose the resource type:"},
-    "btn_type_book":      {"fa": "📘 کتاب",                                "en": "📘 Book"},
+    "btn_type_book":      {"fa": "📘 کتاب",                                "en": "📕 Book"},
     "btn_type_article":   {"fa": "📄 مقاله",                               "en": "📄 Article"},
 
     # Article-specific prompts
@@ -1435,7 +1435,7 @@ def _show_list(bot, message: types.Message, lang: str):
     lines = []
 
     if books:
-        lines.append(f"📘 {'کتاب‌ها' if lang == 'fa' else 'Books'} ({len(books)}):")
+        lines.append(f"📕 {'کتاب‌ها' if lang == 'fa' else 'Books'} ({len(books)}):")
         for b in books[:PREVIEW]:
             edition_part = f" [{b['edition']}]" if b["edition"] and str(b["edition"]).strip() else ""
             year_part    = f" ({b['year']})"    if b["year"] else ""

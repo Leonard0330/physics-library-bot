@@ -11,20 +11,85 @@ bot = telebot.TeleBot(TOKEN)
 TELEGRAM_CAPTION_LIMIT = 1024
 
 
-def _safe_caption(caption: str, limit: int = TELEGRAM_CAPTION_LIMIT) -> tuple[str, str | None]:
+def _truncate_description(desc: str, budget: int) -> str:
     """
-    Telegram rejects send_document/send_photo/etc. if caption > 1024 chars
-    ("Bad Request: message caption is too long").
-    Returns (caption_to_send, overflow_text_or_None).
-    If caption fits, overflow is None. If not, caption is truncated with an
-    ellipsis and the full original text is returned as overflow so the
-    caller can send it as a follow-up message instead of silently losing it.
+    Truncate *desc* to fit within *budget* characters (inclusive), cutting on
+    a word boundary and appending "…".  Never cuts mid-word.
+
+    Rules (in order):
+      1. If desc already fits, return it unchanged.
+      2. Try to break at the last paragraph boundary (double-newline) before
+         the cut point — keeps the most coherent chunk.
+      3. Fall back to the last sentence-ending punctuation (.  !  ?  …) followed
+         by whitespace or end-of-string.
+      4. Fall back to the last whitespace (word boundary).
+      5. Last resort: hard-cut at budget-1 and append "…".
     """
-    if len(caption) <= limit:
-        return caption, None
     ellipsis = "…"
-    truncated = caption[: limit - len(ellipsis)].rstrip() + ellipsis
-    return truncated, caption
+    if len(desc) <= budget:
+        return desc
+
+    cut = budget - len(ellipsis)   # room left for content before the ellipsis
+    if cut <= 0:
+        return ellipsis
+
+    candidate = desc[:cut]
+
+    # 1. Paragraph boundary
+    idx = candidate.rfind("\n\n")
+    if idx > 0:
+        return candidate[:idx].rstrip() + ellipsis
+
+    # 2. Sentence boundary
+    import re as _re
+    m = None
+    for m in _re.finditer(r"[.!?…](\s|$)", candidate):
+        pass   # advance to the *last* match
+    if m and m.end() > 0:
+        return candidate[: m.end()].rstrip() + ellipsis
+
+    # 3. Word boundary
+    idx = candidate.rfind(" ")
+    if idx > 0:
+        return candidate[:idx].rstrip() + ellipsis
+
+    # 4. Hard cut
+    return candidate.rstrip() + ellipsis
+
+
+def _fit_caption(
+    fixed_part: str,
+    description: str,
+    limit: int = TELEGRAM_CAPTION_LIMIT,
+) -> str:
+    """
+    Build a caption that is guaranteed to be ≤ *limit* characters.
+
+    *fixed_part* contains everything except the description block — it must
+    never be altered.  *description* is the only field allowed to shrink.
+
+    If the description is empty or the fixed part alone already fills the
+    budget, only the fixed part is returned (no description appended).
+
+    The description prefix "\\n📝 " (3 chars + emoji + space = 5 visible chars
+    but we measure in Unicode code points) is included in the budget.
+    """
+    if not description:
+        return fixed_part
+
+    DESC_PREFIX = "\n📝 "
+    full = fixed_part + DESC_PREFIX + description
+    if len(full) <= limit:
+        return full
+
+    # How many characters can the description body occupy?
+    budget = limit - len(fixed_part) - len(DESC_PREFIX)
+    if budget <= 1:
+        # Not even room for a single character + ellipsis — drop description
+        return fixed_part
+
+    truncated = _truncate_description(description, budget)
+    return fixed_part + DESC_PREFIX + truncated
 
 
 def _row_get(row, key: str, default=None):
@@ -214,19 +279,19 @@ def _send_paginated_list(
 TEXTS = {
     "start": {
         "fa": (
-            "📚 به ربات کتابخانه فیزیک خوش آمدید!\n\n"
-            "این ربات مجموعه‌ای منتخب از کتاب‌ها و مقالات علمی فیزیک را در شاخه‌های مختلف این علم در اختیار شما قرار می‌دهد.\n\n"
-            "🔍 جستجو — جستجو در همه منابع\n"
-            "📂 کتابخانه  —  کتاب‌ها، مقالات و فیلدهای فیزیک\n"
-            "🌐 زبان — تغییر زبان رابط\n\n"
+            "*📚 به ربات کتابخانه فیزیک خوش آمدید!*\n\n"
+            "_این ربات مجموعه‌ای منتخب از کتاب‌ها و مقالات علمی فیزیک را در شاخه‌های مختلف این علم در اختیار شما قرار می‌دهد_.\n\n"
+            "🔍 جستجو* — جستجو در همه منابع*\n"
+            "📂 کتابخانه*  —  کتاب‌ها، مقالات و فیلدهای فیزیک*\n"
+            "🌐 زبان* — تغییر زبان رابط*\n\n"
             "برای راهنمای کامل: درباره ← راهنما 👇"
         ),
         "en": (
-            "📚 Welcome to the Physics Library Bot!\n\n"
-            "This bot provides a curated collection of physics books and research articles across multiple fields of physics.\n\n"
-            "🔍 Search — Quickly find any book or article by title or keywords.\n"
-            "📂 Browse — Explore the library by category, popularity, or recently added resources.\n"
-            "🌐 Language — switch interface language\n\n"
+            "📚 *Welcome to the Physics Library Bot!*\n\n"
+            "_This bot provides a curated collection of physics books and research articles across multiple fields of physics._\n\n"
+            "🔍 *Search* — Quickly find any book or article by title or keywords.\n"
+            "📂 *Browse* — Explore the library by category, popularity, or recently added resources.\n"
+            "🌐 *Language* — switch interface language\n\n"
             "For detailed instructions and additional information, open About → Help 👇"
         ),
     },
@@ -298,13 +363,13 @@ TEXTS = {
     "history_header":   {"fa": "📥 تاریخچه دانلودها:",        "en": "📥 Download history:"},
     "subscribed":       {"fa": "🔔 فیلد «{field}» رو دنبال می‌کنید.", "en": "🔔 Following «{field}»."},
     "unsubscribed":     {"fa": "🔕 دیگر فیلد «{field}» رو دنبال نمی‌کنید.", "en": "🔕 Unfollowed «{field}»."},
-    "notify_new":       {"fa": "🔔 منبع جدید در «{field}»:\n📘 {title}", "en": "🔔 New resource in «{field}»:\n📘 {title}"},
+    "notify_new":       {"fa": "🔔 منبع جدید در «{field}»:\n📘 {title}", "en": "🔔 New resource in «{field}»:\n📕 {title}"},
     "subscribe_btn":    {"fa": "🔔 دنبال کردن فیلد", "en": "🔔 Subscribe to this field"},
     "unsubscribe_btn":  {"fa": "🔕 دنبال نکردن فیلد", "en": "🔕 Unsubscribe from this field"},
     "field_subscribe_btn":   {"fa": "🔔 دنبال کردن این فیلد",  "en": "🔔 Subscribe to this field"},
     "field_unsubscribe_btn": {"fa": "🔕 دنبال نکردن این فیلد", "en": "🔕 Unsubscribe from this field"},
     "field_back_btn":        {"fa": "🔙 بازگشت به فیلدها",     "en": "🔙 Back to Physics Fields"},
-    "field_books_count":     {"fa": "📘 کتاب‌ها: {count}",      "en": "📘 Books: {count}"},
+    "field_books_count":     {"fa": "📘 کتاب‌ها: {count}",      "en": "📕 Books: {count}"},
     "field_articles_count":  {"fa": "📄 مقالات: {count}",       "en": "📄 Articles: {count}"},
     "field_resources_header":{"fa": "📋 منابع این فیلد:",       "en": "📋 Resources in this field:"},
     "view_resource":    {"fa": "👁 مشاهده منبع", "en": "👁 View Resource"},
@@ -334,7 +399,7 @@ TEXTS = {
     },
     "books_list_header": {
         "fa": "📘 لیست کتاب‌ها — روی کتاب موردنظر کلیک کن 👇",
-        "en": "📘 Books — tap to see details 👇"
+        "en": "📕 Books — tap to see details 👇"
     },
     "articles_list_header": {
         "fa": "📄 لیست مقالات — روی مقاله موردنظر کلیک کن 👇",
@@ -350,7 +415,7 @@ TEXTS = {
     },
     "browse_books_header": {
         "fa": "📘 کتاب‌ها — یه گزینه انتخاب کن:",
-        "en": "📘 Books — choose an option:"
+        "en": "📕 Books — choose an option:"
     },
     "browse_articles_header": {
         "fa": "📄 مقالات — یه گزینه انتخاب کن:",
@@ -396,7 +461,7 @@ TEXTS = {
             "📖 Help:\n\n"
             "🔍 Search ← search by title, author, across all resources\n"
             "📂 Browse ← books, articles, physics fields, popular & recent\n"
-            "   ↳ 📘 Books ← All / Field / Popular / Recent\n"
+            "   ↳ 📕 Books ← All / Field / Popular / Recent\n"
             "   ↳ 📄 Articles ← All / Field / Popular / Recent\n"
             "   ↳ 🌌 Physics Fields ← browse by topic\n"
             "   ↳ ⭐ Top Resources ← most downloaded\n"
@@ -659,7 +724,7 @@ BTN = {
     "lang":    {"fa": "🌐 English",        "en": "🌐 فارسی"},
 
     # Browse sub-menu inline buttons
-    "b_books":    {"fa": "📘 کتاب‌ها",        "en": "📘 Books"},
+    "b_books":    {"fa": "📘 کتاب‌ها",        "en": "📕 Books"},
     "b_articles": {"fa": "📄 مقالات",         "en": "📄 Articles"},
     "b_fields":   {"fa": "🌌 فیلدهای فیزیک", "en": "🌌 Physics Fields"},
     "b_top":      {"fa": "⭐ پرطرفدارها",    "en": "⭐ Popular"},
@@ -1109,7 +1174,7 @@ def handle_stats(message: types.Message, user_override: types.User = None):
     else:
         text = (
             f"📊 Library Stats\n\n"
-            f"📘 Books: {s['total_books']}\n"
+            f"📕 Books: {s['total_books']}\n"
             f"📄 Articles: {s.get('total_articles', 0)}\n"
             f"Persian: {s['fa_books']}  |  English: {s['en_books']}\n"
             f"⬇️ Total Downloads: {s['total_downloads']}\n"
@@ -1150,7 +1215,7 @@ def send_book_list(chat_id: int, user: types.User, rows, header_key: str):
     for book in rows:
         disp = database.get_display_id(book)
         rtype = book["resource_type"] if "resource_type" in book.keys() else "book"
-        icon = "📄" if rtype == "article" else "📘"
+        icon = "📄" if rtype == "article" else "📕"
         edition_part = f" [{book['edition']}]" if rtype == "book" and _row_get(book, "edition") and str(book["edition"]).strip() else ""
         label = f"{icon} {disp} — {book['title'][:35]}{edition_part}"
         markup.add(types.InlineKeyboardButton(label, callback_data=f"resinfo:{book['id']}"))
@@ -1173,7 +1238,7 @@ def send_resource_list(chat_id: int, user: types.User, rows, header_key: str,
     for res in rows:
         disp = database.get_display_id(res)
         rtype = res["resource_type"] if "resource_type" in res.keys() else "book"
-        icon = "📄" if rtype == "article" else "📘"
+        icon = "📄" if rtype == "article" else "📕"
         edition_part = f" [{res['edition']}]" if rtype == "book" and _row_get(res, "edition") and str(res["edition"]).strip() else ""
         label = f"{icon} {disp} — {res['title'][:35]}{edition_part}"
         markup.add(types.InlineKeyboardButton(label, callback_data=f"resinfo:{res['id']}"))
@@ -1182,12 +1247,20 @@ def send_resource_list(chat_id: int, user: types.User, rows, header_key: str,
 
 # ── Central formatters ────────────────────────────────────────────────────────
 #
-# All resource cards and download captions go through these two functions.
+# All resource cards and download captions go through these functions.
 # Parse mode: HTML  (safe — we escape every user-supplied value via _h()).
 #
+# ── Standard formatting spec (applied everywhere a resource is displayed) ──
+#   Title / عنوان       → <b>Bold</b>
+#   Author / نویسنده    → <i>Italic</i>
+#   ID (display ID)     → <code>Monospace</code>  (Telegram makes these
+#                         tap-to-copy on mobile automatically)
+#   All other fields    → Regular / Normal text
+#   No new emojis added; existing emojis and structure preserved.
+#
 # _h()  : escape a raw string for Telegram HTML
-# _fmt_book_card()   : full interactive card  (send_message, HTML)
-# _fmt_article_card(): full interactive card  (send_message, HTML)
+# _fmt_book_card()      : full interactive card  (send_message, HTML)
+# _fmt_article_card()   : full interactive card  (send_message, HTML)
 # _fmt_book_caption()   : compact send_document caption  (plain text, no tags)
 # _fmt_article_caption(): compact send_document caption  (plain text, no tags)
 #
@@ -1204,22 +1277,31 @@ def _fmt_book_card(book, lang: str, field: str, lang_label: str, disp: str,
                    rating_str: str) -> str:
     """
     HTML card for a book — used in send_book_card (interactive message).
-    Hierarchy:  Title (bold) → Author (italic) → bibliographic block →
-                description → rating/downloads footer.
+
+    Formatting spec:
+      Title   → <b>Bold</b>      (edition appended in regular text, not italic)
+      Author  → <i>Italic</i>
+      ID      → <code>Monospace</code>  (tap-to-copy on Telegram mobile)
+      All other fields (year, language, field, pages, volume, publisher,
+                        description, downloads, rating) → Regular text
     """
     lines: list[str] = []
 
-    # ── Title + edition
+    # ── Title  [Bold]  +  edition  [Regular — part of bibliographic info]
     title_str = _h(book["title"])
+    edition_str = ""
     if _row_get(book, "edition") and str(book["edition"]).strip():
-        title_str += f"  <i>({_h(book['edition'])})</i>"
-    lines.append(f"📘 <b>{title_str}</b>")
+        edition_str = f" ({_h(book['edition'])})"
+    lines.append(f"📕 <b>{title_str}</b>{edition_str}")
 
-    # ── Author
+    # ── Author  [Italic]
     lines.append(f"✍ <i>{_h(book['author'])}</i>")
 
-    # ── Bibliographic block (year / language / field / pages / volume)
+    # ── Bibliographic block — all Regular text
+    #    order: publisher / year / language / field / pages / volume
     bib: list[str] = []
+    if _row_get(book, "publisher") and str(book["publisher"]).strip():
+        bib.append(f"🏢 {_h(book['publisher'])}")
     if _row_get(book, "year"):
         bib.append(f"📅 {_h(book['year'])}")
     bib.append(f"🌐 {_h(lang_label)}")
@@ -1231,15 +1313,15 @@ def _fmt_book_card(book, lang: str, field: str, lang_label: str, disp: str,
     if bib:
         lines.append("\n".join(bib))
 
-    # ── Identifier
+    # ── Identifier  [Monospace — tap-to-copy]
     lines.append(f"🔖 <code>{_h(disp)}</code>")
 
-    # ── Description (separated by blank line)
+    # ── Description  [Regular]  (separated by blank line)
     if _row_get(book, "description") and str(book["description"]).strip():
         lines.append("")
         lines.append(f"📝 {_h(book['description'])}")
 
-    # ── Footer
+    # ── Footer  [Regular]
     lines.append("")
     lines.append(f"⬇️ {_h(book['download_count'])}   {rating_str}")
 
@@ -1250,20 +1332,28 @@ def _fmt_article_card(res, lang: str, field: str, lang_label: str, disp: str,
                       rating_str: str) -> str:
     """
     HTML card for an article — used in send_resource_card (interactive message).
+
+    Formatting spec:
+      Title   → <b>Bold</b>
+      Author  → <i>Italic</i>
+      ID / DOI → <code>Monospace</code>  (tap-to-copy on Telegram mobile)
+      All other fields (journal, volume, issue, pages, date, language, field,
+                        publisher, description, downloads, rating) → Regular text
     """
     lines: list[str] = []
 
-    # ── Title
+    # ── Title  [Bold]
     lines.append(f"📄 <b>{_h(res['title'])}</b>")
 
-    # ── Author
+    # ── Author  [Italic]
     if _row_get(res, "author"):
         lines.append(f"✍ <i>{_h(res['author'])}</i>")
 
-    # ── Bibliographic block
+    # ── Bibliographic block — all Regular text
+    #    order: journal / volume+issue / pages / date / publisher / language / field
     bib: list[str] = []
     if _row_get(res, "journal"):
-        bib.append(f"📰 <i>{_h(res['journal'])}</i>")
+        bib.append(f"📰 {_h(res['journal'])}")
     vi_parts: list[str] = []
     if _row_get(res, "volume"):
         vi_parts.append(f"Vol. {_h(res['volume'])}")
@@ -1275,24 +1365,26 @@ def _fmt_article_card(res, lang: str, field: str, lang_label: str, disp: str,
         bib.append(f"📄 pp. {_h(res['pages'])}")
     if _row_get(res, "publication_date"):
         bib.append(f"📅 {_h(res['publication_date'])}")
+    if _row_get(res, "publisher") and str(res["publisher"]).strip():
+        bib.append(f"🏢 {_h(res['publisher'])}")
     bib.append(f"🌐 {_h(lang_label)}")
     bib.append(f"🌌 {_h(field)}")
     if bib:
         lines.append("\n".join(bib))
 
-    # ── Identifiers
+    # ── Identifiers  [Monospace — tap-to-copy]
     if _row_get(res, "doi"):
         lines.append(f"🔗 DOI: <code>{_h(res['doi'])}</code>")
     if _row_get(res, "url"):
         lines.append(f"🌐 <a href=\"{_h(res['url'])}\">{_h(res['url'])}</a>")
     lines.append(f"🔖 <code>{_h(disp)}</code>")
 
-    # ── Description
+    # ── Description  [Regular]
     if _row_get(res, "description") and str(res["description"]).strip():
         lines.append("")
         lines.append(f"📝 {_h(res['description'])}")
 
-    # ── Footer
+    # ── Footer  [Regular]
     lines.append("")
     lines.append(f"⬇️ {_h(res['download_count'])}   {rating_str}")
 
@@ -1301,57 +1393,83 @@ def _fmt_article_card(res, lang: str, field: str, lang_label: str, disp: str,
 
 def _fmt_book_caption(res, field: str, lang_label: str, disp: str) -> str:
     """
-    Plain-text caption for send_document (book).  No HTML tags — safe to
-    truncate with _safe_caption() without risking unclosed markup.
+    Plain-text caption for send_document (book).
+
+    Adaptive Description: all metadata fields are always preserved in full.
+    Only the description may be shortened automatically by _fit_caption() so
+    the total stays within Telegram's 1024-character caption limit.
+    No HTML tags — no risk of unclosed markup on truncation.
     """
-    parts: list[str] = [f"📘 {res['title']}"]
+    # ── Fixed part (everything except description) ────────────────────────
+    title_line = f"📕 {res['title']}"
     if _row_get(res, "edition") and str(res["edition"]).strip():
-        parts[0] += f" ({res['edition']})"
-    parts.append(f"✍ {res['author']}")
+        title_line += f" ({res['edition']})"
+
+    fixed_parts: list[str] = [title_line]
+    fixed_parts.append(f"✍ {res['author']}")
     if _row_get(res, "year"):
-        parts.append(f"📅 {res['year']}")
-    parts.append(f"🌐 {lang_label}")
-    parts.append(f"🌌 {field}")
+        fixed_parts.append(f"📅 {res['year']}")
+    fixed_parts.append(f"🌐 {lang_label}")
+    fixed_parts.append(f"🌌 {field}")
     if _row_get(res, "pages") and str(res["pages"]).strip():
-        parts.append(f"📄 {res['pages']} pp.")
-    parts.append(f"🔖 {disp}")
-    parts.append(f"⬇️ {res['download_count']}")
+        fixed_parts.append(f"📄 {res['pages']} pp.")
+    fixed_parts.append(f"🔖 {disp}")
+    fixed_parts.append(f"⬇️ {res['download_count']}")
+    fixed_parts.append("\n@PhysisLib_Bot")
+
+    fixed = "\n".join(fixed_parts)
+
+    # ── Description (adaptive — may be truncated) ─────────────────────────
+    desc = ""
     if _row_get(res, "description") and str(res["description"]).strip():
-        parts.append(f"\n📝 {res['description']}")
-    parts.append("\n@PhysisLib_Bot")
-    return "\n".join(parts)
+        desc = str(res["description"]).strip()
+
+    return _fit_caption(fixed, desc)
 
 
 def _fmt_article_caption(res, field: str, lang_label: str, disp: str) -> str:
-    """Plain-text caption for send_document (article)."""
-    parts: list[str] = [f"📄 {res['title']}"]
+    """
+    Plain-text caption for send_document (article).
+
+    Adaptive Description: all metadata fields are always preserved in full.
+    Only the description may be shortened automatically by _fit_caption() so
+    the total stays within Telegram's 1024-character caption limit.
+    """
+    # ── Fixed part (everything except description) ────────────────────────
+    fixed_parts: list[str] = [f"📄 {res['title']}"]
     if _row_get(res, "author"):
-        parts.append(f"✍ {res['author']}")
+        fixed_parts.append(f"✍ {res['author']}")
     if _row_get(res, "journal"):
-        parts.append(f"📰 {res['journal']}")
+        fixed_parts.append(f"📰 {res['journal']}")
     vi_parts: list[str] = []
     if _row_get(res, "volume"):
         vi_parts.append(f"Vol.{res['volume']}")
     if _row_get(res, "issue"):
         vi_parts.append(f"No.{res['issue']}")
     if vi_parts:
-        parts.append(f"🔢 {' '.join(vi_parts)}")
+        fixed_parts.append(f"🔢 {' '.join(vi_parts)}")
     if _row_get(res, "pages"):
-        parts.append(f"📄 pp. {res['pages']}")
+        fixed_parts.append(f"📄 pp. {res['pages']}")
     if _row_get(res, "publication_date"):
-        parts.append(f"📅 {res['publication_date']}")
+        fixed_parts.append(f"📅 {res['publication_date']}")
     if _row_get(res, "doi"):
-        parts.append(f"🔗 DOI: {res['doi']}")
+        fixed_parts.append(f"🔗 DOI: {res['doi']}")
     if _row_get(res, "url"):
-        parts.append(f"🌐 {res['url']}")
-    parts.append(f"🌐 {lang_label}")
-    parts.append(f"🌌 {field}")
-    parts.append(f"🔖 {disp}")
-    parts.append(f"⬇️ {res['download_count']}")
+        fixed_parts.append(f"🌐 {res['url']}")
+    fixed_parts.append(f"🌐 {lang_label}")
+    fixed_parts.append(f"🌌 {field}")
+    fixed_parts.append(f"🔖 {disp}")
+    fixed_parts.append(f"⬇️ {res['download_count']}")
+    fixed_parts.append("\n@PhysisLib_Bot")
+
+    fixed = "\n".join(fixed_parts)
+
+    # ── Description (adaptive — may be truncated) ─────────────────────────
+    desc = ""
     if _row_get(res, "description") and str(res["description"]).strip():
-        parts.append(f"\n📝 {res['description']}")
-    parts.append("\n@PhysisLib_Bot")
-    return "\n".join(parts)
+        desc = str(res["description"]).strip()
+
+    return _fit_caption(fixed, desc)
 
 # ── Book Card ─────────────────────────────────────────────────────────────────
 
@@ -1471,19 +1589,16 @@ def download(callback: types.CallbackQuery):
 
     if rtype == "article":
         # --- Article download ---
+        # _fmt_article_caption() guarantees len(caption) <= 1024 via adaptive
+        # description truncation — no follow-up message needed.
         caption = _fmt_article_caption(res, field, lang_label, disp)
 
         if _row_get(res, "file_id"):
-            # Telegram caps media captions at 1024 chars — truncate safely and
-            # send overflow as a follow-up so no metadata is lost.
-            safe_caption, overflow = _safe_caption(caption)
             bot.send_document(
                 callback.message.chat.id,
                 res["file_id"],
-                caption=safe_caption,
+                caption=caption,
             )
-            if overflow:
-                bot.send_message(callback.message.chat.id, overflow)
         else:
             # Link-only article — plain text message (4096-char limit, chunked)
             for i in range(0, len(caption), 4096):
@@ -1491,15 +1606,14 @@ def download(callback: types.CallbackQuery):
 
     else:
         # --- Book download ---
+        # _fmt_book_caption() guarantees len(caption) <= 1024 via adaptive
+        # description truncation — no follow-up message needed.
         caption = _fmt_book_caption(res, field, lang_label, disp)
-        safe_caption, overflow = _safe_caption(caption)
         bot.send_document(
             callback.message.chat.id,
             res["file_id"],
-            caption=safe_caption,
+            caption=caption,
         )
-        if overflow:
-            bot.send_message(callback.message.chat.id, overflow)
 
     database.record_download(res_id, user.id)
     bot.answer_callback_query(callback.id, TEXTS["downloaded"][lang])
@@ -1584,7 +1698,7 @@ def search_filter_callback(callback: types.CallbackQuery):
             mk.row(types.InlineKeyboardButton("✖️ بدون فیلتر نوع", callback_data="sf_type:"))
         else:
             mk.row(
-                types.InlineKeyboardButton("📘 Book",    callback_data="sf_type:book"),
+                types.InlineKeyboardButton("📕 Book",    callback_data="sf_type:book"),
                 types.InlineKeyboardButton("📄 Article", callback_data="sf_type:article"),
             )
             mk.row(types.InlineKeyboardButton("✖️ No type filter", callback_data="sf_type:"))
@@ -1745,7 +1859,13 @@ def send_field_page(chat_id: int, user: types.User, field_key: str,
     books_line    = TEXTS["field_books_count"][lang].format(count=counts["books"])
     articles_line = TEXTS["field_articles_count"][lang].format(count=counts["articles"])
 
-    text = f"🌌 {field_name}\n\n{description}\n\n{books_line}\n{articles_line}"
+    # HTML-escape all user-visible strings; description comes from our own
+    # FIELD_DESCRIPTIONS dict (no user input), but escape it for safety.
+    text = (
+        f"🌌 {_h(field_name)}\n\n"
+        f"{_h(description)}\n\n"
+        f"{_h(books_line)}\n{_h(articles_line)}"
+    )
 
     # Build keyboard
     mk = types.InlineKeyboardMarkup()
@@ -1772,11 +1892,12 @@ def send_field_page(chat_id: int, user: types.User, field_key: str,
     if edit_message_id:
         try:
             bot.edit_message_text(text, chat_id=chat_id,
-                                  message_id=edit_message_id, reply_markup=mk)
+                                  message_id=edit_message_id, reply_markup=mk,
+                                  parse_mode="HTML")
             return
         except Exception:
             pass
-    bot.send_message(chat_id, text, reply_markup=mk)
+    bot.send_message(chat_id, text, reply_markup=mk, parse_mode="HTML")
 
 
 @bot.callback_query_handler(func=lambda c: c.data.startswith("fieldpage:"))
@@ -1950,7 +2071,7 @@ def notify_field_subscribers(bot_instance, physics_field: str, title: str,
         if not subscribers:
             return
         fa_n, en_n = database.PHYSICS_FIELDS.get(physics_field, (physics_field, physics_field))
-        icon = "📄" if resource_type == "article" else "📘"
+        icon = "📄" if resource_type == "article" else "📕"
         for uid in subscribers:
             lang = database.get_user_lang(uid) or "fa"
             field_name = fa_n if lang == "fa" else en_n
@@ -1991,7 +2112,7 @@ def handle_my_bookmarks(message: types.Message):
     for res in rows:
         disp = database.get_display_id(res)
         rtype = res["resource_type"] if "resource_type" in res.keys() else "book"
-        icon = "📄" if rtype == "article" else "📘"
+        icon = "📄" if rtype == "article" else "📕"
         markup.add(types.InlineKeyboardButton(
             f"{icon} {disp} — {res['title'][:35]}",
             callback_data=f"resinfo:{res['id']}"
@@ -2014,7 +2135,7 @@ def handle_my_history(message: types.Message):
     for res in rows:
         disp = database.get_display_id(res)
         rtype = res["resource_type"] if "resource_type" in res.keys() else "book"
-        icon = "📄" if rtype == "article" else "📘"
+        icon = "📄" if rtype == "article" else "📕"
         markup.add(types.InlineKeyboardButton(
             f"{icon} {disp} — {res['title'][:35]}",
             callback_data=f"resinfo:{res['id']}"
