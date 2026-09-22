@@ -113,6 +113,10 @@ search_filters: dict[int, dict] = {}
 # Values: "book" | "article"
 browse_submenu_type: dict[int, str] = {}
 
+# Track which top-level menu layer the user is currently in.
+# Values: "browse" | "about" | "main"
+user_menu_state: dict[int, str] = {}
+
 # Pagination 
 PAGE_SIZE = 10
 
@@ -1044,6 +1048,9 @@ def search_filter_keyboard(user: types.User) -> types.InlineKeyboardMarkup:
     return mk
 
 def send_home(chat_id: int, user: types.User):
+    uid = user.id
+    browse_submenu_type.pop(uid, None)
+    user_menu_state.pop(uid, None)
     bot.send_message(
         chat_id,
         t(user, "start"),
@@ -1116,6 +1123,29 @@ def text_handler(message: types.Message):
     user = message.from_user
     text = message.text.strip()
     uid  = user.id
+
+    # ── Back button is always handled by the bot, never by admin state ──────
+    # Check it first so that an admin in the middle of a panel flow cannot
+    # accidentally have "Back" swallowed by the admin text handler.
+    if text in (BTN["back"]["fa"], BTN["back"]["en"]):
+        if uid in browse_submenu_type:
+            browse_submenu_type.pop(uid, None)
+            user_menu_state[uid] = "browse"
+            bot.send_message(
+                message.chat.id,
+                t(user, "browse_header"),
+                reply_markup=browse_reply_keyboard(user)
+            )
+        elif user_menu_state.get(uid) == "browse":
+            user_menu_state.pop(uid, None)
+            send_home(message.chat.id, user)
+        elif user_menu_state.get(uid) == "about":
+            user_menu_state.pop(uid, None)
+            send_home(message.chat.id, user)
+        else:
+            send_home(message.chat.id, user)
+        return
+
     if admin.handle_admin_text(bot, message):
         return
 
@@ -1144,24 +1174,11 @@ def text_handler(message: types.Message):
 
     lang = get_lang(user)
 
-    # ── Back button: returns one layer up ───────────────────────────────────
-    if text in (BTN["back"]["fa"], BTN["back"]["en"]):
-        if uid in browse_submenu_type:
-            # Back from the Books/Articles submenu layer → Browse menu
-            browse_submenu_type.pop(uid, None)
-            bot.send_message(
-                message.chat.id,
-                t(user, "browse_header"),
-                reply_markup=browse_reply_keyboard(user)
-            )
-        else:
-            send_home(message.chat.id, user)
-
     # ── Browse → Books/Articles submenu (All/Fields/Popular/Recent) ────────
     # Checked before the Main/Browse menu buttons below since the English
     # "Popular" label is shared between this layer and the Browse-level
     # "rb_top" button; the state guard disambiguates them.
-    elif text in _SUBMENU_ACTION_BY_LABEL and uid in browse_submenu_type:
+    if text in _SUBMENU_ACTION_BY_LABEL and uid in browse_submenu_type:
         _handle_resource_submenu_action(
             message, user, browse_submenu_type[uid], _SUBMENU_ACTION_BY_LABEL[text]
         )
@@ -1175,6 +1192,7 @@ def text_handler(message: types.Message):
     elif text == btn(user, "browse"):
         # Switch Reply Keyboard to Browse submenu (no new content message)
         browse_submenu_type.pop(uid, None)
+        user_menu_state[uid] = "browse"
         bot.send_message(
             message.chat.id,
             t(user, "browse_header"),
@@ -1190,6 +1208,7 @@ def text_handler(message: types.Message):
         handle_my_history(message)
 
     elif text == btn(user, "about"):
+        user_menu_state[uid] = "about"
         bot.send_message(
             message.chat.id,
             t(user, "about_header"),
@@ -1205,15 +1224,18 @@ def text_handler(message: types.Message):
     # ── Browse submenu Reply Keyboard buttons ──────────────────────────────
     elif text in (BTN["rb_books"]["fa"], BTN["rb_books"]["en"]):
         browse_submenu_type[uid] = "book"
+        user_menu_state[uid] = "browse"
         bot.send_message(message.chat.id, t(user, "browse_books_header"),
                          reply_markup=resource_submenu_reply_keyboard(user))
 
     elif text in (BTN["rb_articles"]["fa"], BTN["rb_articles"]["en"]):
         browse_submenu_type[uid] = "article"
+        user_menu_state[uid] = "browse"
         bot.send_message(message.chat.id, t(user, "browse_articles_header"),
                          reply_markup=resource_submenu_reply_keyboard(user))
 
     elif text in (BTN["rb_fields"]["fa"], BTN["rb_fields"]["en"]):
+        user_menu_state[uid] = "browse"
         handle_fields(message, from_browse=True)
 
     elif text in (BTN["rb_top"]["fa"], BTN["rb_top"]["en"]):
@@ -1385,7 +1407,8 @@ def handle_fields(message: types.Message, user_override: types.User = None,
     bot.send_message(message.chat.id, t(user, "fields_header"), reply_markup=markup)
 
 
-def handle_stats(message: types.Message, user_override: types.User = None):
+def handle_stats(message: types.Message, user_override: types.User = None,
+                 reply_markup_override=None):
     user = user_override or message.from_user
     s = database.get_library_stats()
     lang = get_lang(user)
@@ -1409,7 +1432,8 @@ def handle_stats(message: types.Message, user_override: types.User = None):
             f"🌌 Active Fields: {s['unique_fields']}"
         )
 
-    bot.send_message(message.chat.id, text, reply_markup=main_keyboard(user))
+    markup = reply_markup_override if reply_markup_override is not None else main_keyboard(user)
+    bot.send_message(message.chat.id, text, reply_markup=markup)
 
 
 def handle_top(message: types.Message):
@@ -1989,10 +2013,12 @@ def browse_callback(callback: types.CallbackQuery):
 
     if action == "books":
         browse_submenu_type[user.id] = "book"
+        user_menu_state[user.id] = "browse"
         bot.send_message(chat_id, t(user, "browse_books_header"),
                          reply_markup=resource_submenu_reply_keyboard(user))
     elif action == "articles":
         browse_submenu_type[user.id] = "article"
+        user_menu_state[user.id] = "browse"
         bot.send_message(chat_id, t(user, "browse_articles_header"),
                          reply_markup=resource_submenu_reply_keyboard(user))
     elif action == "fields":
@@ -2063,16 +2089,18 @@ def about_callback(callback: types.CallbackQuery):
     bot.answer_callback_query(callback.id)
     chat_id = callback.message.chat.id
 
+    user_menu_state[user.id] = "about"
     if action == "help":
-        bot.send_message(chat_id, t(user, "help"), reply_markup=main_keyboard(user))
+        bot.send_message(chat_id, t(user, "help"), reply_markup=about_reply_keyboard(user))
     elif action == "stats":
-        handle_stats(callback.message, user_override=user)
+        handle_stats(callback.message, user_override=user,
+                     reply_markup_override=about_reply_keyboard(user))
     elif action == "top":
         probe = database.get_top_downloads(limit=1, offset=0)
         send_resource_list(chat_id, user, probe, header_key="top_books_header",
                            pg_context="top_all|")
     elif action == "project":
-        bot.send_message(chat_id, t(user, "about_project"), reply_markup=main_keyboard(user))
+        bot.send_message(chat_id, t(user, "about_project"), reply_markup=about_reply_keyboard(user))
 
 
 def send_field_page(chat_id: int, user: types.User, field_key: str,
