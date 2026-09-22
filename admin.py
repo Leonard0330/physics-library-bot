@@ -35,7 +35,7 @@ def get_lang(user_id: int) -> str:
 # Bilingual Texts
 T = {
     "no_access":        {"fa": "⛔️ دسترسی ندارید.",                              "en": "⛔️ You don't have access."},
-    "panel_title":      {"fa": "👨‍💼 پنل ادمین\nیکی از گزینه‌ها رو انتخاب کن:",   "en": "👨‍💼 Admin Panel\nChoose an option:"},
+    "panel_title":      {"fa": "👤 پنل ادمین\nیکی از گزینه‌ها رو انتخاب کن:",   "en": "👤 Admin Panel\nChoose an option:"},
     "cancelled":        {"fa": "↩️ عملیات لغو شد.",                             "en": "↩️ Operation cancelled."},
     "ask_book_id_del":  {"fa": "🗑 شناسه کتاب یا مقاله رو بنویس (مثلاً REL-14 یا آیدی عددی):",
                           "en": "🗑 Enter the book or article ID (e.g. REL-14 or the raw numeric ID):"},
