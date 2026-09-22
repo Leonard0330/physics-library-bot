@@ -8,6 +8,25 @@ TOKEN = os.environ.get("BOT_TOKEN")
 bot = telebot.TeleBot(TOKEN)
 
 
+TELEGRAM_CAPTION_LIMIT = 1024
+
+
+def _safe_caption(caption: str, limit: int = TELEGRAM_CAPTION_LIMIT) -> tuple[str, str | None]:
+    """
+    Telegram rejects send_document/send_photo/etc. if caption > 1024 chars
+    ("Bad Request: message caption is too long").
+    Returns (caption_to_send, overflow_text_or_None).
+    If caption fits, overflow is None. If not, caption is truncated with an
+    ellipsis and the full original text is returned as overflow so the
+    caller can send it as a follow-up message instead of silently losing it.
+    """
+    if len(caption) <= limit:
+        return caption, None
+    ellipsis = "…"
+    truncated = caption[: limit - len(ellipsis)].rstrip() + ellipsis
+    return truncated, caption
+
+
 def _row_get(row, key: str, default=None):
     """sqlite3.Row does not support .get().  Use this instead of row.get(key)."""
     try:
@@ -1161,7 +1180,180 @@ def send_resource_list(chat_id: int, user: types.User, rows, header_key: str,
     bot.send_message(chat_id, header, reply_markup=markup)
 
 
-# Book Card
+# ── Central formatters ────────────────────────────────────────────────────────
+#
+# All resource cards and download captions go through these two functions.
+# Parse mode: HTML  (safe — we escape every user-supplied value via _h()).
+#
+# _h()  : escape a raw string for Telegram HTML
+# _fmt_book_card()   : full interactive card  (send_message, HTML)
+# _fmt_article_card(): full interactive card  (send_message, HTML)
+# _fmt_book_caption()   : compact send_document caption  (plain text, no tags)
+# _fmt_article_caption(): compact send_document caption  (plain text, no tags)
+#
+# Captions intentionally stay plain-text: Telegram's caption HTML renderer
+# works, but mixing parse_mode with _safe_caption truncation can leave
+# unclosed tags.  The card message already shows the rich formatted version.
+
+def _h(s) -> str:
+    """Escape a value for Telegram HTML parse_mode."""
+    return str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _fmt_book_card(book, lang: str, field: str, lang_label: str, disp: str,
+                   rating_str: str) -> str:
+    """
+    HTML card for a book — used in send_book_card (interactive message).
+    Hierarchy:  Title (bold) → Author (italic) → bibliographic block →
+                description → rating/downloads footer.
+    """
+    lines: list[str] = []
+
+    # ── Title + edition
+    title_str = _h(book["title"])
+    if _row_get(book, "edition") and str(book["edition"]).strip():
+        title_str += f"  <i>({_h(book['edition'])})</i>"
+    lines.append(f"📘 <b>{title_str}</b>")
+
+    # ── Author
+    lines.append(f"✍ <i>{_h(book['author'])}</i>")
+
+    # ── Bibliographic block (year / language / field / pages / volume)
+    bib: list[str] = []
+    if _row_get(book, "year"):
+        bib.append(f"📅 {_h(book['year'])}")
+    bib.append(f"🌐 {_h(lang_label)}")
+    bib.append(f"🌌 {_h(field)}")
+    if _row_get(book, "pages") and str(book["pages"]).strip():
+        bib.append(f"📄 {_h(book['pages'])} pp.")
+    if _row_get(book, "volume") and str(book["volume"]).strip():
+        bib.append(f"🔢 Vol. {_h(book['volume'])}")
+    if bib:
+        lines.append("\n".join(bib))
+
+    # ── Identifier
+    lines.append(f"🔖 <code>{_h(disp)}</code>")
+
+    # ── Description (separated by blank line)
+    if _row_get(book, "description") and str(book["description"]).strip():
+        lines.append("")
+        lines.append(f"📝 {_h(book['description'])}")
+
+    # ── Footer
+    lines.append("")
+    lines.append(f"⬇️ {_h(book['download_count'])}   {rating_str}")
+
+    return "\n".join(lines)
+
+
+def _fmt_article_card(res, lang: str, field: str, lang_label: str, disp: str,
+                      rating_str: str) -> str:
+    """
+    HTML card for an article — used in send_resource_card (interactive message).
+    """
+    lines: list[str] = []
+
+    # ── Title
+    lines.append(f"📄 <b>{_h(res['title'])}</b>")
+
+    # ── Author
+    if _row_get(res, "author"):
+        lines.append(f"✍ <i>{_h(res['author'])}</i>")
+
+    # ── Bibliographic block
+    bib: list[str] = []
+    if _row_get(res, "journal"):
+        bib.append(f"📰 <i>{_h(res['journal'])}</i>")
+    vi_parts: list[str] = []
+    if _row_get(res, "volume"):
+        vi_parts.append(f"Vol. {_h(res['volume'])}")
+    if _row_get(res, "issue"):
+        vi_parts.append(f"No. {_h(res['issue'])}")
+    if vi_parts:
+        bib.append(f"🔢 {', '.join(vi_parts)}")
+    if _row_get(res, "pages"):
+        bib.append(f"📄 pp. {_h(res['pages'])}")
+    if _row_get(res, "publication_date"):
+        bib.append(f"📅 {_h(res['publication_date'])}")
+    bib.append(f"🌐 {_h(lang_label)}")
+    bib.append(f"🌌 {_h(field)}")
+    if bib:
+        lines.append("\n".join(bib))
+
+    # ── Identifiers
+    if _row_get(res, "doi"):
+        lines.append(f"🔗 DOI: <code>{_h(res['doi'])}</code>")
+    if _row_get(res, "url"):
+        lines.append(f"🌐 <a href=\"{_h(res['url'])}\">{_h(res['url'])}</a>")
+    lines.append(f"🔖 <code>{_h(disp)}</code>")
+
+    # ── Description
+    if _row_get(res, "description") and str(res["description"]).strip():
+        lines.append("")
+        lines.append(f"📝 {_h(res['description'])}")
+
+    # ── Footer
+    lines.append("")
+    lines.append(f"⬇️ {_h(res['download_count'])}   {rating_str}")
+
+    return "\n".join(lines)
+
+
+def _fmt_book_caption(res, field: str, lang_label: str, disp: str) -> str:
+    """
+    Plain-text caption for send_document (book).  No HTML tags — safe to
+    truncate with _safe_caption() without risking unclosed markup.
+    """
+    parts: list[str] = [f"📘 {res['title']}"]
+    if _row_get(res, "edition") and str(res["edition"]).strip():
+        parts[0] += f" ({res['edition']})"
+    parts.append(f"✍ {res['author']}")
+    if _row_get(res, "year"):
+        parts.append(f"📅 {res['year']}")
+    parts.append(f"🌐 {lang_label}")
+    parts.append(f"🌌 {field}")
+    if _row_get(res, "pages") and str(res["pages"]).strip():
+        parts.append(f"📄 {res['pages']} pp.")
+    parts.append(f"🔖 {disp}")
+    parts.append(f"⬇️ {res['download_count']}")
+    if _row_get(res, "description") and str(res["description"]).strip():
+        parts.append(f"\n📝 {res['description']}")
+    parts.append("\n@PhysisLib_Bot")
+    return "\n".join(parts)
+
+
+def _fmt_article_caption(res, field: str, lang_label: str, disp: str) -> str:
+    """Plain-text caption for send_document (article)."""
+    parts: list[str] = [f"📄 {res['title']}"]
+    if _row_get(res, "author"):
+        parts.append(f"✍ {res['author']}")
+    if _row_get(res, "journal"):
+        parts.append(f"📰 {res['journal']}")
+    vi_parts: list[str] = []
+    if _row_get(res, "volume"):
+        vi_parts.append(f"Vol.{res['volume']}")
+    if _row_get(res, "issue"):
+        vi_parts.append(f"No.{res['issue']}")
+    if vi_parts:
+        parts.append(f"🔢 {' '.join(vi_parts)}")
+    if _row_get(res, "pages"):
+        parts.append(f"📄 pp. {res['pages']}")
+    if _row_get(res, "publication_date"):
+        parts.append(f"📅 {res['publication_date']}")
+    if _row_get(res, "doi"):
+        parts.append(f"🔗 DOI: {res['doi']}")
+    if _row_get(res, "url"):
+        parts.append(f"🌐 {res['url']}")
+    parts.append(f"🌐 {lang_label}")
+    parts.append(f"🌌 {field}")
+    parts.append(f"🔖 {disp}")
+    parts.append(f"⬇️ {res['download_count']}")
+    if _row_get(res, "description") and str(res["description"]).strip():
+        parts.append(f"\n📝 {res['description']}")
+    parts.append("\n@PhysisLib_Bot")
+    return "\n".join(parts)
+
+# ── Book Card ─────────────────────────────────────────────────────────────────
 
 def send_book_card(chat_id: int, user: types.User, book):
     lang = get_lang(user)
@@ -1172,27 +1364,17 @@ def send_book_card(chat_id: int, user: types.User, book):
     lang_label = "فارسی" if book["language"] == "fa" else "English"
     disp = database.get_display_id(book)
 
-    edition_line = f"\n📖 {book['edition']}" if _row_get(book, "edition") and str(book["edition"]).strip() else ""
-    desc_line = f"\n📝 {book['description']}" if _row_get(book, "description") and str(book["description"]).strip() else ""
     rs = database.get_rating_stats(book["id"])
-    if rs["avg"] is not None:
-        rating_line = "\n" + TEXTS["rating_label"][lang].format(avg=rs["avg"], cnt=rs["cnt"])
-    else:
-        rating_line = "\n" + TEXTS["rating_none"][lang]
-    text = (
-        f"📘 {book['title']}{edition_line}\n"
-        f"✍ {book['author']}\n"
-        f"🌐 {lang_label}\n"
-        f"🌌 {field}\n"
-        f"🔖 {disp}\n"
-        f"⬇️ {book['download_count']}"
-        f"{desc_line}"
-        f"{rating_line}"
+    rating_str = (
+        TEXTS["rating_label"][lang].format(avg=rs["avg"], cnt=rs["cnt"])
+        if rs["avg"] is not None
+        else TEXTS["rating_none"][lang]
     )
+
+    text = _fmt_book_card(book, lang, field, lang_label, disp, rating_str)
 
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton(t(user, "download"), callback_data=f"download:{book['id']}"))
-    # Star rating row — highlight the user's current rating if any
     user_r = database.get_user_rating(user.id, book["id"])
     markup.row(*[
         types.InlineKeyboardButton(
@@ -1202,13 +1384,13 @@ def send_book_card(chat_id: int, user: types.User, book):
     ])
     bm_label = "🔖✓" if database.is_bookmarked(user.id, book["id"]) else "🔖"
     markup.add(types.InlineKeyboardButton(bm_label, callback_data=f"bookmark:{book['id']}"))
-    # Subscribe / unsubscribe to field
     field_key = book["physics_field"]
     sub_label = TEXTS["unsubscribe_btn"][lang] if database.is_subscribed(user.id, field_key) else TEXTS["subscribe_btn"][lang]
     markup.add(types.InlineKeyboardButton(sub_label, callback_data=f"subscribe:{field_key}"))
-    bot.send_message(chat_id, text, reply_markup=markup)
+    bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=markup)
 
-# Book / Article Card
+# ── Book / Article Card ───────────────────────────────────────────────────────
+
 def send_resource_card(chat_id: int, user: types.User, res):
     lang = get_lang(user)
     rtype = res["resource_type"] if "resource_type" in res.keys() else "book"
@@ -1222,36 +1404,14 @@ def send_resource_card(chat_id: int, user: types.User, res):
     lang_label = "فارسی" if res["language"] == "fa" else "English"
     disp = database.get_display_id(res)
 
-    lines = [
-        f"📄 {res['title']}",
-        f"✍ {res['author']}" if _row_get(res, "author") else "",
-        f"🌐 {lang_label}",
-        f"🌌 {field}",
-        f"🔖 {disp}",
-    ]
-    if _row_get(res, "journal"):
-        lines.append(f"📰 {res['journal']}")
-    if _row_get(res, "volume") or _row_get(res, "issue"):
-        vi = f"Vol.{res['volume']}" if _row_get(res, "volume") else ""
-        if _row_get(res, "issue"):
-            vi += f" No.{res['issue']}"
-        lines.append(f"🔢 {vi.strip()}")
-    if _row_get(res, "pages"):
-        lines.append(f"📄 pp. {res['pages']}")
-    if _row_get(res, "doi"):
-        lines.append(f"🔗 DOI: {res['doi']}")
-    if _row_get(res, "url"):
-        lines.append(f"🌐 {res['url']}")
-    if _row_get(res, "publication_date"):
-        lines.append(f"📅 {res['publication_date']}")
-    if _row_get(res, "description"):
-        lines.append(f"📝 {res['description']}")
-    lines.append(f"⬇️ {res['download_count']}")
     rs = database.get_rating_stats(res["id"])
-    if rs["avg"] is not None:
-        lines.append(TEXTS["rating_label"][lang].format(avg=rs["avg"], cnt=rs["cnt"]))
-    else:
-        lines.append(TEXTS["rating_none"][lang])
+    rating_str = (
+        TEXTS["rating_label"][lang].format(avg=rs["avg"], cnt=rs["cnt"])
+        if rs["avg"] is not None
+        else TEXTS["rating_none"][lang]
+    )
+
+    text = _fmt_article_card(res, lang, field, lang_label, disp, rating_str)
 
     markup = types.InlineKeyboardMarkup()
     if _row_get(res, "file_id") or _row_get(res, "url") or _row_get(res, "doi"):
@@ -1267,11 +1427,10 @@ def send_resource_card(chat_id: int, user: types.User, res):
     ])
     bm_label = "🔖✓" if database.is_bookmarked(user.id, res["id"]) else "🔖"
     markup.add(types.InlineKeyboardButton(bm_label, callback_data=f"bookmark:{res['id']}"))
-    # Subscribe / unsubscribe to field
     field_key = res["physics_field"]
     sub_label = TEXTS["unsubscribe_btn"][lang] if database.is_subscribed(user.id, field_key) else TEXTS["subscribe_btn"][lang]
     markup.add(types.InlineKeyboardButton(sub_label, callback_data=f"subscribe:{field_key}"))
-    bot.send_message(chat_id, "\n".join(l for l in lines if l), reply_markup=markup)
+    bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=markup)
 
 
 # callback: book specs from list (legacy — kept for old inline keyboards still in circulation)
@@ -1312,73 +1471,35 @@ def download(callback: types.CallbackQuery):
 
     if rtype == "article":
         # --- Article download ---
-        lines = [
-            f"📄 {res['title']}",
-            f"✍ {res['author']}" if _row_get(res, "author") else "",
-            f"🌐 {lang_label}",
-            f"🌌 {field}",
-            f"🔖 {disp}",
-        ]
-        if _row_get(res, "journal"):
-            lines.append(f"📰 {res['journal']}")
-        if _row_get(res, "volume") or _row_get(res, "issue"):
-            vi = f"Vol.{res['volume']}" if _row_get(res, "volume") else ""
-            if _row_get(res, "issue"):
-                vi += f" No.{res['issue']}"
-            lines.append(f"🔢 {vi.strip()}")
-        if _row_get(res, "pages"):
-            lines.append(f"📄 pp. {res['pages']}")
-        if _row_get(res, "doi"):
-            lines.append(f"🔗 DOI: {res['doi']}")
-        if _row_get(res, "url"):
-            lines.append(f"🌐 {res['url']}")
-        if _row_get(res, "publication_date"):
-            lines.append(f"📅 {res['publication_date']}")
-        if _row_get(res, "description"):
-            lines.append(f"📝 {res['description']}")
-        lines.append(f"⬇️ {res['download_count']}")
-        lines.append("")
-        lines.append("@PhysisLib_Bot")
-
-        caption = "\n".join(l for l in lines if l is not None)
+        caption = _fmt_article_caption(res, field, lang_label, disp)
 
         if _row_get(res, "file_id"):
-            # Article has an attached PDF — send it as a document
+            # Telegram caps media captions at 1024 chars — truncate safely and
+            # send overflow as a follow-up so no metadata is lost.
+            safe_caption, overflow = _safe_caption(caption)
             bot.send_document(
                 callback.message.chat.id,
                 res["file_id"],
-                caption=caption,
+                caption=safe_caption,
             )
+            if overflow:
+                bot.send_message(callback.message.chat.id, overflow)
         else:
-            # Link-only article — send the metadata as a text message
-            bot.send_message(callback.message.chat.id, caption)
+            # Link-only article — plain text message (4096-char limit, chunked)
+            for i in range(0, len(caption), 4096):
+                bot.send_message(callback.message.chat.id, caption[i:i + 4096])
 
     else:
-        # --- Book download (original behaviour, unchanged) ---
-        edition_val = res["edition"] if res["edition"] else ""
-        year_val    = res["year"]    if res["year"]    else ""
-        desc_val    = res["description"] if res["description"] else ""
-
-        edition_line = f"\n📖 {edition_val}" if edition_val else ""
-        year_line    = f"\n📅 {year_val}"    if year_val    else ""
-        desc_line    = f"\n📝 {desc_val}"    if desc_val    else ""
-
-        caption = (
-            f"📘 {res['title']}{edition_line}\n"
-            f"✍ {res['author']}\n"
-            f"🌐 {lang_label}\n"
-            f"🌌 {field}\n"
-            f"🔖 {disp}\n"
-            f"⬇️ {res['download_count']}"
-            f"{year_line}"
-            f"{desc_line}\n\n"
-            f"@PhysisLib_Bot"
-        )
+        # --- Book download ---
+        caption = _fmt_book_caption(res, field, lang_label, disp)
+        safe_caption, overflow = _safe_caption(caption)
         bot.send_document(
             callback.message.chat.id,
             res["file_id"],
-            caption=caption,
+            caption=safe_caption,
         )
+        if overflow:
+            bot.send_message(callback.message.chat.id, overflow)
 
     database.record_download(res_id, user.id)
     bot.answer_callback_query(callback.id, TEXTS["downloaded"][lang])
