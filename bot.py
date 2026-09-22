@@ -109,6 +109,10 @@ waiting_search: set[int] = set()
 # Advanced search filter state
 search_filters: dict[int, dict] = {}
 
+# Track whether user is in books or articles sub-menu layer.
+# Values: "book" | "article"
+browse_submenu_type: dict[int, str] = {}
+
 # Pagination 
 PAGE_SIZE = 10
 
@@ -766,12 +770,8 @@ BTN = {
     "ra_top":     {"fa": "⭐ پرطرفدارها",    "en": "⭐ Top Resources"},
     "ra_about":   {"fa": "🔭 درباره پروژه",   "en": "🔭 About Project"},
 
-    # Reply keyboard sub-menu items (Bookmarks / History)
-    "rb_show_bookmarks": {"fa": "🔖 نمایش ذخیره‌شده‌ها", "en": "🔖 Show Bookmarks"},
-    "rb_show_history":   {"fa": "📥 نمایش تاریخچه",      "en": "📥 Show History"},
-
     # Back button
-    "back": {"fa": "← بازگشت", "en": "← Back"},
+    "back": {"fa": "🔙 بازگشت", "en": "🔙 Back"},
 
     # kept for backward-compat (used in old inline keyboards that may still exist)
     "books":   {"fa": "📚 همه کتاب‌ها",    "en": "📚 All Books"},
@@ -866,20 +866,92 @@ def about_reply_keyboard(user: types.User) -> types.ReplyKeyboardMarkup:
     return kb
 
 
-def bookmarks_reply_keyboard(user: types.User) -> types.ReplyKeyboardMarkup:
+def books_sub_reply_keyboard(user: types.User) -> types.ReplyKeyboardMarkup:
     lang = get_lang(user)
-    kb = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=1)
-    kb.add(types.KeyboardButton(BTN["rb_show_bookmarks"][lang]))
+    kb = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    kb.add(
+        types.KeyboardButton(BTN["sb_all"][lang]),
+        types.KeyboardButton(BTN["sb_fields"][lang]),
+    )
+    kb.add(
+        types.KeyboardButton(BTN["sb_top"][lang]),
+        types.KeyboardButton(BTN["sb_recent"][lang]),
+    )
     kb.add(types.KeyboardButton(BTN["back"][lang]))
     return kb
 
 
-def history_reply_keyboard(user: types.User) -> types.ReplyKeyboardMarkup:
+def articles_sub_reply_keyboard(user: types.User) -> types.ReplyKeyboardMarkup:
     lang = get_lang(user)
-    kb = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=1)
-    kb.add(types.KeyboardButton(BTN["rb_show_history"][lang]))
+    kb = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    kb.add(
+        types.KeyboardButton(BTN["sb_all"][lang]),
+        types.KeyboardButton(BTN["sb_fields"][lang]),
+    )
+    kb.add(
+        types.KeyboardButton(BTN["sb_top"][lang]),
+        types.KeyboardButton(BTN["sb_recent"][lang]),
+    )
     kb.add(types.KeyboardButton(BTN["back"][lang]))
     return kb
+
+
+def resource_submenu_reply_keyboard(user: types.User) -> types.ReplyKeyboardMarkup:
+    """Reply keyboard shown inside Books or Articles sub-menu layer."""
+    lang = get_lang(user)
+    kb = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    kb.add(
+        types.KeyboardButton(BTN["sb_all"][lang]),
+        types.KeyboardButton(BTN["sb_fields"][lang]),
+    )
+    kb.add(
+        types.KeyboardButton(BTN["sb_top"][lang]),
+        types.KeyboardButton(BTN["sb_recent"][lang]),
+    )
+    kb.add(types.KeyboardButton(BTN["back"][lang]))
+    return kb
+
+
+# Map every possible label (FA + EN) for the four sub-menu actions to an action key.
+# Built lazily after BTN is populated (it's a module-level dict so we read it here).
+def _build_submenu_action_map() -> dict[str, str]:
+    mapping: dict[str, str] = {}
+    for action, btn_key in (
+        ("all",    "sb_all"),
+        ("fields", "sb_fields"),
+        ("top",    "sb_top"),
+        ("recent", "sb_recent"),
+    ):
+        for lang in ("fa", "en"):
+            mapping[BTN[btn_key][lang]] = action
+    return mapping
+
+_SUBMENU_ACTION_BY_LABEL: dict[str, str] = _build_submenu_action_map()
+
+
+def _handle_resource_submenu_action(
+    message: types.Message, user: types.User,
+    rtype: str, action: str,
+):
+    """Dispatch one of the four All/Fields/Popular/Recent actions for Books or Articles."""
+    chat_id = message.chat.id
+    if action == "all":
+        probe = database.search_resources(resource_type=rtype, limit=1, offset=0)
+        hkey = "books_list_header" if rtype == "book" else "articles_list_header"
+        ctx  = "books|" if rtype == "book" else "articles|"
+        send_resource_list(chat_id, user, probe, header_key=hkey, pg_context=ctx)
+    elif action == "fields":
+        handle_fields(message, resource_type=rtype)
+    elif action == "top":
+        probe = database.get_top_downloads(limit=1, resource_type=rtype, offset=0)
+        hkey = "books_list_header" if rtype == "book" else "articles_list_header"
+        ctx  = "top_books|" if rtype == "book" else "top_articles|"
+        send_resource_list(chat_id, user, probe, header_key=hkey, pg_context=ctx)
+    elif action == "recent":
+        probe = database.search_resources(resource_type=rtype, limit=1, offset=0, order_by="recent")
+        hkey = "books_list_header" if rtype == "book" else "articles_list_header"
+        ctx  = "recent_books|" if rtype == "book" else "recent_articles|"
+        send_resource_list(chat_id, user, probe, header_key=hkey, pg_context=ctx)
 
 
 def browse_keyboard(user: types.User) -> types.InlineKeyboardMarkup:
@@ -1072,9 +1144,27 @@ def text_handler(message: types.Message):
 
     lang = get_lang(user)
 
-    # ── Back button: returns to Main Menu ──────────────────────────────────
+    # ── Back button: returns one layer up ───────────────────────────────────
     if text in (BTN["back"]["fa"], BTN["back"]["en"]):
-        send_home(message.chat.id, user)
+        if uid in browse_submenu_type:
+            # Back from the Books/Articles submenu layer → Browse menu
+            browse_submenu_type.pop(uid, None)
+            bot.send_message(
+                message.chat.id,
+                t(user, "browse_header"),
+                reply_markup=browse_reply_keyboard(user)
+            )
+        else:
+            send_home(message.chat.id, user)
+
+    # ── Browse → Books/Articles submenu (All/Fields/Popular/Recent) ────────
+    # Checked before the Main/Browse menu buttons below since the English
+    # "Popular" label is shared between this layer and the Browse-level
+    # "rb_top" button; the state guard disambiguates them.
+    elif text in _SUBMENU_ACTION_BY_LABEL and uid in browse_submenu_type:
+        _handle_resource_submenu_action(
+            message, user, browse_submenu_type[uid], _SUBMENU_ACTION_BY_LABEL[text]
+        )
 
     # ── Main menu buttons ──────────────────────────────────────────────────
     elif text == btn(user, "search"):
@@ -1084,6 +1174,7 @@ def text_handler(message: types.Message):
 
     elif text == btn(user, "browse"):
         # Switch Reply Keyboard to Browse submenu (no new content message)
+        browse_submenu_type.pop(uid, None)
         bot.send_message(
             message.chat.id,
             t(user, "browse_header"),
@@ -1091,18 +1182,12 @@ def text_handler(message: types.Message):
         )
 
     elif text in (BTN["my_bookmarks"]["fa"], BTN["my_bookmarks"]["en"]):
-        bot.send_message(
-            message.chat.id,
-            TEXTS["bookmarks_header"][lang],
-            reply_markup=bookmarks_reply_keyboard(user)
-        )
+        # Show bookmarks content directly; keep the Main Menu reply keyboard.
+        handle_my_bookmarks(message)
 
     elif text in (BTN["my_history"]["fa"], BTN["my_history"]["en"]):
-        bot.send_message(
-            message.chat.id,
-            TEXTS["history_header"][lang],
-            reply_markup=history_reply_keyboard(user)
-        )
+        # Show history content directly; keep the Main Menu reply keyboard.
+        handle_my_history(message)
 
     elif text == btn(user, "about"):
         bot.send_message(
@@ -1119,12 +1204,14 @@ def text_handler(message: types.Message):
 
     # ── Browse submenu Reply Keyboard buttons ──────────────────────────────
     elif text in (BTN["rb_books"]["fa"], BTN["rb_books"]["en"]):
+        browse_submenu_type[uid] = "book"
         bot.send_message(message.chat.id, t(user, "browse_books_header"),
-                         reply_markup=books_submenu_keyboard(user))
+                         reply_markup=resource_submenu_reply_keyboard(user))
 
     elif text in (BTN["rb_articles"]["fa"], BTN["rb_articles"]["en"]):
+        browse_submenu_type[uid] = "article"
         bot.send_message(message.chat.id, t(user, "browse_articles_header"),
-                         reply_markup=articles_submenu_keyboard(user))
+                         reply_markup=resource_submenu_reply_keyboard(user))
 
     elif text in (BTN["rb_fields"]["fa"], BTN["rb_fields"]["en"]):
         handle_fields(message, from_browse=True)
@@ -1172,13 +1259,6 @@ def text_handler(message: types.Message):
 
     elif text in (BTN["ra_about"]["fa"], BTN["ra_about"]["en"]):
         bot.send_message(message.chat.id, t(user, "about_project"), reply_markup=about_reply_keyboard(user))
-
-    # ── Bookmarks / History show buttons ──────────────────────────────────
-    elif text in (BTN["rb_show_bookmarks"]["fa"], BTN["rb_show_bookmarks"]["en"]):
-        handle_my_bookmarks(message)
-
-    elif text in (BTN["rb_show_history"]["fa"], BTN["rb_show_history"]["en"]):
-        handle_my_history(message)
 
     # ── backward-compat: old reply-keyboard buttons still work ─────────────
     elif text == btn(user, "books"):
@@ -1908,11 +1988,13 @@ def browse_callback(callback: types.CallbackQuery):
     chat_id = callback.message.chat.id
 
     if action == "books":
+        browse_submenu_type[user.id] = "book"
         bot.send_message(chat_id, t(user, "browse_books_header"),
-                         reply_markup=books_submenu_keyboard(user))
+                         reply_markup=resource_submenu_reply_keyboard(user))
     elif action == "articles":
+        browse_submenu_type[user.id] = "article"
         bot.send_message(chat_id, t(user, "browse_articles_header"),
-                         reply_markup=articles_submenu_keyboard(user))
+                         reply_markup=resource_submenu_reply_keyboard(user))
     elif action == "fields":
         handle_fields(callback.message, user_override=user, from_browse=True)
     elif action == "top":
@@ -2251,7 +2333,7 @@ def handle_my_bookmarks(message: types.Message):
     rows = database.get_bookmarks(user.id)
     if not rows:
         bot.send_message(message.chat.id, TEXTS["bookmarks_empty"][lang],
-                         reply_markup=bookmarks_reply_keyboard(user))
+                         reply_markup=main_keyboard(user))
         return
     markup = types.InlineKeyboardMarkup()
     for res in rows:
@@ -2272,7 +2354,7 @@ def handle_my_history(message: types.Message):
     rows = database.get_download_history(user.id, limit=20)
     if not rows:
         bot.send_message(message.chat.id, TEXTS["history_empty"][lang],
-                         reply_markup=history_reply_keyboard(user))
+                         reply_markup=main_keyboard(user))
         return
     markup = types.InlineKeyboardMarkup()
     for res in rows:
