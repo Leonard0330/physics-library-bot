@@ -279,19 +279,19 @@ def _send_paginated_list(
 TEXTS = {
     "start": {
         "fa": (
-            "*📚 به ربات کتابخانه فیزیک خوش آمدید!*\n\n"
-            "_این ربات مجموعه‌ای منتخب از کتاب‌ها و مقالات علمی فیزیک را در شاخه‌های مختلف این علم در اختیار شما قرار می‌دهد_.\n\n"
-            "🔍 جستجو* — جستجو در همه منابع*\n"
-            "📂 کتابخانه*  —  کتاب‌ها، مقالات و فیلدهای فیزیک*\n"
-            "🌐 زبان* — تغییر زبان رابط*\n\n"
+            r"*📚 به ربات کتابخانه فیزیک خوش آمدید\!*" + "\n\n"
+            r"_این ربات مجموعه‌ای منتخب از کتاب‌ها و مقالات علمی فیزیک را در شاخه‌های مختلف این علم در اختیار شما قرار می‌دهد_\." + "\n\n"
+            "🔍 *جستجو* \u2014 جستجو در همه منابع\n"
+            "📂 *کتابخانه* \u2014 کتاب‌ها، مقالات و فیلدهای فیزیک\n"
+            "🌐 *زبان* \u2014 تغییر زبان رابط\n\n"
             "برای راهنمای کامل: درباره ← راهنما 👇"
         ),
         "en": (
-            "📚 *Welcome to the Physics Library Bot!*\n\n"
-            "_This bot provides a curated collection of physics books and research articles across multiple fields of physics._\n\n"
-            "🔍 *Search* — Quickly find any book or article by title or keywords.\n"
-            "📂 *Browse* — Explore the library by category, popularity, or recently added resources.\n"
-            "🌐 *Language* — switch interface language\n\n"
+            r"📚 *Welcome to the Physics Library Bot\!*" + "\n\n"
+            r"_This bot provides a curated collection of physics books and research articles across multiple fields of physics\._" + "\n\n"
+            r"🔍 *Search* \- Quickly find any book or article by title or keywords\." + "\n"
+            r"📂 *Browse* \- Explore the library by category, popularity, or recently added resources\." + "\n"
+            "🌐 *Language* \u2014 switch interface language\n\n"
             "For detailed instructions and additional information, open About → Help 👇"
         ),
     },
@@ -753,6 +753,26 @@ BTN = {
     "my_bookmarks": {"fa": "🔖 ذخیره‌شده‌ها", "en": "🔖 Bookmarks"},
     "my_history":   {"fa": "📥 تاریخچه دانلودها", "en": "📥 History"},
 
+    # Reply keyboard sub-menu items (Browse)
+    "rb_books":    {"fa": "📘 کتاب‌ها",        "en": "📕 Books"},
+    "rb_articles": {"fa": "📄 مقالات",         "en": "📄 Articles"},
+    "rb_fields":   {"fa": "🌌 فیلدهای فیزیک", "en": "🌌 Physics Fields"},
+    "rb_top":      {"fa": "⭐ پرطرفدارها",    "en": "⭐ Popular"},
+    "rb_recent":   {"fa": "🆕 جدیدترین‌ها",   "en": "🆕 Recently Added"},
+
+    # Reply keyboard sub-menu items (About)
+    "ra_help":    {"fa": "❓ راهنما",         "en": "❓ Help"},
+    "ra_stats":   {"fa": "📊 آمار کتابخانه",  "en": "📊 Library Stats"},
+    "ra_top":     {"fa": "⭐ پرطرفدارها",    "en": "⭐ Top Resources"},
+    "ra_about":   {"fa": "🔭 درباره پروژه",   "en": "🔭 About Project"},
+
+    # Reply keyboard sub-menu items (Bookmarks / History)
+    "rb_show_bookmarks": {"fa": "🔖 نمایش ذخیره‌شده‌ها", "en": "🔖 Show Bookmarks"},
+    "rb_show_history":   {"fa": "📥 نمایش تاریخچه",      "en": "📥 Show History"},
+
+    # Back button
+    "back": {"fa": "← بازگشت", "en": "← Back"},
+
     # kept for backward-compat (used in old inline keyboards that may still exist)
     "books":   {"fa": "📚 همه کتاب‌ها",    "en": "📚 All Books"},
     "fields":  {"fa": "🌌 فیلدهای فیزیک", "en": "🌌 Physics Fields"},
@@ -810,6 +830,55 @@ def cancel_keyboard(user: types.User) -> types.ReplyKeyboardMarkup:
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
     lang = get_lang(user)
     kb.add(types.KeyboardButton("❌ لغو" if lang == "fa" else "❌ Cancel"))
+    return kb
+
+
+def browse_reply_keyboard(user: types.User) -> types.ReplyKeyboardMarkup:
+    lang = get_lang(user)
+    kb = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    kb.add(
+        types.KeyboardButton(BTN["rb_books"][lang]),
+        types.KeyboardButton(BTN["rb_articles"][lang]),
+    )
+    kb.add(
+        types.KeyboardButton(BTN["rb_fields"][lang]),
+    )
+    kb.add(
+        types.KeyboardButton(BTN["rb_top"][lang]),
+        types.KeyboardButton(BTN["rb_recent"][lang]),
+    )
+    kb.add(types.KeyboardButton(BTN["back"][lang]))
+    return kb
+
+
+def about_reply_keyboard(user: types.User) -> types.ReplyKeyboardMarkup:
+    lang = get_lang(user)
+    kb = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    kb.add(
+        types.KeyboardButton(BTN["ra_help"][lang]),
+        types.KeyboardButton(BTN["ra_stats"][lang]),
+    )
+    kb.add(
+        types.KeyboardButton(BTN["ra_top"][lang]),
+        types.KeyboardButton(BTN["ra_about"][lang]),
+    )
+    kb.add(types.KeyboardButton(BTN["back"][lang]))
+    return kb
+
+
+def bookmarks_reply_keyboard(user: types.User) -> types.ReplyKeyboardMarkup:
+    lang = get_lang(user)
+    kb = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=1)
+    kb.add(types.KeyboardButton(BTN["rb_show_bookmarks"][lang]))
+    kb.add(types.KeyboardButton(BTN["back"][lang]))
+    return kb
+
+
+def history_reply_keyboard(user: types.User) -> types.ReplyKeyboardMarkup:
+    lang = get_lang(user)
+    kb = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=1)
+    kb.add(types.KeyboardButton(BTN["rb_show_history"][lang]))
+    kb.add(types.KeyboardButton(BTN["back"][lang]))
     return kb
 
 
@@ -907,14 +976,7 @@ def send_home(chat_id: int, user: types.User):
         chat_id,
         t(user, "start"),
         reply_markup=main_keyboard(user),
-        parse_mode="Markdown"
-    )
-    
-def send_home(chat_id: int, user: types.User):
-    bot.send_message(
-        chat_id,
-        t(user, "start"),
-        reply_markup=main_keyboard(user)
+        parse_mode="MarkdownV2"
     )
 
 
@@ -1008,23 +1070,45 @@ def text_handler(message: types.Message):
     # admin panel button labels (both languages)
     all_btns.update({admin.tr("open_panel_btn", "fa"), admin.tr("open_panel_btn", "en")})
 
-    if text == btn(user, "search"):
-        # نمایش پنل فیلترهای پیشرفته جستجو
-        search_filters.pop(uid, None)   # reset filters
+    lang = get_lang(user)
+
+    # ── Back button: returns to Main Menu ──────────────────────────────────
+    if text in (BTN["back"]["fa"], BTN["back"]["en"]):
+        send_home(message.chat.id, user)
+
+    # ── Main menu buttons ──────────────────────────────────────────────────
+    elif text == btn(user, "search"):
+        # Search keeps its own flow (cancel keyboard + waiting_search)
+        search_filters.pop(uid, None)
         _send_search_filter_panel(message.chat.id, user)
 
     elif text == btn(user, "browse"):
+        # Switch Reply Keyboard to Browse submenu (no new content message)
         bot.send_message(
             message.chat.id,
             t(user, "browse_header"),
-            reply_markup=browse_keyboard(user)
+            reply_markup=browse_reply_keyboard(user)
+        )
+
+    elif text in (BTN["my_bookmarks"]["fa"], BTN["my_bookmarks"]["en"]):
+        bot.send_message(
+            message.chat.id,
+            TEXTS["bookmarks_header"][lang],
+            reply_markup=bookmarks_reply_keyboard(user)
+        )
+
+    elif text in (BTN["my_history"]["fa"], BTN["my_history"]["en"]):
+        bot.send_message(
+            message.chat.id,
+            TEXTS["history_header"][lang],
+            reply_markup=history_reply_keyboard(user)
         )
 
     elif text == btn(user, "about"):
         bot.send_message(
             message.chat.id,
             t(user, "about_header"),
-            reply_markup=about_keyboard(user)
+            reply_markup=about_reply_keyboard(user)
         )
 
     elif text in ("🌐 English", "🌐 فارسی"):
@@ -1033,13 +1117,70 @@ def text_handler(message: types.Message):
     elif text in (admin.tr("open_panel_btn", "fa"), admin.tr("open_panel_btn", "en")):
         admin.handle_admin_command(bot, message)
 
-    elif text in (BTN["my_bookmarks"]["fa"], BTN["my_bookmarks"]["en"]):
+    # ── Browse submenu Reply Keyboard buttons ──────────────────────────────
+    elif text in (BTN["rb_books"]["fa"], BTN["rb_books"]["en"]):
+        bot.send_message(message.chat.id, t(user, "browse_books_header"),
+                         reply_markup=books_submenu_keyboard(user))
+
+    elif text in (BTN["rb_articles"]["fa"], BTN["rb_articles"]["en"]):
+        bot.send_message(message.chat.id, t(user, "browse_articles_header"),
+                         reply_markup=articles_submenu_keyboard(user))
+
+    elif text in (BTN["rb_fields"]["fa"], BTN["rb_fields"]["en"]):
+        handle_fields(message, from_browse=True)
+
+    elif text in (BTN["rb_top"]["fa"], BTN["rb_top"]["en"]):
+        probe = database.get_top_downloads(limit=1, offset=0)
+        send_resource_list(message.chat.id, user, probe, header_key="top_books_header",
+                           pg_context="top_all|")
+
+    elif text in (BTN["rb_recent"]["fa"], BTN["rb_recent"]["en"]):
+        probe = database.search_resources(limit=1, offset=0, order_by="recent")
+        send_resource_list(message.chat.id, user, probe, header_key="resources_list_header",
+                           pg_context="recent_all|")
+
+    # ── About submenu Reply Keyboard buttons ───────────────────────────────
+    elif text in (BTN["ra_help"]["fa"], BTN["ra_help"]["en"]):
+        bot.send_message(message.chat.id, t(user, "help"), reply_markup=about_reply_keyboard(user))
+
+    elif text in (BTN["ra_stats"]["fa"], BTN["ra_stats"]["en"]):
+        s = database.get_library_stats()
+        if lang == "fa":
+            stats_text = (
+                f"📊 آمار کتابخانه\n\n"
+                f"📘 کتاب‌ها: {s['total_books']}\n"
+                f"📄 مقالات: {s.get('total_articles', 0)}\n"
+                f"فارسی: {s['fa_books']}  |  انگلیسی: {s['en_books']}\n"
+                f"⬇️ کل دانلودها: {s['total_downloads']}\n"
+                f"🌌 فیلدهای فعال: {s['unique_fields']}"
+            )
+        else:
+            stats_text = (
+                f"📊 Library Stats\n\n"
+                f"📕 Books: {s['total_books']}\n"
+                f"📄 Articles: {s.get('total_articles', 0)}\n"
+                f"Persian: {s['fa_books']}  |  English: {s['en_books']}\n"
+                f"⬇️ Total Downloads: {s['total_downloads']}\n"
+                f"🌌 Active Fields: {s['unique_fields']}"
+            )
+        bot.send_message(message.chat.id, stats_text, reply_markup=about_reply_keyboard(user))
+
+    elif text in (BTN["ra_top"]["fa"], BTN["ra_top"]["en"]):
+        probe = database.get_top_downloads(limit=1, offset=0)
+        send_resource_list(message.chat.id, user, probe, header_key="top_books_header",
+                           pg_context="top_all|")
+
+    elif text in (BTN["ra_about"]["fa"], BTN["ra_about"]["en"]):
+        bot.send_message(message.chat.id, t(user, "about_project"), reply_markup=about_reply_keyboard(user))
+
+    # ── Bookmarks / History show buttons ──────────────────────────────────
+    elif text in (BTN["rb_show_bookmarks"]["fa"], BTN["rb_show_bookmarks"]["en"]):
         handle_my_bookmarks(message)
 
-    elif text in (BTN["my_history"]["fa"], BTN["my_history"]["en"]):
+    elif text in (BTN["rb_show_history"]["fa"], BTN["rb_show_history"]["en"]):
         handle_my_history(message)
 
-    # backward-compat: old reply-keyboard buttons still work
+    # ── backward-compat: old reply-keyboard buttons still work ─────────────
     elif text == btn(user, "books"):
         handle_books(message)
     elif text == btn(user, "fields"):
@@ -2110,11 +2251,8 @@ def handle_my_bookmarks(message: types.Message):
     rows = database.get_bookmarks(user.id)
     if not rows:
         bot.send_message(message.chat.id, TEXTS["bookmarks_empty"][lang],
-                         reply_markup=main_keyboard(user))
+                         reply_markup=bookmarks_reply_keyboard(user))
         return
-    # Send the reply keyboard first (keeps it anchored), then the inline list
-    bot.send_message(message.chat.id, TEXTS["bookmarks_header"][lang],
-                     reply_markup=main_keyboard(user))
     markup = types.InlineKeyboardMarkup()
     for res in rows:
         disp = database.get_display_id(res)
@@ -2124,7 +2262,7 @@ def handle_my_bookmarks(message: types.Message):
             f"{icon} {disp} — {res['title'][:35]}",
             callback_data=f"resinfo:{res['id']}"
         ))
-    count_label = f"({len(rows)})" 
+    count_label = f"({len(rows)})"
     bot.send_message(message.chat.id, count_label, reply_markup=markup)
 
 
@@ -2134,10 +2272,8 @@ def handle_my_history(message: types.Message):
     rows = database.get_download_history(user.id, limit=20)
     if not rows:
         bot.send_message(message.chat.id, TEXTS["history_empty"][lang],
-                         reply_markup=main_keyboard(user))
+                         reply_markup=history_reply_keyboard(user))
         return
-    bot.send_message(message.chat.id, TEXTS["history_header"][lang],
-                     reply_markup=main_keyboard(user))
     markup = types.InlineKeyboardMarkup()
     for res in rows:
         disp = database.get_display_id(res)
