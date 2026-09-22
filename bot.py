@@ -902,7 +902,14 @@ def search_filter_keyboard(user: types.User) -> types.InlineKeyboardMarkup:
     )
     return mk
 
-
+def send_home(chat_id: int, user: types.User):
+    bot.send_message(
+        chat_id,
+        t(user, "start"),
+        reply_markup=main_keyboard(user),
+        parse_mode="Markdown"
+    )
+    
 def send_home(chat_id: int, user: types.User):
     bot.send_message(
         chat_id,
