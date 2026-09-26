@@ -1674,7 +1674,6 @@ def _fmt_book_caption(res, field: str, lang_label: str, disp: str) -> str:
         fixed_parts.append(f"📄 {_h(res['pages'])} pp.")
     fixed_parts.append(f"🔖 <code>{_h(disp)}</code>")
     fixed_parts.append(f"⬇️ {_h(res['download_count'])}")
-    fixed_parts.append("\n@PhysisLib_Bot")
 
     fixed = "\n".join(fixed_parts)
 
@@ -1683,7 +1682,10 @@ def _fmt_book_caption(res, field: str, lang_label: str, disp: str) -> str:
     if _row_get(res, "description") and str(res["description"]).strip():
         desc = str(res["description"]).strip()
 
-    return _fit_caption(fixed, desc)
+    # ── Signature always appears last, after description ──────────────────
+    SIGNATURE = "\n\n@PhysisLib_Bot"
+    body = _fit_caption(fixed, desc, limit=TELEGRAM_CAPTION_LIMIT - len(SIGNATURE))
+    return body + SIGNATURE
 
 
 def _fmt_article_caption(res, field: str, lang_label: str, disp: str) -> str:
@@ -1725,7 +1727,6 @@ def _fmt_article_caption(res, field: str, lang_label: str, disp: str) -> str:
     fixed_parts.append(f"🌌 {_h(field)}")
     fixed_parts.append(f"🔖 <code>{_h(disp)}</code>")
     fixed_parts.append(f"⬇️ {_h(res['download_count'])}")
-    fixed_parts.append("\n@PhysisLib_Bot")
 
     fixed = "\n".join(fixed_parts)
 
@@ -1734,7 +1735,10 @@ def _fmt_article_caption(res, field: str, lang_label: str, disp: str) -> str:
     if _row_get(res, "description") and str(res["description"]).strip():
         desc = str(res["description"]).strip()
 
-    return _fit_caption(fixed, desc)
+    # ── Signature always appears last, after description ──────────────────
+    SIGNATURE = "\n\n@PhysisLib_Bot"
+    body = _fit_caption(fixed, desc, limit=TELEGRAM_CAPTION_LIMIT - len(SIGNATURE))
+    return body + SIGNATURE
 
 # ── Book Card ─────────────────────────────────────────────────────────────────
 
