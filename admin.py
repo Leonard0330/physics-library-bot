@@ -43,7 +43,7 @@ T = {
                           "en": "✏️ Enter the ID of the book or article to edit (e.g. REL-14):"},
     "not_a_number":     {"fa": "❗️ فرمت شناسه اشتباهه.",                        "en": "❗️ Invalid ID format."},
     "book_not_found":   {"fa": "❌ کتابی با شناسه {id} پیدا نشد.",               "en": "❌ No book found with ID {id}."},
-    "book_deleted":     {"fa": "🗑 کتاب «{title}» ({disp}) حذف شد.",             "en": "🗑 Book \"{title}\" ({disp}) deleted."},
+    "book_deleted":     {"fa": "🗑 کتاب «{title}» (<code>{disp}</code>) حذف شد.",             "en": "🗑 Book \"{title}\" (<code>{disp}</code>) deleted."},
     "back_to_panel":    {"fa": "بازگشت به پنل:",                               "en": "Back to panel:"},
     "send_pdf":         {"fa": "📤 فایل منبع رو بفرست (PDF، ZIP یا DjVu):", "en": "📤 Send the resource file (PDF, ZIP, or DjVu):"},
     "pdf_only":         {"fa": "❗️ فقط فایل‌های PDF، ZIP و DjVu قبول می‌شن.", "en": "❗️ Only PDF, ZIP, and DjVu files are accepted."},
@@ -60,8 +60,8 @@ T = {
     "wrong_step":       {"fa": "⚠️ مرحله اشتباه",                              "en": "⚠️ Wrong step"},
     "missing_fields":   {"fa": "❌ این فیلدها خالی هستن: {fields}\nدوباره از ابتدا شروع کن.",
                           "en": "❌ These fields are missing: {fields}\nPlease start over."},
-    "saved_ok":         {"fa": "✅ کتاب با موفقیت ذخیره شد!\n🔖 شناسه: {disp}\n📘 {title}",
-                          "en": "✅ Book saved successfully!\n🔖 ID: {disp}\n📕 {title}"},
+    "saved_ok":         {"fa": "✅ کتاب با موفقیت ذخیره شد!\n🔖 شناسه: <code>{disp}</code>\n📘 {title}",
+                          "en": "✅ Book saved successfully!\n🔖 ID: <code>{disp}</code>\n📕 {title}"},
     "save_error":       {"fa": "❌ خطا در ذخیره:\n{err}",                       "en": "❌ Error while saving:\n{err}"},
     "no_books":         {"fa": "📭 هنوز کتابی ثبت نشده.",                       "en": "📭 No books have been added yet."},
     "list_header":      {"fa": "📋 لیست کتاب‌ها:\n",                            "en": "📋 List of books:\n"},
@@ -124,7 +124,7 @@ T = {
     "edit_field_pub_date":      {"fa": "📅 تاریخ انتشار",   "en": "📅 Publication Date"},
     "edit_field_url":           {"fa": "🌐 URL",            "en": "🌐 URL"},
     "ask_new_value":    {"fa": "مقدار جدید رو بنویس:",                          "en": "Enter the new value:"},
-    "edit_saved":       {"fa": "✅ منبع {disp} به‌روزرسانی شد.",                 "en": "✅ Resource {disp} updated."},
+    "edit_saved":       {"fa": "✅ منبع <code>{disp}</code> به‌روزرسانی شد.",                 "en": "✅ Resource <code>{disp}</code> updated."},
 
     # Summary
 
@@ -175,9 +175,9 @@ T = {
     "ask_resource_id_edit": {"fa": "✏️ شناسه کتاب یا مقاله‌ای که می‌خوای ویرایش کنی رو بنویس:",
                               "en": "✏️ Enter the ID of the book or article to edit:"},
     "resource_not_found":   {"fa": "❌ منبعی با شناسه {id} پیدا نشد.",      "en": "❌ No resource found with ID {id}."},
-    "resource_deleted":     {"fa": "🗑 «{title}» ({disp}) حذف شد.",         "en": "🗑 \"{title}\" ({disp}) deleted."},
-    "saved_ok_article":     {"fa": "✅ مقاله با موفقیت ذخیره شد!\n🔖 شناسه: {disp}\n📄 {title}",
-                              "en": "✅ Article saved successfully!\n🔖 ID: {disp}\n📄 {title}"},
+    "resource_deleted":     {"fa": "🗑 «{title}» (<code>{disp}</code>) حذف شد.",         "en": "🗑 \"{title}\" (<code>{disp}</code>) deleted."},
+    "saved_ok_article":     {"fa": "✅ مقاله با موفقیت ذخیره شد!\n🔖 شناسه: <code>{disp}</code>\n📄 {title}",
+                              "en": "✅ Article saved successfully!\n🔖 ID: <code>{disp}</code>\n📄 {title}"},
     "no_resources":         {"fa": "📭 هنوز هیچ منبعی ثبت نشده.",            "en": "📭 No resources have been added yet."},
     "list_header_all":      {"fa": "📋 لیست منابع:\n",                        "en": "📋 Resource list:\n"},
 
@@ -456,7 +456,7 @@ def _book_summary_text(book, lang: str) -> str:
         "pages":            _g("pages"),
         "url":              _g("url"),
         "publication_date": _g("publication_date"),
-    }, lang) + f"\n🔖 {_disp(book)}"
+    }, lang) + f"\n🔖 <code>{_disp(book)}</code>"
 
 
 # /admin entrance
@@ -1006,7 +1006,7 @@ def handle_admin_text(bot, message: types.Message) -> bool:
         else:
             disp = _disp(resource)
             database.delete_book(resource["id"])
-            bot.send_message(message.chat.id, tr("resource_deleted", lang, title=resource["title"], disp=disp))
+            bot.send_message(message.chat.id, tr("resource_deleted", lang, title=resource["title"], disp=disp), parse_mode="HTML")
         admin_sessions.pop(uid, None)
         bot.send_message(message.chat.id, tr("back_to_panel", lang), reply_markup=admin_keyboard(lang))
         return True
@@ -1027,7 +1027,8 @@ def handle_admin_text(bot, message: types.Message) -> bool:
         bot.send_message(
             message.chat.id,
             tr("edit_found", lang, summary=_book_summary_text(resource, lang)),
-            reply_markup=admin_keyboard(lang)
+            reply_markup=admin_keyboard(lang),
+            parse_mode="HTML",
         )
         bot.send_message(message.chat.id, "👇", reply_markup=edit_field_keyboard(lang, rtype))
         return True
@@ -1057,7 +1058,8 @@ def handle_admin_text(bot, message: types.Message) -> bool:
         bot.send_message(
             message.chat.id,
             tr("edit_saved", lang, disp=_disp(resource)),
-            reply_markup=admin_keyboard(lang)
+            reply_markup=admin_keyboard(lang),
+            parse_mode="HTML",
         )
         return True
 
@@ -1284,7 +1286,8 @@ def handle_admin_callback(bot, callback: types.CallbackQuery) -> bool:
                 bot.send_message(
                     callback.message.chat.id,
                     tr("saved_ok_article", lang, disp=_disp(resource), title=d["title"]),
-                    reply_markup=admin_keyboard(lang)
+                    reply_markup=admin_keyboard(lang),
+                    parse_mode="HTML",
                 )
                 if _notify_callback:
                     _notify_callback(bot, d["physics_field"], d["title"], resource_id, "article")
@@ -1306,7 +1309,8 @@ def handle_admin_callback(bot, callback: types.CallbackQuery) -> bool:
                 bot.send_message(
                     callback.message.chat.id,
                     tr("saved_ok", lang, disp=_disp(book), title=d["title"]),
-                    reply_markup=admin_keyboard(lang)
+                    reply_markup=admin_keyboard(lang),
+                    parse_mode="HTML",
                 )
                 if _notify_callback:
                     _notify_callback(bot, d["physics_field"], d["title"], book_id, "book")
@@ -1359,7 +1363,8 @@ def handle_admin_callback(bot, callback: types.CallbackQuery) -> bool:
         bot.send_message(
             callback.message.chat.id,
             tr("edit_saved", lang, disp=_disp(resource)),
-            reply_markup=admin_keyboard(lang)
+            reply_markup=admin_keyboard(lang),
+            parse_mode="HTML",
         )
         return True
 

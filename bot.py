@@ -1645,28 +1645,35 @@ def _fmt_article_card(res, lang: str, field: str, lang_label: str, disp: str,
 
 def _fmt_book_caption(res, field: str, lang_label: str, disp: str) -> str:
     """
-    Plain-text caption for send_document (book).
+    HTML caption for send_document (book).
+
+    Formatting spec (mirrors the interactive card):
+      Title   → <b>Bold</b>
+      Author  → <i>Italic</i>
+      ID      → <code>Monospace</code>  (tap-to-copy on Telegram mobile)
+      All other fields → Regular text
 
     Adaptive Description: all metadata fields are always preserved in full.
     Only the description may be shortened automatically by _fit_caption() so
     the total stays within Telegram's 1024-character caption limit.
-    No HTML tags — no risk of unclosed markup on truncation.
     """
     # ── Fixed part (everything except description) ────────────────────────
-    title_line = f"📕 {res['title']}"
+    title_str = _h(res['title'])
+    edition_str = ""
     if _row_get(res, "edition") and str(res["edition"]).strip():
-        title_line += f" ({res['edition']})"
+        edition_str = f" ({_h(res['edition'])})"
+    title_line = f"📕 <b>{title_str}</b>{edition_str}"
 
     fixed_parts: list[str] = [title_line]
-    fixed_parts.append(f"✍ {res['author']}")
+    fixed_parts.append(f"✍ <i>{_h(res['author'])}</i>")
     if _row_get(res, "year"):
-        fixed_parts.append(f"📅 {res['year']}")
-    fixed_parts.append(f"🌐 {lang_label}")
-    fixed_parts.append(f"🌌 {field}")
+        fixed_parts.append(f"📅 {_h(res['year'])}")
+    fixed_parts.append(f"🌐 {_h(lang_label)}")
+    fixed_parts.append(f"🌌 {_h(field)}")
     if _row_get(res, "pages") and str(res["pages"]).strip():
-        fixed_parts.append(f"📄 {res['pages']} pp.")
-    fixed_parts.append(f"🔖 {disp}")
-    fixed_parts.append(f"⬇️ {res['download_count']}")
+        fixed_parts.append(f"📄 {_h(res['pages'])} pp.")
+    fixed_parts.append(f"🔖 <code>{_h(disp)}</code>")
+    fixed_parts.append(f"⬇️ {_h(res['download_count'])}")
     fixed_parts.append("\n@PhysisLib_Bot")
 
     fixed = "\n".join(fixed_parts)
@@ -1681,37 +1688,43 @@ def _fmt_book_caption(res, field: str, lang_label: str, disp: str) -> str:
 
 def _fmt_article_caption(res, field: str, lang_label: str, disp: str) -> str:
     """
-    Plain-text caption for send_document (article).
+    HTML caption for send_document (article).
+
+    Formatting spec (mirrors the interactive card):
+      Title   → <b>Bold</b>
+      Author  → <i>Italic</i>
+      ID/DOI  → <code>Monospace</code>  (tap-to-copy on Telegram mobile)
+      All other fields → Regular text
 
     Adaptive Description: all metadata fields are always preserved in full.
     Only the description may be shortened automatically by _fit_caption() so
     the total stays within Telegram's 1024-character caption limit.
     """
     # ── Fixed part (everything except description) ────────────────────────
-    fixed_parts: list[str] = [f"📄 {res['title']}"]
+    fixed_parts: list[str] = [f"📄 <b>{_h(res['title'])}</b>"]
     if _row_get(res, "author"):
-        fixed_parts.append(f"✍ {res['author']}")
+        fixed_parts.append(f"✍ <i>{_h(res['author'])}</i>")
     if _row_get(res, "journal"):
-        fixed_parts.append(f"📰 {res['journal']}")
+        fixed_parts.append(f"📰 {_h(res['journal'])}")
     vi_parts: list[str] = []
     if _row_get(res, "volume"):
-        vi_parts.append(f"Vol.{res['volume']}")
+        vi_parts.append(f"Vol.{_h(res['volume'])}")
     if _row_get(res, "issue"):
-        vi_parts.append(f"No.{res['issue']}")
+        vi_parts.append(f"No.{_h(res['issue'])}")
     if vi_parts:
         fixed_parts.append(f"🔢 {' '.join(vi_parts)}")
     if _row_get(res, "pages"):
-        fixed_parts.append(f"📄 pp. {res['pages']}")
+        fixed_parts.append(f"📄 pp. {_h(res['pages'])}")
     if _row_get(res, "publication_date"):
-        fixed_parts.append(f"📅 {res['publication_date']}")
+        fixed_parts.append(f"📅 {_h(res['publication_date'])}")
     if _row_get(res, "doi"):
-        fixed_parts.append(f"🔗 DOI: {res['doi']}")
+        fixed_parts.append(f"🔗 DOI: <code>{_h(res['doi'])}</code>")
     if _row_get(res, "url"):
-        fixed_parts.append(f"🌐 {res['url']}")
-    fixed_parts.append(f"🌐 {lang_label}")
-    fixed_parts.append(f"🌌 {field}")
-    fixed_parts.append(f"🔖 {disp}")
-    fixed_parts.append(f"⬇️ {res['download_count']}")
+        fixed_parts.append(f"🌐 {_h(res['url'])}")
+    fixed_parts.append(f"🌐 {_h(lang_label)}")
+    fixed_parts.append(f"🌌 {_h(field)}")
+    fixed_parts.append(f"🔖 <code>{_h(disp)}</code>")
+    fixed_parts.append(f"⬇️ {_h(res['download_count'])}")
     fixed_parts.append("\n@PhysisLib_Bot")
 
     fixed = "\n".join(fixed_parts)
@@ -1850,11 +1863,13 @@ def download(callback: types.CallbackQuery):
                 callback.message.chat.id,
                 res["file_id"],
                 caption=caption,
+                parse_mode="HTML",
             )
         else:
-            # Link-only article — plain text message (4096-char limit, chunked)
+            # Link-only article — HTML message (4096-char limit, chunked)
             for i in range(0, len(caption), 4096):
-                bot.send_message(callback.message.chat.id, caption[i:i + 4096])
+                bot.send_message(callback.message.chat.id, caption[i:i + 4096],
+                                 parse_mode="HTML")
 
     else:
         # --- Book download ---
@@ -1865,6 +1880,7 @@ def download(callback: types.CallbackQuery):
             callback.message.chat.id,
             res["file_id"],
             caption=caption,
+            parse_mode="HTML",
         )
 
     database.record_download(res_id, user.id)
