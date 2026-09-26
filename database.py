@@ -309,6 +309,72 @@ def init_db() -> None:
         conn.commit()
         _load_field_caches(conn)
     print(f"[DB] دیتابیس آماده شد: {DB_PATH}")
+    _migrate_db()
+
+
+def _migrate_db() -> None:
+    """Apply incremental migrations to an existing database.
+
+    Safe to run on every startup: every statement uses CREATE TABLE IF NOT EXISTS
+    or ALTER TABLE only when the column/table is absent.  Never drops or modifies
+    existing data.
+
+    Migrations are listed in chronological order so they can be extended easily.
+    """
+    with get_connection() as conn:
+        existing_tables = {
+            row[0] for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+
+        # ── Migration 1: pending_resources (added in Phase 1) ─────────────────
+        if "pending_resources" not in existing_tables:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS pending_resources (
+                    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                    resource_type    TEXT    NOT NULL DEFAULT 'book'
+                                             CHECK(resource_type IN ('book', 'article')),
+                    title            TEXT    NOT NULL,
+                    author           TEXT    NOT NULL,
+                    language         TEXT    NOT NULL CHECK(language IN ('fa', 'en')),
+                    physics_field    TEXT    NOT NULL,
+                    description      TEXT    NOT NULL DEFAULT '',
+                    edition          TEXT    NOT NULL DEFAULT '',
+                    year             INTEGER,
+                    doi              TEXT    NOT NULL DEFAULT '',
+                    journal          TEXT    NOT NULL DEFAULT '',
+                    volume           TEXT    NOT NULL DEFAULT '',
+                    issue            TEXT    NOT NULL DEFAULT '',
+                    pages            TEXT    NOT NULL DEFAULT '',
+                    url              TEXT    NOT NULL DEFAULT '',
+                    publication_date TEXT    NOT NULL DEFAULT '',
+                    file_id          TEXT,
+                    file_name        TEXT,
+                    file_size        INTEGER,
+                    status           TEXT    NOT NULL DEFAULT 'pending'
+                                             CHECK(status IN ('pending', 'file_received', 'published', 'rejected')),
+                    created_at       TEXT    NOT NULL DEFAULT (datetime('now')),
+                    updated_at       TEXT    NOT NULL DEFAULT (datetime('now'))
+                )
+            """)
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_pending_status
+                ON pending_resources(status)
+            """)
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_pending_field
+                ON pending_resources(physics_field)
+            """)
+            conn.commit()
+            print("[DB] Migration applied: pending_resources table created.")
+
+        # ── Future migrations go here ──────────────────────────────────────────
+        # Example pattern:
+        #   pending_cols = {r["name"] for r in conn.execute("PRAGMA table_info(pending_resources)")}
+        #   if "new_column" not in pending_cols:
+        #       conn.execute("ALTER TABLE pending_resources ADD COLUMN new_column TEXT NOT NULL DEFAULT ''")
+        #       conn.commit()
 
 
 # ── Generic resource functions 
@@ -1258,177 +1324,6 @@ def update_pending_status(pending_id: int, status: str) -> bool:
         )
         conn.commit()
         return cur.rowcount > 0
-
-
-def find_library_duplicates(
-    resource_type: str,
-    title: str,
-    author: str,
-    doi: str = "",
-) -> list:
-    """Lightweight duplicate detection against the existing Library (books table).
-
-    Matches on:
-      - resource_type AND normalised title (case-insensitive) AND normalised author
-      - OR (for articles) resource_type AND non-empty DOI match
-
-    Returns a list of matching sqlite3.Row objects (may be empty).
-    """
-    results = []
-    seen_ids: set[int] = set()
-
-    title_norm  = title.strip().lower()
-    author_norm = author.strip().lower()
-
-    with get_connection() as conn:
-        # Primary match: type + title + author (both normalised)
-        rows = conn.execute(
-            "SELECT * FROM books "
-            "WHERE resource_type = ? "
-            "  AND LOWER(TRIM(title))  = ? "
-            "  AND LOWER(TRIM(author)) = ?",
-            (resource_type, title_norm, author_norm),
-        ).fetchall()
-        for r in rows:
-            if r["id"] not in seen_ids:
-                seen_ids.add(r["id"])
-                results.append(r)
-
-        # Secondary match for articles: non-empty DOI
-        if resource_type == "article" and doi and doi.strip():
-            doi_norm = doi.strip().lower()
-            rows2 = conn.execute(
-                "SELECT * FROM books "
-                "WHERE resource_type = 'article' "
-                "  AND LOWER(TRIM(doi)) = ?",
-                (doi_norm,),
-            ).fetchall()
-            for r in rows2:
-                if r["id"] not in seen_ids:
-                    seen_ids.add(r["id"])
-                    results.append(r)
-
-    return results
-
-
-def publish_pending_resource(pending_id: int, added_by: Optional[int] = None) -> int:
-    """Atomically publish a pending resource into the Library.
-
-    Steps (all inside one SQLite connection, within an explicit transaction):
-      1. Re-fetch and validate the pending row (must exist, status == 'file_received',
-         file_id must be non-empty).
-      2. Call add_resource() logic *within the same connection* to insert the books row
-         and obtain its new id.
-      3. Only if insertion succeeds, mark the pending row as 'published'.
-      4. Commit once — both writes land together or neither does.
-
-    Returns the new library resource id (books.id) on success.
-    Raises ValueError for validation failures.
-    Raises RuntimeError for unexpected DB errors.
-
-    NOTE: add_resource() opens its own connection internally, which would break
-    atomicity.  To avoid duplicating its logic we inline the insertion here using
-    the same connection, replicating only the field_number + INSERT that
-    add_resource() performs.  This is the minimal safe approach that preserves
-    all existing logic (field_number generation, display ID generation, etc.)
-    without modifying add_resource().
-    """
-    conn = get_connection()
-    try:
-        conn.execute("BEGIN")
-
-        # ── 1. Validate pending row ────────────────────────────────────────────
-        row = conn.execute(
-            "SELECT * FROM pending_resources WHERE id = ?", (pending_id,)
-        ).fetchone()
-
-        if row is None:
-            raise ValueError(f"pending resource P{pending_id} وجود ندارد")
-
-        if row["status"] == "published":
-            raise ValueError(f"P{pending_id} قبلاً منتشر شده — انتشار مجدد مجاز نیست")
-
-        if row["status"] != "file_received":
-            raise ValueError(
-                f"P{pending_id} وضعیت '{row['status']}' دارد؛ "
-                f"انتشار فقط برای 'file_received' مجاز است"
-            )
-
-        if not row["file_id"]:
-            raise ValueError(f"P{pending_id} فاقد اطلاعات فایل است")
-
-        # ── 2. Validate fields for add_resource ───────────────────────────────
-        physics_field = row["physics_field"]
-        if physics_field not in PHYSICS_FIELDS:
-            raise ValueError(f"فیلد فیزیکی نامعتبر: {physics_field}")
-
-        language      = row["language"]
-        if language not in ("fa", "en"):
-            raise ValueError(f"زبان نامعتبر: {language}")
-
-        resource_type = row["resource_type"]
-        if resource_type not in ("book", "article"):
-            raise ValueError(f"نوع منبع نامعتبر: {resource_type}")
-
-        # ── 3. Compute next field_number (same logic as add_resource) ──────────
-        fn_row = conn.execute(
-            "SELECT COALESCE(MAX(field_number), 0) AS mx FROM books "
-            "WHERE physics_field = ? AND resource_type = ?",
-            (physics_field, resource_type),
-        ).fetchone()
-        next_number = fn_row["mx"] + 1
-
-        # ── 4. Insert into books (mirrors add_resource INSERT exactly) ─────────
-        cur = conn.execute("""
-            INSERT INTO books
-                (title, author, language, physics_field,
-                 description, edition, year,
-                 file_id, file_name, file_size,
-                 cover_file_id, added_by, field_number, resource_type,
-                 doi, journal, volume, issue, pages, url, publication_date)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-        """, (
-            row["title"],
-            row["author"],
-            language,
-            physics_field,
-            row["description"] or "",
-            row["edition"] or "",
-            row["year"],
-            row["file_id"],
-            row["file_name"] or "",
-            row["file_size"] or 0,
-            "",            # cover_file_id — not stored in pending
-            added_by,
-            next_number,
-            resource_type,
-            row["doi"] or "",
-            row["journal"] or "",
-            row["volume"] or "",
-            row["issue"] or "",
-            row["pages"] or "",
-            row["url"] or "",
-            row["publication_date"] or "",
-        ))
-        new_id = cur.lastrowid
-
-        # ── 5. Mark pending row as published (only after successful INSERT) ─────
-        conn.execute(
-            "UPDATE pending_resources SET status = 'published', updated_at = ? WHERE id = ?",
-            (datetime.utcnow().isoformat(), pending_id),
-        )
-
-        conn.commit()
-        return new_id
-
-    except Exception:
-        try:
-            conn.rollback()
-        except Exception:
-            pass
-        raise
-    finally:
-        conn.close()
 
 
 # TEST
