@@ -265,6 +265,47 @@ def init_db() -> None:
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_ratings_book ON ratings(book_id)")
 
+        # ── pending_resources table (Phase 1: Foundation)
+        # Stores metadata for resources awaiting admin file upload + publishing.
+        # Intentionally has NO field_number — that is assigned only on publish via add_resource().
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS pending_resources (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                resource_type    TEXT    NOT NULL DEFAULT 'book'
+                                         CHECK(resource_type IN ('book', 'article')),
+                title            TEXT    NOT NULL,
+                author           TEXT    NOT NULL,
+                language         TEXT    NOT NULL CHECK(language IN ('fa', 'en')),
+                physics_field    TEXT    NOT NULL,
+                description      TEXT    NOT NULL DEFAULT '',
+                edition          TEXT    NOT NULL DEFAULT '',
+                year             INTEGER,
+                doi              TEXT    NOT NULL DEFAULT '',
+                journal          TEXT    NOT NULL DEFAULT '',
+                volume           TEXT    NOT NULL DEFAULT '',
+                issue            TEXT    NOT NULL DEFAULT '',
+                pages            TEXT    NOT NULL DEFAULT '',
+                url              TEXT    NOT NULL DEFAULT '',
+                publication_date TEXT    NOT NULL DEFAULT '',
+                file_id          TEXT,
+                file_name        TEXT,
+                file_size        INTEGER,
+                status           TEXT    NOT NULL DEFAULT 'pending'
+                                         CHECK(status IN ('pending', 'file_received', 'published', 'rejected')),
+                created_at       TEXT    NOT NULL DEFAULT (datetime('now')),
+                updated_at       TEXT    NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
+
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_pending_status
+            ON pending_resources(status)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_pending_field
+            ON pending_resources(physics_field)
+        """)
+
         conn.commit()
         _load_field_caches(conn)
     print(f"[DB] دیتابیس آماده شد: {DB_PATH}")
@@ -942,6 +983,453 @@ def set_user_lang(user_id: int, lang: str) -> None:
             ON CONFLICT(user_id) DO UPDATE SET lang = excluded.lang
         """, (user_id, lang))
         conn.commit()
+
+# ── Pending Resources (Phase 1: Foundation) ───────────────────────────────────
+#
+# These functions manage the pending_resources table.  A pending resource
+# becomes a real library entry only when published via add_resource().
+# field_number is never assigned here — that happens at publish time.
+
+_PENDING_ALLOWED_FIELDS = {
+    "resource_type", "title", "author", "language", "physics_field",
+    "description", "edition", "year",
+    "doi", "journal", "volume", "issue", "pages", "url", "publication_date",
+    "file_id", "file_name", "file_size",
+    "status",
+}
+
+
+def _validate_pending_fields(
+    resource_type: Optional[str] = None,
+    language: Optional[str] = None,
+    physics_field: Optional[str] = None,
+) -> None:
+    """Raise ValueError for invalid resource_type / language / physics_field.
+
+    Uses the same rules as add_resource() in the existing library system.
+    """
+    if resource_type is not None and resource_type not in ("book", "article"):
+        raise ValueError("resource_type باید 'book' یا 'article' باشد")
+    if language is not None and language not in ("fa", "en"):
+        raise ValueError("زبان باید 'fa' یا 'en' باشد")
+    if physics_field is not None and physics_field not in PHYSICS_FIELDS:
+        raise ValueError(f"فیلد نامعتبر: {physics_field}")
+
+
+def create_pending_resource(
+    title: str,
+    author: str,
+    language: str,
+    physics_field: str,
+    resource_type: str = "book",
+    description: str = "",
+    edition: str = "",
+    year: Optional[int] = None,
+    doi: str = "",
+    journal: str = "",
+    volume: str = "",
+    issue: str = "",
+    pages: str = "",
+    url: str = "",
+    publication_date: str = "",
+) -> int:
+    """Insert a new pending resource (metadata only; no file yet).
+
+    Returns the new pending resource id.
+    Raises ValueError for invalid resource_type, language, or physics_field.
+    """
+    _validate_pending_fields(resource_type, language, physics_field)
+
+    with get_connection() as conn:
+        cur = conn.execute("""
+            INSERT INTO pending_resources
+                (resource_type, title, author, language, physics_field,
+                 description, edition, year,
+                 doi, journal, volume, issue, pages, url, publication_date)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """, (
+            resource_type, title, author, language, physics_field,
+            description, edition, year,
+            doi, journal, volume, issue, pages, url, publication_date,
+        ))
+        conn.commit()
+        return cur.lastrowid
+
+
+def bulk_create_pending_resources(rows: list[dict]) -> list[int]:
+    """Insert multiple pending resources atomically inside one transaction.
+
+    *rows* is a list of kwargs dicts, each valid for create_pending_resource().
+    All validation is performed before any INSERT; if any row is invalid the
+    entire batch is rejected with ValueError and nothing is written.
+    On a database error mid-insert the transaction is rolled back automatically
+    (sqlite3 context manager) and the exception is re-raised.
+
+    Returns the list of new pending resource ids in the same order as *rows*.
+    Existing create_pending_resource() behaviour is unchanged.
+    """
+    if not rows:
+        return []
+
+    # Validate every row first — no DB work yet.
+    for i, row in enumerate(rows):
+        _validate_pending_fields(
+            resource_type=row.get("resource_type"),
+            language=row.get("language"),
+            physics_field=row.get("physics_field"),
+        )
+        if not row.get("title"):
+            raise ValueError(f"row {i}: title is required")
+        if not row.get("author"):
+            raise ValueError(f"row {i}: author is required")
+
+    # Single connection — sqlite3's context manager issues COMMIT on __exit__
+    # and ROLLBACK on exception, giving us true atomicity.
+    ids: list[int] = []
+    with get_connection() as conn:
+        for row in rows:
+            cur = conn.execute("""
+                INSERT INTO pending_resources
+                    (resource_type, title, author, language, physics_field,
+                     description, edition, year,
+                     doi, journal, volume, issue, pages, url, publication_date)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """, (
+                row.get("resource_type", "book"),
+                row["title"],
+                row["author"],
+                row["language"],
+                row["physics_field"],
+                row.get("description", ""),
+                row.get("edition", ""),
+                row.get("year"),
+                row.get("doi", ""),
+                row.get("journal", ""),
+                row.get("volume", ""),
+                row.get("issue", ""),
+                row.get("pages", ""),
+                row.get("url", ""),
+                row.get("publication_date", ""),
+            ))
+            ids.append(cur.lastrowid)
+        conn.commit()
+    return ids
+
+
+def get_pending_resource(pending_id: int) -> Optional[sqlite3.Row]:
+    """Return a single pending resource row by its internal id, or None."""
+    with get_connection() as conn:
+        return conn.execute(
+            "SELECT * FROM pending_resources WHERE id = ?", (pending_id,)
+        ).fetchone()
+
+
+def update_pending_resource(pending_id: int, **kwargs) -> bool:
+    """Update allowed metadata fields on a pending resource.
+
+    Returns True if a row was updated, False if the id was not found or no
+    valid fields were supplied.  Raises ValueError for constraint violations.
+    """
+    fields = {k: v for k, v in kwargs.items() if k in _PENDING_ALLOWED_FIELDS}
+    if not fields:
+        return False
+
+    # Validate constrained fields if they are being changed
+    _validate_pending_fields(
+        resource_type=fields.get("resource_type"),
+        language=fields.get("language"),
+        physics_field=fields.get("physics_field"),
+    )
+
+    fields["updated_at"] = datetime.utcnow().isoformat()
+    set_clause = ", ".join(f"{k} = ?" for k in fields)
+    values = list(fields.values()) + [pending_id]
+
+    with get_connection() as conn:
+        cur = conn.execute(
+            f"UPDATE pending_resources SET {set_clause} WHERE id = ?", values
+        )
+        conn.commit()
+        return cur.rowcount > 0
+
+
+def delete_pending_resource(pending_id: int) -> bool:
+    """Delete a pending resource row.  Returns True if a row was deleted."""
+    with get_connection() as conn:
+        cur = conn.execute(
+            "DELETE FROM pending_resources WHERE id = ?", (pending_id,)
+        )
+        conn.commit()
+        return cur.rowcount > 0
+
+
+def list_pending_resources(
+    status: str = "",
+    resource_type: str = "",
+    physics_field: str = "",
+    language: str = "",
+    query: str = "",
+    limit: int = 20,
+    offset: int = 0,
+) -> list[sqlite3.Row]:
+    """Return pending resources filtered by optional criteria.
+
+    Filters are ANDed together.  *query* does a case-insensitive substring
+    match across title and author (same lightweight approach as search_books).
+    Results are ordered newest-first (created_at DESC).
+    """
+    conditions: list[str] = []
+    params: list = []
+
+    if status:
+        conditions.append("status = ?")
+        params.append(status)
+    if resource_type:
+        conditions.append("resource_type = ?")
+        params.append(resource_type)
+    if physics_field:
+        conditions.append("physics_field = ?")
+        params.append(physics_field)
+    if language:
+        conditions.append("language = ?")
+        params.append(language)
+    if query:
+        like = f"%{query}%"
+        conditions.append("(title LIKE ? OR author LIKE ?)")
+        params += [like, like]
+
+    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+
+    sql = f"""
+        SELECT * FROM pending_resources
+        {where}
+        ORDER BY created_at DESC
+        LIMIT ? OFFSET ?
+    """
+    params += [limit, offset]
+
+    with get_connection() as conn:
+        return conn.execute(sql, params).fetchall()
+
+
+def attach_pending_file(
+    pending_id: int,
+    file_id: str,
+    file_name: str,
+    file_size: int,
+) -> bool:
+    """Record the Telegram file details on a pending resource and advance its
+    status to 'file_received' (unless it was already published/rejected).
+
+    Returns True if the row was updated.
+    """
+    with get_connection() as conn:
+        # Only advance status when the resource is still pending
+        cur = conn.execute("""
+            UPDATE pending_resources
+            SET file_id    = ?,
+                file_name  = ?,
+                file_size  = ?,
+                status     = CASE
+                                 WHEN status = 'pending' THEN 'file_received'
+                                 ELSE status
+                             END,
+                updated_at = ?
+            WHERE id = ?
+        """, (file_id, file_name, file_size, datetime.utcnow().isoformat(), pending_id))
+        conn.commit()
+        return cur.rowcount > 0
+
+
+def update_pending_status(pending_id: int, status: str) -> bool:
+    """Set the status of a pending resource explicitly.
+
+    Valid values: 'pending', 'file_received', 'published', 'rejected'.
+    Returns True if the row was updated, raises ValueError for unknown status.
+    """
+    valid = {"pending", "file_received", "published", "rejected"}
+    if status not in valid:
+        raise ValueError(f"وضعیت نامعتبر: {status!r}. مقادیر مجاز: {valid}")
+
+    with get_connection() as conn:
+        cur = conn.execute(
+            "UPDATE pending_resources SET status = ?, updated_at = ? WHERE id = ?",
+            (status, datetime.utcnow().isoformat(), pending_id),
+        )
+        conn.commit()
+        return cur.rowcount > 0
+
+
+def find_library_duplicates(
+    resource_type: str,
+    title: str,
+    author: str,
+    doi: str = "",
+) -> list:
+    """Lightweight duplicate detection against the existing Library (books table).
+
+    Matches on:
+      - resource_type AND normalised title (case-insensitive) AND normalised author
+      - OR (for articles) resource_type AND non-empty DOI match
+
+    Returns a list of matching sqlite3.Row objects (may be empty).
+    """
+    results = []
+    seen_ids: set[int] = set()
+
+    title_norm  = title.strip().lower()
+    author_norm = author.strip().lower()
+
+    with get_connection() as conn:
+        # Primary match: type + title + author (both normalised)
+        rows = conn.execute(
+            "SELECT * FROM books "
+            "WHERE resource_type = ? "
+            "  AND LOWER(TRIM(title))  = ? "
+            "  AND LOWER(TRIM(author)) = ?",
+            (resource_type, title_norm, author_norm),
+        ).fetchall()
+        for r in rows:
+            if r["id"] not in seen_ids:
+                seen_ids.add(r["id"])
+                results.append(r)
+
+        # Secondary match for articles: non-empty DOI
+        if resource_type == "article" and doi and doi.strip():
+            doi_norm = doi.strip().lower()
+            rows2 = conn.execute(
+                "SELECT * FROM books "
+                "WHERE resource_type = 'article' "
+                "  AND LOWER(TRIM(doi)) = ?",
+                (doi_norm,),
+            ).fetchall()
+            for r in rows2:
+                if r["id"] not in seen_ids:
+                    seen_ids.add(r["id"])
+                    results.append(r)
+
+    return results
+
+
+def publish_pending_resource(pending_id: int, added_by: Optional[int] = None) -> int:
+    """Atomically publish a pending resource into the Library.
+
+    Steps (all inside one SQLite connection, within an explicit transaction):
+      1. Re-fetch and validate the pending row (must exist, status == 'file_received',
+         file_id must be non-empty).
+      2. Call add_resource() logic *within the same connection* to insert the books row
+         and obtain its new id.
+      3. Only if insertion succeeds, mark the pending row as 'published'.
+      4. Commit once — both writes land together or neither does.
+
+    Returns the new library resource id (books.id) on success.
+    Raises ValueError for validation failures.
+    Raises RuntimeError for unexpected DB errors.
+
+    NOTE: add_resource() opens its own connection internally, which would break
+    atomicity.  To avoid duplicating its logic we inline the insertion here using
+    the same connection, replicating only the field_number + INSERT that
+    add_resource() performs.  This is the minimal safe approach that preserves
+    all existing logic (field_number generation, display ID generation, etc.)
+    without modifying add_resource().
+    """
+    conn = get_connection()
+    try:
+        conn.execute("BEGIN")
+
+        # ── 1. Validate pending row ────────────────────────────────────────────
+        row = conn.execute(
+            "SELECT * FROM pending_resources WHERE id = ?", (pending_id,)
+        ).fetchone()
+
+        if row is None:
+            raise ValueError(f"pending resource P{pending_id} وجود ندارد")
+
+        if row["status"] == "published":
+            raise ValueError(f"P{pending_id} قبلاً منتشر شده — انتشار مجدد مجاز نیست")
+
+        if row["status"] != "file_received":
+            raise ValueError(
+                f"P{pending_id} وضعیت '{row['status']}' دارد؛ "
+                f"انتشار فقط برای 'file_received' مجاز است"
+            )
+
+        if not row["file_id"]:
+            raise ValueError(f"P{pending_id} فاقد اطلاعات فایل است")
+
+        # ── 2. Validate fields for add_resource ───────────────────────────────
+        physics_field = row["physics_field"]
+        if physics_field not in PHYSICS_FIELDS:
+            raise ValueError(f"فیلد فیزیکی نامعتبر: {physics_field}")
+
+        language      = row["language"]
+        if language not in ("fa", "en"):
+            raise ValueError(f"زبان نامعتبر: {language}")
+
+        resource_type = row["resource_type"]
+        if resource_type not in ("book", "article"):
+            raise ValueError(f"نوع منبع نامعتبر: {resource_type}")
+
+        # ── 3. Compute next field_number (same logic as add_resource) ──────────
+        fn_row = conn.execute(
+            "SELECT COALESCE(MAX(field_number), 0) AS mx FROM books "
+            "WHERE physics_field = ? AND resource_type = ?",
+            (physics_field, resource_type),
+        ).fetchone()
+        next_number = fn_row["mx"] + 1
+
+        # ── 4. Insert into books (mirrors add_resource INSERT exactly) ─────────
+        cur = conn.execute("""
+            INSERT INTO books
+                (title, author, language, physics_field,
+                 description, edition, year,
+                 file_id, file_name, file_size,
+                 cover_file_id, added_by, field_number, resource_type,
+                 doi, journal, volume, issue, pages, url, publication_date)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """, (
+            row["title"],
+            row["author"],
+            language,
+            physics_field,
+            row["description"] or "",
+            row["edition"] or "",
+            row["year"],
+            row["file_id"],
+            row["file_name"] or "",
+            row["file_size"] or 0,
+            "",            # cover_file_id — not stored in pending
+            added_by,
+            next_number,
+            resource_type,
+            row["doi"] or "",
+            row["journal"] or "",
+            row["volume"] or "",
+            row["issue"] or "",
+            row["pages"] or "",
+            row["url"] or "",
+            row["publication_date"] or "",
+        ))
+        new_id = cur.lastrowid
+
+        # ── 5. Mark pending row as published (only after successful INSERT) ─────
+        conn.execute(
+            "UPDATE pending_resources SET status = 'published', updated_at = ? WHERE id = ?",
+            (datetime.utcnow().isoformat(), pending_id),
+        )
+
+        conn.commit()
+        return new_id
+
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        conn.close()
+
 
 # TEST
 if __name__ == "__main__":

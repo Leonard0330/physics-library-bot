@@ -225,6 +225,230 @@ T = {
                           "en": "⚠️ This restore was not started by you."},
     "emergency_caption":{"fa": "🆘 بکاپ اضطراری قبل از ریستور — {time}",
                           "en": "🆘 Emergency backup before restore — {time}"},
+
+    # ── CSV Import (Phase 2) ──────────────────────────────────────────────────
+    "btn_csv_import":       {"fa": "📥 وارد کردن CSV",              "en": "📥 Import CSV"},
+    "csv_ask_file":         {"fa": "📤 فایل CSV متادیتا رو بفرست.\n"
+                                   "برای لغو دکمه لغو رو بزن.",
+                              "en": "📤 Send the metadata CSV file.\n"
+                                   "Press Cancel to abort."},
+    "csv_not_csv":          {"fa": "❌ فقط فایل‌های .csv قبول می‌شن.",
+                              "en": "❌ Only .csv files are accepted."},
+    "csv_too_large":        {"fa": "❌ فایل CSV خیلی بزرگه (حداکثر ۵ مگابایت).",
+                              "en": "❌ CSV file is too large (max 5 MB)."},
+    "csv_parse_error":      {"fa": "❌ خطا در خواندن CSV:\n{err}",
+                              "en": "❌ Error reading CSV:\n{err}"},
+    "csv_missing_cols":     {"fa": "❌ ستون‌های ضروری وجود ندارن:\n{cols}\n\n"
+                                   "ستون‌های موجود:\n{found}",
+                              "en": "❌ Required columns are missing:\n{cols}\n\n"
+                                   "Columns found:\n{found}"},
+    "csv_empty":            {"fa": "❌ فایل CSV هیچ ردیف داده‌ای ندارد.",
+                              "en": "❌ The CSV file contains no data rows."},
+    "csv_preview":          {"fa": "📊 پیش‌نمایش وارد کردن CSV:\n\n"
+                                   "📁 فایل: {filename}\n"
+                                   "📋 کل ردیف‌ها: {total}\n"
+                                   "✅ معتبر: {valid}\n"
+                                   "❌ نامعتبر: {invalid}",
+                              "en": "📊 CSV Import Preview:\n\n"
+                                   "📁 File: {filename}\n"
+                                   "📋 Total rows: {total}\n"
+                                   "✅ Valid: {valid}\n"
+                                   "❌ Invalid: {invalid}"},
+    "csv_errors_header":    {"fa": "⚠️ خطاهای یافت‌شده:",          "en": "⚠️ Errors found:"},
+    "csv_confirm_question": {"fa": "ردیف‌های معتبر وارد بشن؟",     "en": "Import the valid rows?"},
+    "csv_btn_confirm":      {"fa": "✅ تأیید وارد کردن",             "en": "✅ Confirm Import"},
+    "csv_btn_cancel":       {"fa": "❌ لغو",                         "en": "❌ Cancel"},
+    "csv_imported":         {"fa": "✅ {count} ردیف با موفقیت وارد شد و در صف انتظار قرار گرفت.",
+                              "en": "✅ {count} row(s) successfully imported into the pending queue."},
+    "csv_import_cancelled": {"fa": "↩️ وارد کردن CSV لغو شد.",      "en": "↩️ CSV import cancelled."},
+    "csv_no_valid_rows":    {"fa": "❌ هیچ ردیف معتبری برای وارد کردن وجود ندارد.",
+                              "en": "❌ No valid rows to import."},
+    "csv_import_error":     {"fa": "❌ خطا در ذخیره‌سازی:\n{err}",  "en": "❌ Error during save:\n{err}"},
+
+    # ── Pending Resources (Phase 3) ───────────────────────────────────────────
+    "btn_pending":              {"fa": "📦 منابع در انتظار",              "en": "📦 Pending Resources"},
+    "pending_overview":         {
+        "fa": (
+            "📦 منابع در انتظار\n\n"
+            "📋 کل: {total}\n"
+            "⏳ بدون فایل: {no_file}\n"
+            "✅ با فایل / آماده انتشار: {has_file}\n\n"
+            "📘 کتاب‌ها: {books}   📄 مقالات: {articles}"
+        ),
+        "en": (
+            "📦 Pending Resources\n\n"
+            "📋 Total: {total}\n"
+            "⏳ Without file: {no_file}\n"
+            "✅ With file / ready to publish: {has_file}\n\n"
+            "📘 Books: {books}   📄 Articles: {articles}"
+        ),
+    },
+    "pending_empty":            {"fa": "📭 هیچ منبع در انتظاری وجود ندارد.",
+                                  "en": "📭 No pending resources found."},
+    "btn_pending_list_all":     {"fa": "📋 نمایش همه",                   "en": "📋 Show All"},
+    "btn_pending_list_nofile":  {"fa": "⏳ بدون فایل",                   "en": "⏳ Without File"},
+    "btn_pending_list_ready":   {"fa": "✅ آماده انتشار",                 "en": "✅ Ready to Publish"},
+    "btn_pending_enter_id":     {"fa": "🔢 ورود شناسه",                  "en": "🔢 Enter ID"},
+    "btn_pending_back":         {"fa": "⬅️ بازگشت به منابع در انتظار",    "en": "⬅️ Back to Pending"},
+
+    "pending_list_header":      {"fa": "📦 منابع در انتظار ({filter}) — صفحه {page}/{total_pages}:\n",
+                                  "en": "📦 Pending Resources ({filter}) — page {page}/{total_pages}:\n"},
+    "pending_filter_all":       {"fa": "همه",       "en": "All"},
+    "pending_filter_nofile":    {"fa": "بدون فایل", "en": "No File"},
+    "pending_filter_ready":     {"fa": "آماده",     "en": "Ready"},
+
+    "pending_ask_id":           {"fa": "🔢 شناسه داخلی (P-ID) منبع در انتظار رو وارد کن:\n"
+                                       "مثلاً: P27 یا فقط عدد 27",
+                                  "en": "🔢 Enter the internal pending ID (P-ID):\n"
+                                       "e.g. P27 or just 27"},
+    "pending_not_found":        {"fa": "❌ منبعی با شناسه P{pid} پیدا نشد.",
+                                  "en": "❌ No pending resource found with ID P{pid}."},
+    "pending_already_done":     {"fa": "⚠️ این منبع قبلاً منتشر یا رد شده (وضعیت: {status}).",
+                                  "en": "⚠️ This resource has already been published or rejected (status: {status})."},
+
+    "pending_detail":           {
+        "fa": (
+            "📦 جزئیات منبع در انتظار\n\n"
+            "🆔 شناسه: P{pid}\n"
+            "📂 نوع: {rtype}\n"
+            "📘 عنوان: {title}\n"
+            "✍ نویسنده: {author}\n"
+            "📅 سال: {year}\n"
+            "{edition_line}"
+            "🌌 فیلد: {field}\n"
+            "🌐 زبان: {lang}\n"
+            "{article_meta}"
+            "{desc_line}"
+            "\n"
+            "📁 فایل: {file_status}\n"
+            "🔖 وضعیت: {status}"
+        ),
+        "en": (
+            "📦 Pending Resource Detail\n\n"
+            "🆔 ID: P{pid}\n"
+            "📂 Type: {rtype}\n"
+            "📕 Title: {title}\n"
+            "✍ Author: {author}\n"
+            "📅 Year: {year}\n"
+            "{edition_line}"
+            "🌌 Field: {field}\n"
+            "🌐 Language: {lang}\n"
+            "{article_meta}"
+            "{desc_line}"
+            "\n"
+            "📁 File: {file_status}\n"
+            "🔖 Status: {status}"
+        ),
+    },
+    "pending_has_file_warn":    {"fa": "⚠️ این منبع از قبل فایل دارد ({fname}).\n"
+                                       "ارسال فایل جدید، فایل قبلی رو جایگزین می‌کند.",
+                                  "en": "⚠️ This resource already has a file ({fname}).\n"
+                                       "Sending a new file will replace it."},
+    "btn_send_file":            {"fa": "📎 ارسال فایل",                  "en": "📎 Send File"},
+    "btn_replace_file":         {"fa": "🔄 جایگزینی فایل",               "en": "🔄 Replace File"},
+
+    "pending_ask_file":         {"fa": "📤 فایل منبع رو بفرست (PDF، ZIP یا DjVu):\n"
+                                       "برای لغو دکمه لغو رو بزن.",
+                                  "en": "📤 Send the resource file (PDF, ZIP, or DjVu):\n"
+                                       "Press Cancel to abort."},
+    "pending_file_only":        {"fa": "❗️ فقط فایل‌های PDF، ZIP و DjVu قبول می‌شن.",
+                                  "en": "❗️ Only PDF, ZIP, and DjVu files are accepted."},
+    "pending_no_active":        {"fa": "⚠️ هیچ منبع در انتظار فعالی برای دریافت فایل وجود ندارد.",
+                                  "en": "⚠️ No active pending resource is awaiting a file."},
+    "pending_stale":            {"fa": "⚠️ منبع P{pid} دیگر در حالت در انتظار نیست (شاید حذف یا منتشر شده).",
+                                  "en": "⚠️ Resource P{pid} is no longer pending (it may have been deleted or published)."},
+
+    "pending_file_saved":       {
+        "fa": (
+            "✅ فایل دریافت شد\n\n"
+            "🆔 #{pid} — {title}\n"
+            "📋 متادیتا: ✅\n"
+            "📁 فایل: ✅ ({fname})\n"
+            "🔖 وضعیت: آماده انتشار"
+        ),
+        "en": (
+            "✅ File received\n\n"
+            "🆔 #{pid} — {title}\n"
+            "📋 Metadata: ✅\n"
+            "📁 File: ✅ ({fname})\n"
+            "🔖 Status: Ready to publish"
+        ),
+    },
+    "pending_file_error":       {"fa": "❌ خطا در ذخیره فایل:\n{err}",
+                                  "en": "❌ Error saving file:\n{err}"},
+
+    # ── Publish (Phase 4) ─────────────────────────────────────────────────────
+    "publish_confirm": {
+        "fa": (
+            "🚀 تأیید انتشار\n\n"
+            "🆔 شناسه در انتظار: P{pid}\n"
+            "📂 نوع: {rtype}\n"
+            "📘 عنوان: {title}\n"
+            "✍ نویسنده: {author}\n"
+            "🌌 فیلد: {field}\n"
+            "🌐 زبان: {lang}\n"
+            "{year_line}"
+            "{edition_line}"
+            "{article_meta}"
+            "📁 فایل: {fname}\n\n"
+            "آیا این منبع منتشر شود؟"
+        ),
+        "en": (
+            "🚀 Publish Confirmation\n\n"
+            "🆔 Pending ID: P{pid}\n"
+            "📂 Type: {rtype}\n"
+            "📕 Title: {title}\n"
+            "✍ Author: {author}\n"
+            "🌌 Field: {field}\n"
+            "🌐 Language: {lang}\n"
+            "{year_line}"
+            "{edition_line}"
+            "{article_meta}"
+            "📁 File: {fname}\n\n"
+            "Publish this resource?"
+        ),
+    },
+    "publish_success": {
+        "fa": (
+            "✅ منبع با موفقیت منتشر شد\n"
+            "📘 {title}\n"
+            "🔖 <code>{disp}</code>\n"
+            "Pending #P{pid} منتشر شد."
+        ),
+        "en": (
+            "✅ Resource published successfully\n"
+            "📘 {title}\n"
+            "🔖 <code>{disp}</code>\n"
+            "Pending #P{pid} is now published."
+        ),
+    },
+    "publish_error":        {"fa": "❌ خطا در انتشار:\n{err}",
+                              "en": "❌ Publish failed:\n{err}"},
+    "publish_not_ready":    {"fa": "⚠️ این منبع آماده انتشار نیست (وضعیت: {status}).",
+                              "en": "⚠️ This resource is not ready to publish (status: {status})."},
+    "publish_already":      {"fa": "🔒 این منبع قبلاً منتشر شده — انتشار مجدد مجاز نیست.",
+                              "en": "🔒 This resource has already been published — double-publish blocked."},
+    "publish_dup_warning": {
+        "fa": (
+            "⚠️ احتمال تکراری بودن\n\n"
+            "منبع مشابهی در کتابخانه وجود دارد:\n"
+            "📘 {dup_title}\n"
+            "✍ {dup_author}\n"
+            "🔖 <code>{dup_disp}</code>\n\n"
+            "آیا با وجود این موضوع منتشر شود؟"
+        ),
+        "en": (
+            "⚠️ Possible duplicate detected\n\n"
+            "A similar resource already exists in the Library:\n"
+            "📘 {dup_title}\n"
+            "✍ {dup_author}\n"
+            "🔖 <code>{dup_disp}</code>\n\n"
+            "Publish anyway?"
+        ),
+    },
+    "btn_publish":          {"fa": "🚀 انتشار",           "en": "🚀 Publish"},
+    "btn_publish_anyway":   {"fa": "🚀 انتشار به‌هرحال",  "en": "🚀 Publish Anyway"},
+    "btn_view_existing":    {"fa": "👁 مشاهده موجود",      "en": "👁 View Existing"},
 }
 
 
@@ -266,6 +490,10 @@ def admin_keyboard(lang: str) -> types.ReplyKeyboardMarkup:
     kb.add(
         types.KeyboardButton(tr("btn_stats", lang)),
         types.KeyboardButton(tr("btn_admins", lang)),
+    )
+    kb.add(
+        types.KeyboardButton(tr("btn_csv_import", lang)),
+        types.KeyboardButton(tr("btn_pending", lang)),
     )
     kb.add(types.KeyboardButton(tr("btn_exit", lang)))
     return kb
@@ -326,6 +554,86 @@ def confirm_keyboard(lang: str) -> types.InlineKeyboardMarkup:
         types.InlineKeyboardButton(tr("btn_confirm_no", lang),   callback_data="adm_confirm:no"),
     )
     return markup
+
+
+def csv_import_confirm_keyboard(lang: str) -> types.InlineKeyboardMarkup:
+    markup = types.InlineKeyboardMarkup()
+    markup.row(
+        types.InlineKeyboardButton(tr("csv_btn_confirm", lang), callback_data="adm_csv_import:yes"),
+        types.InlineKeyboardButton(tr("csv_btn_cancel",  lang), callback_data="adm_csv_import:no"),
+    )
+    return markup
+
+
+def pending_overview_keyboard(lang: str) -> types.InlineKeyboardMarkup:
+    """Inline keyboard shown on the Pending Resources overview screen."""
+    markup = types.InlineKeyboardMarkup()
+    markup.row(
+        types.InlineKeyboardButton(tr("btn_pending_list_all",    lang), callback_data="adm_pnd:list:all:0"),
+        types.InlineKeyboardButton(tr("btn_pending_list_nofile", lang), callback_data="adm_pnd:list:nofile:0"),
+    )
+    markup.row(
+        types.InlineKeyboardButton(tr("btn_pending_list_ready",  lang), callback_data="adm_pnd:list:ready:0"),
+        types.InlineKeyboardButton(tr("btn_pending_enter_id",    lang), callback_data="adm_pnd:enter_id"),
+    )
+    return markup
+
+
+def pending_detail_keyboard(lang: str, pending_id: int, has_file: bool) -> types.InlineKeyboardMarkup:
+    """Inline keyboard shown for a single pending resource."""
+    markup = types.InlineKeyboardMarkup()
+    file_btn_key = "btn_replace_file" if has_file else "btn_send_file"
+    markup.row(
+        types.InlineKeyboardButton(tr(file_btn_key, lang), callback_data=f"adm_pnd:send_file:{pending_id}"),
+    )
+    if has_file:
+        markup.row(
+            types.InlineKeyboardButton(tr("btn_publish", lang), callback_data=f"adm_pnd:publish:{pending_id}"),
+        )
+    markup.row(
+        types.InlineKeyboardButton(tr("btn_pending_back", lang), callback_data="adm_pnd:overview"),
+    )
+    return markup
+
+
+def pending_file_received_keyboard(lang: str, pending_id: int = 0) -> types.InlineKeyboardMarkup:
+    """Inline keyboard shown after a file is successfully attached to a pending resource."""
+    markup = types.InlineKeyboardMarkup()
+    if pending_id:
+        markup.row(
+            types.InlineKeyboardButton(tr("btn_publish", lang), callback_data=f"adm_pnd:publish:{pending_id}"),
+        )
+    markup.row(
+        types.InlineKeyboardButton(tr("btn_replace_file",   lang), callback_data="adm_pnd:replace_same"),
+        types.InlineKeyboardButton(tr("btn_pending_back",   lang), callback_data="adm_pnd:overview"),
+    )
+    return markup
+
+
+def publish_confirm_keyboard(lang: str, pending_id: int) -> types.InlineKeyboardMarkup:
+    """Inline keyboard for the publish confirmation screen."""
+    markup = types.InlineKeyboardMarkup()
+    markup.row(
+        types.InlineKeyboardButton(tr("btn_publish", lang),  callback_data=f"adm_pnd:do_publish:{pending_id}"),
+        types.InlineKeyboardButton(tr("btn_confirm_no", lang), callback_data=f"adm_pnd:detail:{pending_id}"),
+    )
+    return markup
+
+
+def publish_dup_keyboard(lang: str, pending_id: int, dup_id: int) -> types.InlineKeyboardMarkup:
+    """Inline keyboard shown when a duplicate is detected before publishing."""
+    markup = types.InlineKeyboardMarkup()
+    markup.row(
+        types.InlineKeyboardButton(tr("btn_view_existing", lang),  callback_data=f"adm_pnd:view_lib:{dup_id}"),
+    )
+    markup.row(
+        types.InlineKeyboardButton(tr("btn_publish_anyway", lang), callback_data=f"adm_pnd:do_publish:{pending_id}:force"),
+        types.InlineKeyboardButton(tr("btn_confirm_no", lang),     callback_data=f"adm_pnd:detail:{pending_id}"),
+    )
+    return markup
+
+
+_PENDING_PAGE_SIZE = 8   # items per page in the pending list
 
 
 def resource_type_keyboard(lang: str) -> types.InlineKeyboardMarkup:
@@ -878,6 +1186,16 @@ def handle_admin_text(bot, message: types.Message) -> bool:
         _show_admins(bot, message, lang)
         return True
 
+    if text in (T["btn_csv_import"]["fa"], T["btn_csv_import"]["en"]):
+        admin_sessions[uid] = {"step": "wait_csv_file"}
+        bot.send_message(message.chat.id, tr("csv_ask_file", lang), reply_markup=cancel_keyboard(lang))
+        return True
+
+    if text in (T["btn_pending"]["fa"], T["btn_pending"]["en"]):
+        admin_sessions.pop(uid, None)
+        _show_pending_overview(bot, message.chat.id, lang)
+        return True
+
     if text in (T["btn_exit"]["fa"], T["btn_exit"]["en"]):
         admin_sessions.pop(uid, None)
         return False   
@@ -1088,6 +1406,25 @@ def handle_admin_text(bot, message: types.Message) -> bool:
         bot.send_message(message.chat.id, tr("admins_menu_title", lang), reply_markup=admins_menu_keyboard(lang))
         return True
 
+    # ── Phase 3: Pending ID entry ──────────────────────────────────────────────
+    if step == "wait_pending_id":
+        # Accept "P27", "p027", or bare "27"
+        raw = text.strip().upper().lstrip("P")
+        if not raw.isdigit():
+            bot.send_message(message.chat.id, tr("not_a_number", lang))
+            return True
+        pid = int(raw)
+        admin_sessions.pop(uid, None)
+        _show_pending_detail(bot, message.chat.id, lang, pid)
+        return True
+
+    # ── Phase 3: Pending file upload ───────────────────────────────────────────
+    # Text while in wait_pending_file → only Cancel is valid (handled above)
+    if step == "wait_pending_file":
+        # Any non-cancel text is ignored with a gentle reminder
+        bot.send_message(message.chat.id, tr("pending_ask_file", lang), reply_markup=cancel_keyboard(lang))
+        return True
+
     return False
 
 
@@ -1119,6 +1456,17 @@ def handle_admin_document(bot, message: types.Message) -> bool:
         return True
     if uid not in admin_sessions:
         return False
+
+    # ── CSV import document handler (Phase 2)
+    if admin_sessions[uid].get("step") == "wait_csv_file":
+        _handle_csv_upload(bot, message, uid)
+        return True
+
+    # ── Phase 3: Pending resource file upload
+    if admin_sessions[uid].get("step") == "wait_pending_file":
+        _handle_pending_file_upload(bot, message, uid)
+        return True
+
     if admin_sessions[uid].get("step") != "wait_file":
         return False
 
@@ -1368,7 +1716,780 @@ def handle_admin_callback(bot, callback: types.CallbackQuery) -> bool:
         )
         return True
 
+    # ── Phase 3: Pending Resources callbacks ──────────────────────────────────
+    if data.startswith("adm_pnd:"):
+        bot.answer_callback_query(callback.id)
+        parts = data.split(":")   # ["adm_pnd", action, ...]
+
+        action = parts[1] if len(parts) > 1 else ""
+
+        # Overview screen
+        if action == "overview":
+            admin_sessions.pop(uid, None)
+            _show_pending_overview(bot, callback.message.chat.id, lang)
+            return True
+
+        # Paginated list: adm_pnd:list:<filter>:<page>
+        if action == "list":
+            filter_key = parts[2] if len(parts) > 2 else "all"
+            page       = int(parts[3]) if len(parts) > 3 and parts[3].isdigit() else 0
+            _pending_list_page(
+                bot, callback.message.chat.id, lang, filter_key, page,
+                edit_message_id=callback.message.message_id,
+            )
+            return True
+
+        # Show detail for a specific pending resource: adm_pnd:detail:<pid>
+        if action == "detail":
+            if len(parts) > 2 and parts[2].isdigit():
+                admin_sessions.pop(uid, None)
+                _show_pending_detail(bot, callback.message.chat.id, lang, int(parts[2]))
+            return True
+
+        # Enter ID manually
+        if action == "enter_id":
+            admin_sessions[uid] = {"step": "wait_pending_id"}
+            bot.send_message(
+                callback.message.chat.id,
+                tr("pending_ask_id", lang),
+                reply_markup=cancel_keyboard(lang),
+            )
+            return True
+
+        # Initiate file send for a pending resource: adm_pnd:send_file:<pid>
+        if action == "send_file":
+            if len(parts) > 2 and parts[2].isdigit():
+                pid = int(parts[2])
+                row = database.get_pending_resource(pid)
+                if not row or row["status"] in ("published", "rejected"):
+                    bot.send_message(
+                        callback.message.chat.id,
+                        tr("pending_stale", lang, pid=pid),
+                        reply_markup=admin_keyboard(lang),
+                    )
+                    return True
+                admin_sessions[uid] = {"step": "wait_pending_file", "pending_id": pid}
+                bot.send_message(
+                    callback.message.chat.id,
+                    tr("pending_ask_file", lang),
+                    reply_markup=cancel_keyboard(lang),
+                )
+            return True
+
+        # Replace file after successful upload (same resource, re-enter wait state)
+        if action == "replace_same":
+            sess = admin_sessions.get(uid, {})
+            pid  = sess.get("last_pid")
+            if not pid:
+                _show_pending_overview(bot, callback.message.chat.id, lang)
+                return True
+            row = database.get_pending_resource(pid)
+            if not row or row["status"] in ("published", "rejected"):
+                admin_sessions.pop(uid, None)
+                bot.send_message(
+                    callback.message.chat.id,
+                    tr("pending_stale", lang, pid=pid),
+                    reply_markup=admin_keyboard(lang),
+                )
+                return True
+            admin_sessions[uid] = {"step": "wait_pending_file", "pending_id": pid}
+            bot.send_message(
+                callback.message.chat.id,
+                tr("pending_ask_file", lang),
+                reply_markup=cancel_keyboard(lang),
+            )
+            return True
+
+        # ── Phase 4: Show publish confirmation ────────────────────────────────
+        # adm_pnd:publish:<pid>
+        if action == "publish":
+            if len(parts) > 2 and parts[2].isdigit():
+                pid = int(parts[2])
+                _show_publish_confirm(bot, callback.message.chat.id, lang, pid)
+            return True
+
+        # ── Phase 4: Execute publish (optionally forced past dup warning) ─────
+        # adm_pnd:do_publish:<pid>        — normal publish
+        # adm_pnd:do_publish:<pid>:force  — publish despite duplicate warning
+        if action == "do_publish":
+            if len(parts) > 2 and parts[2].isdigit():
+                pid   = int(parts[2])
+                force = len(parts) > 3 and parts[3] == "force"
+                _do_publish(bot, callback.message.chat.id, lang, pid, uid, force=force)
+            return True
+
+        # ── Phase 4: View an existing library resource (from dup warning) ─────
+        # adm_pnd:view_lib:<lib_id>
+        if action == "view_lib":
+            if len(parts) > 2 and parts[2].isdigit():
+                lib_id = int(parts[2])
+                resource = database.get_resource(lib_id)
+                if resource:
+                    bot.send_message(
+                        callback.message.chat.id,
+                        _book_summary_text(resource, lang),
+                        parse_mode="HTML",
+                    )
+                else:
+                    bot.send_message(
+                        callback.message.chat.id,
+                        tr("resource_not_found", lang, id=lib_id),
+                    )
+            return True
+
+        return True   # unknown adm_pnd sub-action — swallow gracefully
+
+    if data.startswith("adm_csv_import:"):
+        if uid not in admin_sessions or admin_sessions[uid].get("step") != "wait_csv_confirm":
+            bot.answer_callback_query(callback.id, tr("wrong_step", lang))
+            return True
+        bot.answer_callback_query(callback.id)
+        choice = data.split(":")[1]
+        if choice == "no":
+            admin_sessions.pop(uid, None)
+            bot.send_message(callback.message.chat.id, tr("csv_import_cancelled", lang),
+                             reply_markup=admin_keyboard(lang))
+            return True
+        # Confirm — insert valid rows
+        valid_rows = admin_sessions[uid].get("csv_valid_rows", [])
+        admin_sessions.pop(uid, None)
+        if not valid_rows:
+            bot.send_message(callback.message.chat.id, tr("csv_no_valid_rows", lang),
+                             reply_markup=admin_keyboard(lang))
+            return True
+        try:
+            inserted = database.bulk_create_pending_resources(valid_rows)
+            bot.send_message(callback.message.chat.id,
+                             tr("csv_imported", lang, count=len(inserted)),
+                             reply_markup=admin_keyboard(lang))
+        except Exception as e:
+            bot.send_message(callback.message.chat.id,
+                             tr("csv_import_error", lang, err=e),
+                             reply_markup=admin_keyboard(lang))
+        return True
+
     return False
+
+# ── Phase 3: Pending file upload handler ───────────────────────────────────────
+
+def _handle_pending_file_upload(bot, message, uid: int) -> None:
+    """Called when a document arrives while the admin is in wait_pending_file."""
+    lang    = get_lang(uid)
+    sess    = admin_sessions.get(uid, {})
+    pid     = sess.get("pending_id")
+
+    if not pid:
+        admin_sessions.pop(uid, None)
+        bot.send_message(message.chat.id, tr("pending_no_active", lang), reply_markup=admin_keyboard(lang))
+        return
+
+    # Re-fetch the pending row to guard against stale state
+    row = database.get_pending_resource(pid)
+    if not row or row["status"] in ("published", "rejected"):
+        admin_sessions.pop(uid, None)
+        bot.send_message(message.chat.id, tr("pending_stale", lang, pid=pid), reply_markup=admin_keyboard(lang))
+        return
+
+    doc = message.document
+    ALLOWED_EXTENSIONS = {".pdf", ".zip", ".djvu"}
+    if not any((doc.file_name or "").lower().endswith(ext) for ext in ALLOWED_EXTENSIONS):
+        bot.send_message(message.chat.id, tr("pending_file_only", lang))
+        return  # stay in wait_pending_file
+
+    # Attach the file to the pending resource
+    try:
+        ok = database.attach_pending_file(
+            pending_id=pid,
+            file_id=doc.file_id,
+            file_name=doc.file_name or "",
+            file_size=doc.file_size or 0,
+        )
+    except Exception as e:
+        bot.send_message(message.chat.id, tr("pending_file_error", lang, err=e))
+        return
+
+    if not ok:
+        admin_sessions.pop(uid, None)
+        bot.send_message(message.chat.id, tr("pending_stale", lang, pid=pid), reply_markup=admin_keyboard(lang))
+        return
+
+    # Success — clear upload state but remember last pid for "Replace File" convenience
+    admin_sessions.pop(uid, None)
+
+    confirmation = tr(
+        "pending_file_saved", lang,
+        pid=pid,
+        title=row["title"],
+        fname=doc.file_name or doc.file_id,
+    )
+    bot.send_message(
+        message.chat.id,
+        confirmation,
+        reply_markup=pending_file_received_keyboard(lang, pending_id=pid),
+    )
+    # Store last pid in a lightweight session for the "Replace File" button
+    admin_sessions[uid] = {"step": "pending_file_done", "last_pid": pid}
+
+
+# ── CSV Import helpers (Phase 2) ───────────────────────────────────────────────
+
+# Maximum CSV file size accepted (bytes).
+_CSV_MAX_BYTES = 5 * 1024 * 1024  # 5 MB
+
+# Columns that MUST be present in every CSV (case-insensitive header match).
+_CSV_REQUIRED_COLS = {"resource_type", "title", "author", "language", "physics_field"}
+
+# All columns the importer recognises (optional ones are silently defaulted).
+_CSV_ALL_COLS = _CSV_REQUIRED_COLS | {
+    "description", "edition", "year",
+    "doi", "journal", "volume", "issue", "pages", "url", "publication_date",
+}
+
+
+def _normalise_csv_headers(raw_headers: list[str]) -> dict[str, str]:
+    """Return {normalised_lower: original} mapping for each header."""
+    return {h.strip().lower(): h for h in raw_headers}
+
+
+def _validate_csv_row(row_num: int, raw: dict, norm_map: dict[str, str]) -> tuple[dict | None, str | None]:
+    """Validate a single CSV row dict (keys already lower-cased).
+
+    Returns (cleaned_kwargs, None) on success or (None, error_message) on failure.
+    cleaned_kwargs can be passed directly to database.create_pending_resource().
+    """
+    def get(col: str) -> str:
+        return raw.get(col, "").strip()
+
+    resource_type = get("resource_type").lower()
+    if resource_type not in ("book", "article"):
+        return None, f"row {row_num}: resource_type نامعتبر '{resource_type}' (باید 'book' یا 'article' باشد)"
+
+    title = get("title")
+    if not title:
+        return None, f"row {row_num}: title خالی است"
+
+    author = get("author")
+    if not author:
+        return None, f"row {row_num}: author خالی است"
+
+    language = get("language").lower()
+    if language not in ("fa", "en"):
+        return None, f"row {row_num}: language نامعتبر '{language}' (باید 'fa' یا 'en' باشد)"
+
+    physics_field = get("physics_field").strip()
+    if physics_field not in database.PHYSICS_FIELDS:
+        return None, (
+            f"row {row_num}: physics_field نامعتبر '{physics_field}'. "
+            f"مقادیر مجاز: {', '.join(sorted(database.PHYSICS_FIELDS))}"
+        )
+
+    # year: optional integer
+    year_raw = get("year")
+    year: int | None = None
+    if year_raw:
+        try:
+            year = int(year_raw)
+            if not (1000 <= year <= 2100):
+                return None, f"row {row_num}: year خارج از محدوده ({year})"
+        except ValueError:
+            return None, f"row {row_num}: year باید عدد باشد ('{year_raw}')"
+
+    kwargs: dict = {
+        "resource_type":    resource_type,
+        "title":            title,
+        "author":           author,
+        "language":         language,
+        "physics_field":    physics_field,
+        "description":      get("description"),
+        "edition":          get("edition"),
+        "year":             year,
+        "doi":              get("doi"),
+        "journal":          get("journal"),
+        "volume":           get("volume"),
+        "issue":            get("issue"),
+        "pages":            get("pages"),
+        "url":              get("url"),
+        "publication_date": get("publication_date"),
+    }
+    return kwargs, None
+
+
+def _parse_csv_bytes(raw_bytes: bytes) -> tuple[list[dict], list[str]]:
+    """Decode and parse CSV bytes; return (list_of_row_dicts_lower_keys, errors).
+
+    Tries UTF-8-with-BOM first, then UTF-8, then Windows-1256 (Persian).
+    Row dicts use lower-cased, stripped column names as keys.
+    """
+    for encoding in ("utf-8-sig", "utf-8", "windows-1256", "latin-1"):
+        try:
+            text = raw_bytes.decode(encoding)
+            break
+        except (UnicodeDecodeError, LookupError):
+            continue
+    else:
+        return [], ["فایل CSV قابل رمزگشایی نیست (encoding ناشناخته)"]
+
+    reader = csv.DictReader(io.StringIO(text))
+    try:
+        raw_headers = reader.fieldnames or []
+    except Exception as e:
+        return [], [f"خطا در خواندن هدر CSV: {e}"]
+
+    norm_map = _normalise_csv_headers(list(raw_headers))
+    # Check required columns
+    missing = _CSV_REQUIRED_COLS - set(norm_map.keys())
+    if missing:
+        found_str  = ", ".join(sorted(norm_map.keys())) or "(هیچ‌کدام)"
+        missing_str = ", ".join(sorted(missing))
+        return [], [f"ستون‌های ضروری ندارند: {missing_str}\nستون‌های موجود: {found_str}"]
+
+    rows = []
+    try:
+        for raw_row in reader:
+            # Normalise keys to lower-case stripped versions
+            normalised = {k.strip().lower(): (v or "").strip() for k, v in raw_row.items() if k}
+            rows.append(normalised)
+    except Exception as e:
+        return [], [f"خطا در خواندن ردیف‌های CSV: {e}"]
+
+    return rows, []
+
+
+def _handle_csv_upload(bot, message: types.Message, uid: int) -> None:
+    """Process a document sent while the admin is in wait_csv_file step."""
+    lang = get_lang(uid)
+    doc  = message.document
+
+    # Extension check
+    if not (doc.file_name or "").lower().endswith(".csv"):
+        bot.send_message(message.chat.id, tr("csv_not_csv", lang))
+        return
+
+    # Size check
+    if doc.file_size and doc.file_size > _CSV_MAX_BYTES:
+        bot.send_message(message.chat.id, tr("csv_too_large", lang))
+        return
+
+    # Download
+    try:
+        file_info    = bot.get_file(doc.file_id)
+        raw_bytes    = bot.download_file(file_info.file_path)
+    except Exception as e:
+        bot.send_message(message.chat.id, tr("csv_parse_error", lang, err=e))
+        return
+
+    # Parse
+    rows, parse_errors = _parse_csv_bytes(raw_bytes)
+    if parse_errors:
+        bot.send_message(message.chat.id, tr("csv_parse_error", lang, err="\n".join(parse_errors)))
+        admin_sessions.pop(uid, None)
+        bot.send_message(message.chat.id, tr("back_to_panel", lang), reply_markup=admin_keyboard(lang))
+        return
+
+    if not rows:
+        bot.send_message(message.chat.id, tr("csv_empty", lang), reply_markup=admin_keyboard(lang))
+        admin_sessions.pop(uid, None)
+        return
+
+    # Validate each row
+    valid_rows:   list[dict] = []
+    row_errors:   list[str]  = []
+    seen_keys:    set[tuple] = set()   # dedup within this import by (resource_type, title, author)
+
+    for i, raw_row in enumerate(rows, start=2):   # row 1 is header
+        cleaned, err = _validate_csv_row(i, raw_row, {})
+        if err:
+            row_errors.append(err)
+            continue
+
+        # Within-import duplicate detection
+        dedup_key = (cleaned["resource_type"], cleaned["title"].lower(), cleaned["author"].lower())
+        if dedup_key in seen_keys:
+            row_errors.append(f"row {i}: تکراری در همین CSV (عنوان+نویسنده+نوع تکراری است)")
+            continue
+        seen_keys.add(dedup_key)
+        valid_rows.append(cleaned)
+
+    total   = len(rows)
+    n_valid = len(valid_rows)
+    n_bad   = len(row_errors)
+
+    # Preview message
+    preview = tr("csv_preview", lang,
+                 filename=doc.file_name or "?",
+                 total=total,
+                 valid=n_valid,
+                 invalid=n_bad)
+    bot.send_message(message.chat.id, preview)
+
+    # Show row errors (cap at 20 to avoid Telegram message length limits)
+    if row_errors:
+        error_lines = [tr("csv_errors_header", lang)]
+        for e in row_errors[:20]:
+            error_lines.append(f"• {e}")
+        if len(row_errors) > 20:
+            error_lines.append(f"… و {len(row_errors) - 20} خطای دیگر" if lang == "fa"
+                               else f"… and {len(row_errors) - 20} more error(s)")
+        bot.send_message(message.chat.id, "\n".join(error_lines))
+
+    if not valid_rows:
+        bot.send_message(message.chat.id, tr("csv_no_valid_rows", lang),
+                         reply_markup=admin_keyboard(lang))
+        admin_sessions.pop(uid, None)
+        return
+
+    # Store valid rows in session and ask for confirmation
+    admin_sessions[uid] = {
+        "step":           "wait_csv_confirm",
+        "csv_valid_rows": valid_rows,
+    }
+    bot.send_message(message.chat.id, tr("csv_confirm_question", lang),
+                     reply_markup=csv_import_confirm_keyboard(lang))
+
+
+# ── Phase 3: Pending Resources helpers ─────────────────────────────────────────
+
+def _pending_status_label(status: str, lang: str) -> str:
+    mapping = {
+        "pending":       {"fa": "⏳ در انتظار فایل", "en": "⏳ Awaiting file"},
+        "file_received": {"fa": "✅ آماده انتشار",   "en": "✅ Ready to publish"},
+        "published":     {"fa": "📗 منتشر شده",      "en": "📗 Published"},
+        "rejected":      {"fa": "🚫 رد شده",         "en": "🚫 Rejected"},
+    }
+    return mapping.get(status, {}).get(lang, status)
+
+
+def _pending_overview_stats() -> dict:
+    """Return aggregate counts needed for the overview screen."""
+    all_rows   = database.list_pending_resources(limit=100_000, offset=0)
+    books_cnt  = sum(1 for r in all_rows if r["resource_type"] == "book")
+    arts_cnt   = sum(1 for r in all_rows if r["resource_type"] == "article")
+    no_file    = sum(1 for r in all_rows if not r["file_id"])
+    has_file   = sum(1 for r in all_rows if r["file_id"])
+    return {
+        "total":    len(all_rows),
+        "books":    books_cnt,
+        "articles": arts_cnt,
+        "no_file":  no_file,
+        "has_file": has_file,
+    }
+
+
+def _show_pending_overview(bot, chat_id: int, lang: str):
+    stats = _pending_overview_stats()
+    if stats["total"] == 0:
+        bot.send_message(chat_id, tr("pending_empty", lang), reply_markup=admin_keyboard(lang))
+        return
+    text = tr(
+        "pending_overview", lang,
+        total=stats["total"],
+        no_file=stats["no_file"],
+        has_file=stats["has_file"],
+        books=stats["books"],
+        articles=stats["articles"],
+    )
+    bot.send_message(chat_id, text, reply_markup=pending_overview_keyboard(lang))
+
+
+def _pending_list_page(bot, chat_id: int, lang: str, filter_key: str, page: int,
+                       edit_message_id: int | None = None):
+    """Fetch and display a paginated list of pending resources with select buttons."""
+    status_filter = ""
+    if filter_key == "nofile":
+        # We filter manually after fetching (no direct status filter for "no file")
+        rows_all = database.list_pending_resources(limit=100_000, offset=0)
+        rows_all = [r for r in rows_all if not r["file_id"]]
+    elif filter_key == "ready":
+        rows_all = database.list_pending_resources(status="file_received", limit=100_000, offset=0)
+    else:
+        rows_all = database.list_pending_resources(limit=100_000, offset=0)
+
+    total      = len(rows_all)
+    total_pages = max(1, (total + _PENDING_PAGE_SIZE - 1) // _PENDING_PAGE_SIZE)
+    page        = max(0, min(page, total_pages - 1))
+    offset      = page * _PENDING_PAGE_SIZE
+    page_rows   = rows_all[offset: offset + _PENDING_PAGE_SIZE]
+
+    filter_label = tr(f"pending_filter_{filter_key}", lang)
+    header = tr("pending_list_header", lang,
+                filter=filter_label, page=page + 1, total_pages=total_pages)
+
+    lines = [header]
+    markup = types.InlineKeyboardMarkup()
+
+    for r in page_rows:
+        pid    = r["id"]
+        rtype  = "📘" if r["resource_type"] == "book" else "📄"
+        fmark  = "✅" if r["file_id"] else "⏳"
+        title  = (r["title"] or "")[:30]
+        label  = f"{fmark} P{pid} {rtype} {title}"
+        lines.append(f"  {fmark} P{pid} — {r['title'][:40]} | {r['author'][:20]}")
+        markup.add(types.InlineKeyboardButton(label, callback_data=f"adm_pnd:detail:{pid}"))
+
+    # Pagination row
+    nav = []
+    if page > 0:
+        nav.append(types.InlineKeyboardButton("◀️", callback_data=f"adm_pnd:list:{filter_key}:{page - 1}"))
+    if page < total_pages - 1:
+        nav.append(types.InlineKeyboardButton("▶️", callback_data=f"adm_pnd:list:{filter_key}:{page + 1}"))
+    if nav:
+        markup.row(*nav)
+    markup.row(types.InlineKeyboardButton(tr("btn_pending_back", lang), callback_data="adm_pnd:overview"))
+
+    text = "\n".join(lines)
+    if edit_message_id:
+        try:
+            bot.edit_message_text(text, chat_id, edit_message_id, reply_markup=markup)
+            return
+        except Exception:
+            pass
+    bot.send_message(chat_id, text, reply_markup=markup)
+
+
+def _pending_detail_text(r, lang: str) -> str:
+    """Build the detail text block for a single pending resource row."""
+    pid   = r["id"]
+    rtype = "📘 کتاب" if lang == "fa" else "📕 Book"
+    if r["resource_type"] == "article":
+        rtype = "📄 مقاله" if lang == "fa" else "📄 Article"
+
+    field_fa, field_en = database.PHYSICS_FIELDS.get(
+        r["physics_field"], (r["physics_field"], r["physics_field"])
+    )
+    field = field_fa if lang == "fa" else field_en
+
+    lang_label = ("فارسی" if lang == "fa" else "Persian") if r["language"] == "fa" else ("انگلیسی" if lang == "fa" else "English")
+
+    year    = str(r["year"]) if r["year"] else ("-")
+    edition = r["edition"] or ""
+    edition_line = (f"🔖 {'ویرایش' if lang == 'fa' else 'Edition'}: {edition}\n") if edition else ""
+
+    # Article metadata
+    article_parts = []
+    if r["resource_type"] == "article":
+        if r.get("journal"):
+            article_parts.append(f"📰 {'مجله' if lang == 'fa' else 'Journal'}: {r['journal']}")
+        if r.get("doi"):
+            article_parts.append(f"🔗 DOI: {r['doi']}")
+        if r.get("volume"):
+            article_parts.append(f"🔢 {'جلد' if lang == 'fa' else 'Vol'}: {r['volume']}")
+        if r.get("issue"):
+            article_parts.append(f"🔢 {'شماره' if lang == 'fa' else 'Issue'}: {r['issue']}")
+        if r.get("pages"):
+            article_parts.append(f"📄 {'صفحات' if lang == 'fa' else 'Pages'}: {r['pages']}")
+    article_meta = ("\n".join(article_parts) + "\n") if article_parts else ""
+
+    desc      = (r["description"] or "").strip()
+    desc_line = (f"📝 {'توضیحات' if lang == 'fa' else 'Description'}: {desc[:200]}\n") if desc else ""
+
+    if r["file_id"]:
+        file_status = f"✅ {r['file_name'] or r['file_id']}"
+    else:
+        file_status = ("⏳ ندارد" if lang == "fa" else "⏳ None")
+
+    status_label = _pending_status_label(r["status"], lang)
+
+    return tr(
+        "pending_detail", lang,
+        pid=pid,
+        rtype=rtype,
+        title=r["title"],
+        author=r["author"],
+        year=year,
+        edition_line=edition_line,
+        field=field,
+        lang=lang_label,
+        article_meta=article_meta,
+        desc_line=desc_line,
+        file_status=file_status,
+        status=status_label,
+    )
+
+
+def _show_pending_detail(bot, chat_id: int, lang: str, pending_id: int):
+    """Fetch a pending resource and show its detail card with action buttons."""
+    row = database.get_pending_resource(pending_id)
+    if not row:
+        bot.send_message(chat_id, tr("pending_not_found", lang, pid=pending_id))
+        return
+    if row["status"] in ("published", "rejected"):
+        bot.send_message(
+            chat_id,
+            tr("pending_already_done", lang, status=_pending_status_label(row["status"], lang))
+        )
+        return
+
+    text = _pending_detail_text(row, lang)
+    has_file = bool(row["file_id"])
+    if has_file:
+        text += "\n\n" + tr("pending_has_file_warn", lang, fname=row["file_name"] or row["file_id"])
+
+    bot.send_message(chat_id, text, reply_markup=pending_detail_keyboard(lang, pending_id, has_file))
+
+
+# ── Phase 4: Publish helpers ───────────────────────────────────────────────────
+
+def _publish_confirm_text(r, lang: str) -> str:
+    """Build the publish-confirmation message text for a pending resource."""
+    rtype_label = ("📘 کتاب" if lang == "fa" else "📕 Book") if r["resource_type"] == "book" \
+                  else ("📄 مقاله" if lang == "fa" else "📄 Article")
+
+    field_fa, field_en = database.PHYSICS_FIELDS.get(
+        r["physics_field"], (r["physics_field"], r["physics_field"])
+    )
+    field = field_fa if lang == "fa" else field_en
+    lang_label = ("فارسی" if lang == "fa" else "Persian") if r["language"] == "fa" \
+                 else ("انگلیسی" if lang == "fa" else "English")
+
+    year_line    = (f"📅 {'سال' if lang == 'fa' else 'Year'}: {r['year']}\n") if r["year"] else ""
+    edition_line = (f"🔖 {'ویرایش' if lang == 'fa' else 'Edition'}: {r['edition']}\n") if r.get("edition") else ""
+
+    article_parts = []
+    if r["resource_type"] == "article":
+        if r.get("journal"):    article_parts.append(f"📰 Journal: {r['journal']}")
+        if r.get("doi"):        article_parts.append(f"🔗 DOI: {r['doi']}")
+        if r.get("volume"):     article_parts.append(f"🔢 Vol: {r['volume']}")
+        if r.get("issue"):      article_parts.append(f"🔢 Issue: {r['issue']}")
+        if r.get("pages"):      article_parts.append(f"📄 Pages: {r['pages']}")
+        if r.get("publication_date"): article_parts.append(f"📅 Date: {r['publication_date']}")
+    article_meta = ("\n".join(article_parts) + "\n") if article_parts else ""
+
+    fname = r["file_name"] or r["file_id"] or "?"
+
+    return tr(
+        "publish_confirm", lang,
+        pid=r["id"],
+        rtype=rtype_label,
+        title=r["title"],
+        author=r["author"],
+        field=field,
+        lang=lang_label,
+        year_line=year_line,
+        edition_line=edition_line,
+        article_meta=article_meta,
+        fname=fname,
+    )
+
+
+def _show_publish_confirm(bot, chat_id: int, lang: str, pending_id: int):
+    """Show the publish confirmation screen for a pending resource."""
+    row = database.get_pending_resource(pending_id)
+    if not row:
+        bot.send_message(chat_id, tr("pending_not_found", lang, pid=pending_id))
+        return
+
+    if row["status"] == "published":
+        bot.send_message(chat_id, tr("publish_already", lang))
+        return
+
+    if row["status"] != "file_received":
+        bot.send_message(
+            chat_id,
+            tr("publish_not_ready", lang, status=_pending_status_label(row["status"], lang))
+        )
+        return
+
+    if not row["file_id"]:
+        bot.send_message(
+            chat_id,
+            tr("publish_not_ready", lang, status=_pending_status_label(row["status"], lang))
+        )
+        return
+
+    # Duplicate detection before showing the confirmation
+    dups = database.find_library_duplicates(
+        resource_type=row["resource_type"],
+        title=row["title"],
+        author=row["author"],
+        doi=row.get("doi") or "",
+    )
+
+    if dups:
+        dup = dups[0]
+        bot.send_message(
+            chat_id,
+            tr(
+                "publish_dup_warning", lang,
+                dup_title=dup["title"],
+                dup_author=dup["author"] or "-",
+                dup_disp=_disp(dup),
+            ),
+            reply_markup=publish_dup_keyboard(lang, pending_id, dup["id"]),
+            parse_mode="HTML",
+        )
+        return
+
+    text = _publish_confirm_text(row, lang)
+    bot.send_message(
+        chat_id,
+        text,
+        reply_markup=publish_confirm_keyboard(lang, pending_id),
+    )
+
+
+def _do_publish(bot, chat_id: int, lang: str, pending_id: int, added_by: int, force: bool = False):
+    """Execute the actual publish: insert into Library, mark pending as published."""
+    # Final safety checks before publishing
+    row = database.get_pending_resource(pending_id)
+    if not row:
+        bot.send_message(chat_id, tr("pending_not_found", lang, pid=pending_id))
+        return
+
+    if row["status"] == "published":
+        bot.send_message(chat_id, tr("publish_already", lang))
+        return
+
+    if row["status"] != "file_received" or not row["file_id"]:
+        bot.send_message(
+            chat_id,
+            tr("publish_not_ready", lang, status=_pending_status_label(row["status"], lang))
+        )
+        return
+
+    # Duplicate check (skip if force=True, i.e. admin clicked "Publish Anyway")
+    if not force:
+        dups = database.find_library_duplicates(
+            resource_type=row["resource_type"],
+            title=row["title"],
+            author=row["author"],
+            doi=row.get("doi") or "",
+        )
+        if dups:
+            dup = dups[0]
+            bot.send_message(
+                chat_id,
+                tr(
+                    "publish_dup_warning", lang,
+                    dup_title=dup["title"],
+                    dup_author=dup["author"] or "-",
+                    dup_disp=_disp(dup),
+                ),
+                reply_markup=publish_dup_keyboard(lang, pending_id, dup["id"]),
+                parse_mode="HTML",
+            )
+            return
+
+    # Atomically publish
+    try:
+        new_id = database.publish_pending_resource(pending_id, added_by=added_by)
+    except ValueError as e:
+        bot.send_message(chat_id, tr("publish_error", lang, err=e), reply_markup=admin_keyboard(lang))
+        return
+    except Exception as e:
+        bot.send_message(chat_id, tr("publish_error", lang, err=e), reply_markup=admin_keyboard(lang))
+        return
+
+    # Fetch the newly created library resource to get its display ID
+    new_resource = database.get_resource(new_id)
+    disp = _disp(new_resource) if new_resource else f"#{new_id}"
+
+    bot.send_message(
+        chat_id,
+        tr("publish_success", lang, title=row["title"], disp=disp, pid=pending_id),
+        reply_markup=admin_keyboard(lang),
+        parse_mode="HTML",
+    )
+
 
 # more functions
 
