@@ -299,7 +299,7 @@ TEXTS = {
             r"_This bot provides a curated collection of physics books and research articles across multiple fields of physics\._" + "\n\n"
             r"🔍 *Search* \- Quickly find any book or article by title or keywords\." + "\n"
             r"📂 *Browse* \- Explore the library by category, popularity, or recently added resources\." + "\n"
-            "🌐 *Language* \u2014 switch interface language\n\n"
+            r"🌐 *Language* \- switch interface language\n\n"
             "For detailed instructions and additional information, open About → Help 👇"
         ),
     },

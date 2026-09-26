@@ -76,7 +76,7 @@ T = {
     "btn_edit":         {"fa": "✏️ ویرایش منبع",           "en": "✏️ Edit Resource"},
     "btn_list":         {"fa": "📋 لیست منابع",          "en": "📋 Resources List"},
     "btn_delete":       {"fa": "🗑 حذف منبع",              "en": "🗑 Delete Resource"},
-    "btn_stats":        {"fa": "📊 آمار ادمین",            "en": "📊 Admin Stats"},
+    "btn_stats":        {"fa": "📊 آمار کتابخانه",            "en": "📊 ‌ Library Stats"},
     "btn_admins":       {"fa": "👥 مدیریت ادمین‌ها",       "en": "👥 Manage Admins"},
     "btn_exit":         {"fa": "🔙 خروج از پنل ادمین",     "en": "🔙 Exit Admin Panel"},
     "btn_cancel":       {"fa": "❌ لغو عملیات",            "en": "❌ Cancel Operation"},
