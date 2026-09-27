@@ -316,7 +316,7 @@ T = {
             "📅 سال: {year}\n"
             "{edition_line}"
             "🌌 فیلد: {field}\n"
-            "🌐 زبان: {lang}\n"
+            "🌐 زبان: {book_lang}\n"
             "{article_meta}"
             "{desc_line}"
             "\n"
@@ -332,7 +332,7 @@ T = {
             "📅 Year: {year}\n"
             "{edition_line}"
             "🌌 Field: {field}\n"
-            "🌐 Language: {lang}\n"
+            "🌐 Language: {book_lang}\n"
             "{article_meta}"
             "{desc_line}"
             "\n"
@@ -2333,7 +2333,7 @@ def _pending_detail_text(r, lang: str) -> str:
         year=year,
         edition_line=edition_line,
         field=field,
-        lang=lang_label,
+        book_lang=lang_label,
         article_meta=article_meta,
         desc_line=desc_line,
         file_status=file_status,
