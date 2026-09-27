@@ -1913,8 +1913,8 @@ def _handle_pending_file_upload(bot, message, uid: int) -> None:
         bot.send_message(message.chat.id, tr("pending_stale", lang, pid=pid), reply_markup=admin_keyboard(lang))
         return
 
-    # Success — clear upload state but remember last pid for "Replace File" convenience
-    admin_sessions.pop(uid, None)
+    # Success — store last pid BEFORE clearing session so "Replace File" works
+    admin_sessions[uid] = {"step": "pending_file_done", "last_pid": pid}
 
     confirmation = tr(
         "pending_file_saved", lang,
@@ -1927,8 +1927,6 @@ def _handle_pending_file_upload(bot, message, uid: int) -> None:
         confirmation,
         reply_markup=pending_file_received_keyboard(lang, pending_id=pid),
     )
-    # Store last pid in a lightweight session for the "Replace File" button
-    admin_sessions[uid] = {"step": "pending_file_done", "last_pid": pid}
 
 
 # ── CSV Import helpers (Phase 2) ───────────────────────────────────────────────

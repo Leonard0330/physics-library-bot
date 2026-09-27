@@ -1326,6 +1326,104 @@ def update_pending_status(pending_id: int, status: str) -> bool:
         return cur.rowcount > 0
 
 
+def find_library_duplicates(
+    resource_type: str,
+    title: str,
+    author: str,
+    doi: str = "",
+) -> list:
+    """Search the main library (books table) for possible duplicates.
+
+    A duplicate is detected when:
+      - DOI matches exactly (if doi is non-empty), OR
+      - title AND author are similar (case-insensitive substring match on
+        first 40 chars of each field — enough to catch minor spelling diffs).
+
+    Returns a list of matching sqlite3.Row objects (usually 0 or 1 item).
+    """
+    conditions: list[str] = []
+    params: list = []
+
+    if doi:
+        conditions.append("(doi = ? AND doi != '')")
+        params.append(doi)
+
+    title_prefix  = title[:40].lower()
+    author_prefix = author[:40].lower()
+    conditions.append(
+        "(LOWER(SUBSTR(title, 1, 40)) = ? AND LOWER(SUBSTR(author, 1, 40)) = ?)"
+    )
+    params += [title_prefix, author_prefix]
+
+    where = "WHERE resource_type = ? AND (" + " OR ".join(conditions) + ")"
+    all_params = [resource_type] + params
+
+    with get_connection() as conn:
+        return conn.execute(
+            f"SELECT * FROM books {where} LIMIT 5",
+            all_params,
+        ).fetchall()
+
+
+def publish_pending_resource(pending_id: int, added_by: Optional[int] = None) -> int:
+    """Atomically publish a pending resource into the main library.
+
+    Steps:
+      1. Fetch and validate the pending row (must be status='file_received'
+         and have a non-empty file_id).
+      2. Insert into the books table via add_resource() so that field_number
+         is assigned correctly.
+      3. Mark the pending row as 'published'.
+
+    Returns the new library resource id (books.id).
+    Raises ValueError if the resource is not ready to publish or not found.
+    Raises RuntimeError on unexpected database errors.
+    """
+    row = get_pending_resource(pending_id)
+    if not row:
+        raise ValueError(f"منبع در انتظار با شناسه {pending_id} پیدا نشد.")
+
+    if row["status"] == "published":
+        raise ValueError("این منبع قبلاً منتشر شده است.")
+
+    if row["status"] != "file_received":
+        raise ValueError(
+            f"منبع هنوز آماده انتشار نیست (وضعیت: {row['status']})."
+        )
+
+    if not row["file_id"]:
+        raise ValueError("فایل منبع هنوز آپلود نشده است.")
+
+    # Insert into the main library using the existing add_resource() path
+    # so that field_number is assigned atomically.
+    new_id = add_resource(
+        title            = row["title"],
+        author           = row["author"],
+        language         = row["language"],
+        physics_field    = row["physics_field"],
+        resource_type    = row["resource_type"],
+        file_id          = row["file_id"],
+        file_name        = row["file_name"] or "",
+        file_size        = row["file_size"] or 0,
+        description      = row["description"] or "",
+        edition          = row["edition"] or "",
+        year             = row["year"],
+        added_by         = added_by,
+        doi              = row["doi"] or "",
+        journal          = row["journal"] or "",
+        volume           = row["volume"] or "",
+        issue            = row["issue"] or "",
+        pages            = row["pages"] or "",
+        url              = row["url"] or "",
+        publication_date = row["publication_date"] or "",
+    )
+
+    # Mark the pending row as published so it cannot be published twice.
+    update_pending_status(pending_id, "published")
+
+    return new_id
+
+
 # TEST
 if __name__ == "__main__":
     import tempfile, os as _os
