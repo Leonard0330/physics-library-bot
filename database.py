@@ -978,15 +978,21 @@ def get_library_stats() -> dict:
         total_dl       = conn.execute("SELECT COALESCE(SUM(download_count),0) FROM books").fetchone()[0]
         unique_fields  = conn.execute("SELECT COUNT(DISTINCT physics_field) FROM books").fetchone()[0]
         total_users    = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
-        pending_total      = conn.execute(
-            "SELECT COUNT(*) FROM pending_resources WHERE status NOT IN ('published', 'rejected')"
-        ).fetchone()[0]
-        pending_awaiting_file = conn.execute(
-            "SELECT COUNT(*) FROM pending_resources WHERE status = 'pending'"
-        ).fetchone()[0]
-        pending_file_received = conn.execute(
-            "SELECT COUNT(*) FROM pending_resources WHERE status = 'file_received'"
-        ).fetchone()[0]
+        has_pending_table = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='pending_resources'"
+        ).fetchone()
+        if has_pending_table:
+            pending_total = conn.execute(
+                "SELECT COUNT(*) FROM pending_resources WHERE status NOT IN ('published', 'rejected')"
+            ).fetchone()[0]
+            pending_awaiting_file = conn.execute(
+                "SELECT COUNT(*) FROM pending_resources WHERE status = 'pending'"
+            ).fetchone()[0]
+            pending_file_received = conn.execute(
+                "SELECT COUNT(*) FROM pending_resources WHERE status = 'file_received'"
+            ).fetchone()[0]
+        else:
+            pending_total = pending_awaiting_file = pending_file_received = 0
     return {
         "total_books":            total_books,
         "total_articles":         total_articles,

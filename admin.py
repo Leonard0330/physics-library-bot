@@ -905,7 +905,7 @@ def handle_backup_command(bot, message: types.Message):
 # Restore helpers
 
 def _validate_restore_db(path: str) -> bool:
-    required_tables = {"books", "users", "download_logs", "pending_resources"}
+    required_tables = {"books", "users", "download_logs"}
     try:
         conn = sqlite3.connect(path)
         tables = {row[0] for row in conn.execute(
@@ -927,6 +927,9 @@ def _do_restore(bot, initiator_uid: int, tmp_db_path: str, emergency_path: str):
             src.backup(dst)
         src.close()
         dst.close()
+        # اجرای migration تا جداول جدید (مثل pending_resources) ساخته بشن
+        database._migrate_db()
+        database._load_field_caches()
         bot.send_message(initiator_uid, tr("restore_ok", lang))
         try:
             os.unlink(tmp_db_path)
