@@ -1721,50 +1721,83 @@ def handle_admin_callback(bot, callback: types.CallbackQuery) -> bool:
 
     # ── Phase 3: Pending Resources callbacks ──────────────────────────────────
     if data.startswith("adm_pnd:"):
-        bot.answer_callback_query(callback.id)
-        parts = data.split(":")   # ["adm_pnd", action, ...]
+        try:
+            bot.answer_callback_query(callback.id)
+        except Exception:
+            pass
 
-        action = parts[1] if len(parts) > 1 else ""
+        try:
+            parts = data.split(":")   # ["adm_pnd", action, ...]
+            action = parts[1] if len(parts) > 1 else ""
 
-        # Overview screen
-        if action == "overview":
-            admin_sessions.pop(uid, None)
-            _show_pending_overview(bot, callback.message.chat.id, lang)
-            return True
-
-        # Paginated list: adm_pnd:list:<filter>:<page>
-        if action == "list":
-            filter_key = parts[2] if len(parts) > 2 else "all"
-            page       = int(parts[3]) if len(parts) > 3 and parts[3].isdigit() else 0
-            _pending_list_page(
-                bot, callback.message.chat.id, lang, filter_key, page,
-                edit_message_id=callback.message.message_id,
-            )
-            return True
-
-        # Show detail for a specific pending resource: adm_pnd:detail:<pid>
-        if action == "detail":
-            if len(parts) > 2 and parts[2].isdigit():
+            # Overview screen
+            if action == "overview":
                 admin_sessions.pop(uid, None)
-                _show_pending_detail(bot, callback.message.chat.id, lang, int(parts[2]))
-            return True
+                _show_pending_overview(bot, callback.message.chat.id, lang)
+                return True
 
-        # Enter ID manually
-        if action == "enter_id":
-            admin_sessions[uid] = {"step": "wait_pending_id"}
-            bot.send_message(
-                callback.message.chat.id,
-                tr("pending_ask_id", lang),
-                reply_markup=cancel_keyboard(lang),
-            )
-            return True
+            # Paginated list: adm_pnd:list:<filter>:<page>
+            if action == "list":
+                filter_key = parts[2] if len(parts) > 2 else "all"
+                page       = int(parts[3]) if len(parts) > 3 and parts[3].isdigit() else 0
+                _pending_list_page(
+                    bot, callback.message.chat.id, lang, filter_key, page,
+                    edit_message_id=callback.message.message_id,
+                )
+                return True
 
-        # Initiate file send for a pending resource: adm_pnd:send_file:<pid>
-        if action == "send_file":
-            if len(parts) > 2 and parts[2].isdigit():
-                pid = int(parts[2])
+            # Show detail for a specific pending resource: adm_pnd:detail:<pid>
+            if action == "detail":
+                if len(parts) > 2 and parts[2].isdigit():
+                    admin_sessions.pop(uid, None)
+                    _show_pending_detail(bot, callback.message.chat.id, lang, int(parts[2]))
+                else:
+                    bot.send_message(
+                        callback.message.chat.id,
+                        tr("pending_not_found", lang, pid="?"),
+                    )
+                return True
+
+            # Enter ID manually
+            if action == "enter_id":
+                admin_sessions[uid] = {"step": "wait_pending_id"}
+                bot.send_message(
+                    callback.message.chat.id,
+                    tr("pending_ask_id", lang),
+                    reply_markup=cancel_keyboard(lang),
+                )
+                return True
+
+            # Initiate file send for a pending resource: adm_pnd:send_file:<pid>
+            if action == "send_file":
+                if len(parts) > 2 and parts[2].isdigit():
+                    pid = int(parts[2])
+                    row = database.get_pending_resource(pid)
+                    if not row or row["status"] in ("published", "rejected"):
+                        bot.send_message(
+                            callback.message.chat.id,
+                            tr("pending_stale", lang, pid=pid),
+                            reply_markup=admin_keyboard(lang),
+                        )
+                        return True
+                    admin_sessions[uid] = {"step": "wait_pending_file", "pending_id": pid}
+                    bot.send_message(
+                        callback.message.chat.id,
+                        tr("pending_ask_file", lang),
+                        reply_markup=cancel_keyboard(lang),
+                    )
+                return True
+
+            # Replace file after successful upload (same resource, re-enter wait state)
+            if action == "replace_same":
+                sess = admin_sessions.get(uid, {})
+                pid  = sess.get("last_pid")
+                if not pid:
+                    _show_pending_overview(bot, callback.message.chat.id, lang)
+                    return True
                 row = database.get_pending_resource(pid)
                 if not row or row["status"] in ("published", "rejected"):
+                    admin_sessions.pop(uid, None)
                     bot.send_message(
                         callback.message.chat.id,
                         tr("pending_stale", lang, pid=pid),
@@ -1777,70 +1810,60 @@ def handle_admin_callback(bot, callback: types.CallbackQuery) -> bool:
                     tr("pending_ask_file", lang),
                     reply_markup=cancel_keyboard(lang),
                 )
-            return True
-
-        # Replace file after successful upload (same resource, re-enter wait state)
-        if action == "replace_same":
-            sess = admin_sessions.get(uid, {})
-            pid  = sess.get("last_pid")
-            if not pid:
-                _show_pending_overview(bot, callback.message.chat.id, lang)
                 return True
-            row = database.get_pending_resource(pid)
-            if not row or row["status"] in ("published", "rejected"):
-                admin_sessions.pop(uid, None)
+
+            # ── Phase 4: Show publish confirmation ────────────────────────────────
+            # adm_pnd:publish:<pid>
+            if action == "publish":
+                if len(parts) > 2 and parts[2].isdigit():
+                    pid = int(parts[2])
+                    _show_publish_confirm(bot, callback.message.chat.id, lang, pid)
+                return True
+
+            # ── Phase 4: Execute publish (optionally forced past dup warning) ─────
+            # adm_pnd:do_publish:<pid>        — normal publish
+            # adm_pnd:do_publish:<pid>:force  — publish despite duplicate warning
+            if action == "do_publish":
+                if len(parts) > 2 and parts[2].isdigit():
+                    pid   = int(parts[2])
+                    force = len(parts) > 3 and parts[3] == "force"
+                    _do_publish(bot, callback.message.chat.id, lang, pid, uid, force=force)
+                return True
+
+            # ── Phase 4: View an existing library resource (from dup warning) ─────
+            # adm_pnd:view_lib:<lib_id>
+            if action == "view_lib":
+                if len(parts) > 2 and parts[2].isdigit():
+                    lib_id = int(parts[2])
+                    resource = database.get_resource(lib_id)
+                    if resource:
+                        bot.send_message(
+                            callback.message.chat.id,
+                            _book_summary_text(resource, lang),
+                            parse_mode="HTML",
+                        )
+                    else:
+                        bot.send_message(
+                            callback.message.chat.id,
+                            tr("resource_not_found", lang, id=lib_id),
+                        )
+                return True
+
+            return True   # unknown adm_pnd sub-action — swallow gracefully
+
+        except Exception as _pnd_exc:
+            import logging
+            logging.exception("adm_pnd callback error (data=%r uid=%s): %s", data, uid, _pnd_exc)
+            try:
                 bot.send_message(
                     callback.message.chat.id,
-                    tr("pending_stale", lang, pid=pid),
+                    f"⚠️ خطای داخلی در پردازش درخواست.\n<code>{type(_pnd_exc).__name__}: {_pnd_exc}</code>",
+                    parse_mode="HTML",
                     reply_markup=admin_keyboard(lang),
                 )
-                return True
-            admin_sessions[uid] = {"step": "wait_pending_file", "pending_id": pid}
-            bot.send_message(
-                callback.message.chat.id,
-                tr("pending_ask_file", lang),
-                reply_markup=cancel_keyboard(lang),
-            )
+            except Exception:
+                pass
             return True
-
-        # ── Phase 4: Show publish confirmation ────────────────────────────────
-        # adm_pnd:publish:<pid>
-        if action == "publish":
-            if len(parts) > 2 and parts[2].isdigit():
-                pid = int(parts[2])
-                _show_publish_confirm(bot, callback.message.chat.id, lang, pid)
-            return True
-
-        # ── Phase 4: Execute publish (optionally forced past dup warning) ─────
-        # adm_pnd:do_publish:<pid>        — normal publish
-        # adm_pnd:do_publish:<pid>:force  — publish despite duplicate warning
-        if action == "do_publish":
-            if len(parts) > 2 and parts[2].isdigit():
-                pid   = int(parts[2])
-                force = len(parts) > 3 and parts[3] == "force"
-                _do_publish(bot, callback.message.chat.id, lang, pid, uid, force=force)
-            return True
-
-        # ── Phase 4: View an existing library resource (from dup warning) ─────
-        # adm_pnd:view_lib:<lib_id>
-        if action == "view_lib":
-            if len(parts) > 2 and parts[2].isdigit():
-                lib_id = int(parts[2])
-                resource = database.get_resource(lib_id)
-                if resource:
-                    bot.send_message(
-                        callback.message.chat.id,
-                        _book_summary_text(resource, lang),
-                        parse_mode="HTML",
-                    )
-                else:
-                    bot.send_message(
-                        callback.message.chat.id,
-                        tr("resource_not_found", lang, id=lib_id),
-                    )
-            return True
-
-        return True   # unknown adm_pnd sub-action — swallow gracefully
 
     if data.startswith("adm_csv_import:"):
         if uid not in admin_sessions or admin_sessions[uid].get("step") != "wait_csv_confirm":
@@ -2199,39 +2222,17 @@ def _show_pending_overview(bot, chat_id: int, lang: str):
 def _pending_list_page(bot, chat_id: int, lang: str, filter_key: str, page: int,
                        edit_message_id: int | None = None):
     """Fetch and display a paginated list of pending resources with select buttons."""
+    status_filter = ""
     if filter_key == "nofile":
-        # فقط منابعی که status=pending و هنوز فایل ندارن
-        rows_all = database.list_pending_resources(status="pending", limit=100_000, offset=0)
+        # We filter manually after fetching (no direct status filter for "no file")
+        rows_all = database.list_pending_resources(limit=100_000, offset=0)
         rows_all = [r for r in rows_all if not r["file_id"]]
     elif filter_key == "ready":
         rows_all = database.list_pending_resources(status="file_received", limit=100_000, offset=0)
     else:
-        # "all" — فقط pending و file_received (published/rejected حذف می‌شن)
-        pending_rows   = database.list_pending_resources(status="pending",       limit=100_000, offset=0)
-        file_recv_rows = database.list_pending_resources(status="file_received", limit=100_000, offset=0)
-        rows_all = pending_rows + file_recv_rows
-        # مرتب‌سازی بر اساس id نزولی (تازه‌ترین اول)
-        rows_all = sorted(rows_all, key=lambda r: r["id"], reverse=True)
+        rows_all = database.list_pending_resources(limit=100_000, offset=0)
 
     total      = len(rows_all)
-
-    # اگه نتیجه‌ای نبود
-    if total == 0:
-        empty_msg = tr("pending_empty", lang)
-        if edit_message_id:
-            try:
-                bot.edit_message_text(
-                    empty_msg, chat_id, edit_message_id,
-                    reply_markup=types.InlineKeyboardMarkup().row(
-                        types.InlineKeyboardButton(tr("btn_pending_back", lang), callback_data="adm_pnd:overview")
-                    ),
-                )
-                return
-            except Exception:
-                pass
-        bot.send_message(chat_id, empty_msg, reply_markup=admin_keyboard(lang))
-        return
-
     total_pages = max(1, (total + _PENDING_PAGE_SIZE - 1) // _PENDING_PAGE_SIZE)
     page        = max(0, min(page, total_pages - 1))
     offset      = page * _PENDING_PAGE_SIZE
@@ -2266,17 +2267,10 @@ def _pending_list_page(bot, chat_id: int, lang: str, filter_key: str, page: int,
     text = "\n".join(lines)
     if edit_message_id:
         try:
-            bot.edit_message_text(
-                text, chat_id, edit_message_id,
-                reply_markup=markup,
-            )
+            bot.edit_message_text(text, chat_id, edit_message_id, reply_markup=markup)
             return
         except Exception:
-            # اگه پیام تغییری نکرده باشه یا هر خطای دیگه‌ای، پیام جدید می‌فرستیم
-            try:
-                bot.delete_message(chat_id, edit_message_id)
-            except Exception:
-                pass
+            pass
     bot.send_message(chat_id, text, reply_markup=markup)
 
 
@@ -2299,18 +2293,25 @@ def _pending_detail_text(r, lang: str) -> str:
     edition_line = (f"🔖 {'ویرایش' if lang == 'fa' else 'Edition'}: {edition}\n") if edition else ""
 
     # Article metadata
+    def _rget(key):
+        try:
+            v = r[key]
+            return v if v is not None else ""
+        except (KeyError, IndexError):
+            return ""
+
     article_parts = []
     if r["resource_type"] == "article":
-        if r.get("journal"):
-            article_parts.append(f"📰 {'مجله' if lang == 'fa' else 'Journal'}: {r['journal']}")
-        if r.get("doi"):
-            article_parts.append(f"🔗 DOI: {r['doi']}")
-        if r.get("volume"):
-            article_parts.append(f"🔢 {'جلد' if lang == 'fa' else 'Vol'}: {r['volume']}")
-        if r.get("issue"):
-            article_parts.append(f"🔢 {'شماره' if lang == 'fa' else 'Issue'}: {r['issue']}")
-        if r.get("pages"):
-            article_parts.append(f"📄 {'صفحات' if lang == 'fa' else 'Pages'}: {r['pages']}")
+        if _rget("journal"):
+            article_parts.append(f"📰 {'مجله' if lang == 'fa' else 'Journal'}: {_rget('journal')}")
+        if _rget("doi"):
+            article_parts.append(f"🔗 DOI: {_rget('doi')}")
+        if _rget("volume"):
+            article_parts.append(f"🔢 {'جلد' if lang == 'fa' else 'Vol'}: {_rget('volume')}")
+        if _rget("issue"):
+            article_parts.append(f"🔢 {'شماره' if lang == 'fa' else 'Issue'}: {_rget('issue')}")
+        if _rget("pages"):
+            article_parts.append(f"📄 {'صفحات' if lang == 'fa' else 'Pages'}: {_rget('pages')}")
     article_meta = ("\n".join(article_parts) + "\n") if article_parts else ""
 
     desc      = (r["description"] or "").strip()
@@ -2375,17 +2376,24 @@ def _publish_confirm_text(r, lang: str) -> str:
     lang_label = ("فارسی" if lang == "fa" else "Persian") if r["language"] == "fa" \
                  else ("انگلیسی" if lang == "fa" else "English")
 
+    def _pg(key):
+        try:
+            v = r[key]
+            return v if v is not None else ""
+        except (KeyError, IndexError):
+            return ""
+
     year_line    = (f"📅 {'سال' if lang == 'fa' else 'Year'}: {r['year']}\n") if r["year"] else ""
-    edition_line = (f"🔖 {'ویرایش' if lang == 'fa' else 'Edition'}: {r['edition']}\n") if r.get("edition") else ""
+    edition_line = (f"🔖 {'ویرایش' if lang == 'fa' else 'Edition'}: {r['edition']}\n") if _pg("edition") else ""
 
     article_parts = []
     if r["resource_type"] == "article":
-        if r.get("journal"):    article_parts.append(f"📰 Journal: {r['journal']}")
-        if r.get("doi"):        article_parts.append(f"🔗 DOI: {r['doi']}")
-        if r.get("volume"):     article_parts.append(f"🔢 Vol: {r['volume']}")
-        if r.get("issue"):      article_parts.append(f"🔢 Issue: {r['issue']}")
-        if r.get("pages"):      article_parts.append(f"📄 Pages: {r['pages']}")
-        if r.get("publication_date"): article_parts.append(f"📅 Date: {r['publication_date']}")
+        if _pg("journal"):          article_parts.append(f"📰 Journal: {_pg('journal')}")
+        if _pg("doi"):              article_parts.append(f"🔗 DOI: {_pg('doi')}")
+        if _pg("volume"):           article_parts.append(f"🔢 Vol: {_pg('volume')}")
+        if _pg("issue"):            article_parts.append(f"🔢 Issue: {_pg('issue')}")
+        if _pg("pages"):            article_parts.append(f"📄 Pages: {_pg('pages')}")
+        if _pg("publication_date"): article_parts.append(f"📅 Date: {_pg('publication_date')}")
     article_meta = ("\n".join(article_parts) + "\n") if article_parts else ""
 
     fname = r["file_name"] or r["file_id"] or "?"
@@ -2431,11 +2439,16 @@ def _show_publish_confirm(bot, chat_id: int, lang: str, pending_id: int):
         return
 
     # Duplicate detection before showing the confirmation
+    _doi = ""
+    try:
+        _doi = row["doi"] or ""
+    except (KeyError, IndexError):
+        pass
     dups = database.find_library_duplicates(
         resource_type=row["resource_type"],
         title=row["title"],
         author=row["author"],
-        doi=row.get("doi") or "",
+        doi=_doi,
     )
 
     if dups:
@@ -2482,11 +2495,16 @@ def _do_publish(bot, chat_id: int, lang: str, pending_id: int, added_by: int, fo
 
     # Duplicate check (skip if force=True, i.e. admin clicked "Publish Anyway")
     if not force:
+        _doi2 = ""
+        try:
+            _doi2 = row["doi"] or ""
+        except (KeyError, IndexError):
+            pass
         dups = database.find_library_duplicates(
             resource_type=row["resource_type"],
             title=row["title"],
             author=row["author"],
-            doi=row.get("doi") or "",
+            doi=_doi2,
         )
         if dups:
             dup = dups[0]
