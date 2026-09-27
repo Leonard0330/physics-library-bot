@@ -76,7 +76,7 @@ T = {
     "btn_edit":         {"fa": "✏️ ویرایش منبع",           "en": "✏️ Edit Resource"},
     "btn_list":         {"fa": "📋 لیست منابع",          "en": "📋 Resources List"},
     "btn_delete":       {"fa": "🗑 حذف منبع",              "en": "🗑 Delete Resource"},
-    "btn_stats":        {"fa": "📊 آمار کتابخانه",            "en": "📊 ‌ Library Stats"},
+    "btn_stats":        {"fa": "📊 آمار کتابخانه",            "en": "📊 Library Stats"},
     "btn_admins":       {"fa": "👥 مدیریت ادمین‌ها",       "en": "👥 Manage Admins"},
     "btn_exit":         {"fa": "🔙 خروج از پنل ادمین",     "en": "🔙 Exit Admin Panel"},
     "btn_cancel":       {"fa": "❌ لغو عملیات",            "en": "❌ Cancel Operation"},
@@ -905,7 +905,7 @@ def handle_backup_command(bot, message: types.Message):
 # Restore helpers
 
 def _validate_restore_db(path: str) -> bool:
-    required_tables = {"books", "users", "download_logs"}
+    required_tables = {"books", "users", "download_logs", "pending_resources"}
     try:
         conn = sqlite3.connect(path)
         tables = {row[0] for row in conn.execute(
@@ -2158,18 +2158,22 @@ def _pending_status_label(status: str, lang: str) -> str:
 
 
 def _pending_overview_stats() -> dict:
-    """Return aggregate counts needed for the overview screen."""
-    all_rows   = database.list_pending_resources(limit=100_000, offset=0)
+    """Return aggregate counts needed for the overview screen.
+
+    Only counts resources with status 'pending' or 'file_received'.
+    Published and rejected rows are excluded so the counter stays meaningful.
+    """
+    pending_rows   = database.list_pending_resources(status="pending",       limit=100_000, offset=0)
+    file_recv_rows = database.list_pending_resources(status="file_received", limit=100_000, offset=0)
+    all_rows       = pending_rows + file_recv_rows
     books_cnt  = sum(1 for r in all_rows if r["resource_type"] == "book")
     arts_cnt   = sum(1 for r in all_rows if r["resource_type"] == "article")
-    no_file    = sum(1 for r in all_rows if not r["file_id"])
-    has_file   = sum(1 for r in all_rows if r["file_id"])
     return {
         "total":    len(all_rows),
         "books":    books_cnt,
         "articles": arts_cnt,
-        "no_file":  no_file,
-        "has_file": has_file,
+        "no_file":  len(pending_rows),
+        "has_file": len(file_recv_rows),
     }
 
 
@@ -2488,6 +2492,10 @@ def _do_publish(bot, chat_id: int, lang: str, pending_id: int, added_by: int, fo
         parse_mode="HTML",
     )
 
+    # Notify subscribers — same as the direct-add flow
+    if _notify_callback:
+        _notify_callback(bot, row["physics_field"], row["title"], new_id, row["resource_type"])
+
 
 # more functions
 
@@ -2605,26 +2613,38 @@ def _show_stats(bot, message: types.Message, lang: str):
     s = database.get_library_stats()
     header = tr("stats_header", lang)
     if lang == "fa":
+        pending_line = (
+            f"\n⏳ در انتظار انتشار: {s['pending_total']}"
+            + (f"\n  • منتظر فایل: {s['pending_awaiting_file']}" if s['pending_awaiting_file'] else "")
+            + (f"\n  • فایل دریافت شده: {s['pending_file_received']}" if s['pending_file_received'] else "")
+            if s['pending_total'] else "\n✅ هیچ منبع در انتظاری وجود ندارد"
+        )
         text = (
             f"{header}\n\n"
             f"📚 کتاب‌ها: {s['total_books']}\n"
             f"📄 مقالات: {s['total_articles']}\n"
-            f"فارسی: {s['fa_books']}\n"
-            f"انگلیسی: {s['en_books']}\n"
+            f"🌐 فارسی: {s['fa_books']} | انگلیسی: {s['en_books']}\n"
             f"⬇️ کل دانلودها: {s['total_downloads']}\n"
             f"🌌 فیلدهای فعال: {s['unique_fields']}\n"
             f"👥 کل کاربران: {s['total_users']}"
+            f"{pending_line}"
         )
     else:
+        pending_line = (
+            f"\n⏳ Pending: {s['pending_total']}"
+            + (f"\n  • Awaiting file: {s['pending_awaiting_file']}" if s['pending_awaiting_file'] else "")
+            + (f"\n  • File received: {s['pending_file_received']}" if s['pending_file_received'] else "")
+            if s['pending_total'] else "\n✅ No pending resources"
+        )
         text = (
             f"{header}\n\n"
             f"📚 Books: {s['total_books']}\n"
             f"📄 Articles: {s['total_articles']}\n"
-            f"Persian: {s['fa_books']}\n"
-            f"English: {s['en_books']}\n"
+            f"🌐 Persian: {s['fa_books']} | English: {s['en_books']}\n"
             f"⬇️ Total Downloads: {s['total_downloads']}\n"
             f"🌌 Active Fields: {s['unique_fields']}\n"
             f"👥 Total Users: {s['total_users']}"
+            f"{pending_line}"
         )
     bot.send_message(message.chat.id, text, reply_markup=admin_keyboard(lang))
 
