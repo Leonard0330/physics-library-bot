@@ -1116,7 +1116,15 @@ def forward_handler(message: types.Message):
 # admin callback
 @bot.callback_query_handler(func=lambda c: c.data.startswith("adm_"))
 def admin_callback(callback: types.CallbackQuery):
-    admin.handle_admin_callback(bot, callback)
+    try:
+        admin.handle_admin_callback(bot, callback)
+    except Exception as exc:
+        import logging
+        logging.exception("admin_callback error (data=%s): %s", callback.data, exc)
+        try:
+            bot.answer_callback_query(callback.id, "⚠️ خطای داخلی رخ داد. دوباره امتحان کن.", show_alert=True)
+        except Exception:
+            pass
 
 @bot.message_handler(content_types=["text"])
 def text_handler(message: types.Message):

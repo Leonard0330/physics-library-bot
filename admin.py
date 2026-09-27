@@ -2199,17 +2199,39 @@ def _show_pending_overview(bot, chat_id: int, lang: str):
 def _pending_list_page(bot, chat_id: int, lang: str, filter_key: str, page: int,
                        edit_message_id: int | None = None):
     """Fetch and display a paginated list of pending resources with select buttons."""
-    status_filter = ""
     if filter_key == "nofile":
-        # We filter manually after fetching (no direct status filter for "no file")
-        rows_all = database.list_pending_resources(limit=100_000, offset=0)
+        # فقط منابعی که status=pending و هنوز فایل ندارن
+        rows_all = database.list_pending_resources(status="pending", limit=100_000, offset=0)
         rows_all = [r for r in rows_all if not r["file_id"]]
     elif filter_key == "ready":
         rows_all = database.list_pending_resources(status="file_received", limit=100_000, offset=0)
     else:
-        rows_all = database.list_pending_resources(limit=100_000, offset=0)
+        # "all" — فقط pending و file_received (published/rejected حذف می‌شن)
+        pending_rows   = database.list_pending_resources(status="pending",       limit=100_000, offset=0)
+        file_recv_rows = database.list_pending_resources(status="file_received", limit=100_000, offset=0)
+        rows_all = pending_rows + file_recv_rows
+        # مرتب‌سازی بر اساس id نزولی (تازه‌ترین اول)
+        rows_all = sorted(rows_all, key=lambda r: r["id"], reverse=True)
 
     total      = len(rows_all)
+
+    # اگه نتیجه‌ای نبود
+    if total == 0:
+        empty_msg = tr("pending_empty", lang)
+        if edit_message_id:
+            try:
+                bot.edit_message_text(
+                    empty_msg, chat_id, edit_message_id,
+                    reply_markup=types.InlineKeyboardMarkup().row(
+                        types.InlineKeyboardButton(tr("btn_pending_back", lang), callback_data="adm_pnd:overview")
+                    ),
+                )
+                return
+            except Exception:
+                pass
+        bot.send_message(chat_id, empty_msg, reply_markup=admin_keyboard(lang))
+        return
+
     total_pages = max(1, (total + _PENDING_PAGE_SIZE - 1) // _PENDING_PAGE_SIZE)
     page        = max(0, min(page, total_pages - 1))
     offset      = page * _PENDING_PAGE_SIZE
@@ -2244,10 +2266,17 @@ def _pending_list_page(bot, chat_id: int, lang: str, filter_key: str, page: int,
     text = "\n".join(lines)
     if edit_message_id:
         try:
-            bot.edit_message_text(text, chat_id, edit_message_id, reply_markup=markup)
+            bot.edit_message_text(
+                text, chat_id, edit_message_id,
+                reply_markup=markup,
+            )
             return
         except Exception:
-            pass
+            # اگه پیام تغییری نکرده باشه یا هر خطای دیگه‌ای، پیام جدید می‌فرستیم
+            try:
+                bot.delete_message(chat_id, edit_message_id)
+            except Exception:
+                pass
     bot.send_message(chat_id, text, reply_markup=markup)
 
 
