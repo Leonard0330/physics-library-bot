@@ -386,7 +386,7 @@ T = {
             "📘 عنوان: {title}\n"
             "✍ نویسنده: {author}\n"
             "🌌 فیلد: {field}\n"
-            "🌐 زبان: {lang}\n"
+            "🌐 زبان: {book_lang}\n"
             "{year_line}"
             "{edition_line}"
             "{article_meta}"
@@ -400,7 +400,7 @@ T = {
             "📕 Title: {title}\n"
             "✍ Author: {author}\n"
             "🌌 Field: {field}\n"
-            "🌐 Language: {lang}\n"
+            "🌐 Language: {book_lang}\n"
             "{year_line}"
             "{edition_line}"
             "{article_meta}"
@@ -2405,7 +2405,7 @@ def _publish_confirm_text(r, lang: str) -> str:
         title=r["title"],
         author=r["author"],
         field=field,
-        lang=lang_label,
+        book_lang=lang_label,
         year_line=year_line,
         edition_line=edition_line,
         article_meta=article_meta,
