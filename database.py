@@ -372,6 +372,13 @@ def _migrate_db() -> None:
             conn.commit()
             print("[DB] Migration applied: pending_resources table created.")
 
+        # ── Migration 2: keywords column on books ─────────────────────────────
+        book_cols_m = {r["name"] for r in conn.execute("PRAGMA table_info(books)")}
+        if "keywords" not in book_cols_m:
+            conn.execute("ALTER TABLE books ADD COLUMN keywords TEXT NOT NULL DEFAULT ''")
+            conn.commit()
+            print("[DB] Migration applied: books.keywords column added.")
+
         # ── Future migrations go here ──────────────────────────────────────────
         # Example pattern:
         #   pending_cols = {r["name"] for r in conn.execute("PRAGMA table_info(pending_resources)")}
@@ -412,6 +419,8 @@ def add_resource(
     if resource_type not in ("book", "article"):
         raise ValueError("resource_type باید 'book' یا 'article' باشد")
 
+    keywords = generate_keywords(physics_field, title, description, language)
+
     with get_connection() as conn:
         row = conn.execute(
             "SELECT COALESCE(MAX(field_number), 0) AS mx FROM books "
@@ -426,14 +435,16 @@ def add_resource(
                  description, edition, year,
                  file_id, file_name, file_size,
                  cover_file_id, added_by, field_number, resource_type,
-                 doi, journal, volume, issue, pages, url, publication_date)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                 doi, journal, volume, issue, pages, url, publication_date,
+                 keywords)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """, (
             title, author, language, physics_field,
             description, edition, year,
             file_id, file_name, file_size,
             cover_file_id, added_by, next_number, resource_type,
             doi, journal, volume, issue, pages, url, publication_date,
+            keywords,
         ))
         conn.commit()
         return cur.lastrowid
@@ -486,6 +497,375 @@ _STOPWORDS = frozenset({
     "the", "a", "an", "of", "to", "and", "in", "on", "for", "by", "with",
     "و", "در", "از", "به", "با", "برای", "را", "این", "آن", "که", "تا",
 })
+
+# ── Persian keyword generation ────────────────────────────────────────────────
+#
+# Two-level lookup:
+#   1. _FIELD_KW : base keywords for every physics_field key
+#   2. _TERM_KW  : English term → Persian equivalent(s)
+#                  matched against normalised title + description tokens.
+#
+# generate_keywords() combines both sources and returns a deduplicated
+# space-joined string ready to store in books.keywords.
+
+_FIELD_KW: dict[str, list[str]] = {
+    "classical_mechanics": [
+        "مکانیک کلاسیک", "مکانیک نیوتونی", "دینامیک", "سینماتیک",
+        "قوانین نیوتون", "لاگرانژ", "هامیلتون", "انرژی پتانسیل",
+        "تکانه زاویه‌ای", "نوسان", "ارتعاش", "دستگاه مختصات",
+    ],
+    "electromagnetism": [
+        "الکترومغناطیس", "الکتریسیته", "مغناطیس", "معادلات ماکسول",
+        "میدان الکتریکی", "میدان مغناطیسی", "امواج الکترومغناطیسی",
+        "پتانسیل الکتریکی", "القای الکترومغناطیسی", "دی‌الکتریک",
+        "خازن", "سلف", "مدار الکتریکی",
+    ],
+    "general_physics": [
+        "فیزیک پایه", "فیزیک عمومی", "مکانیک", "گرما", "اپتیک",
+        "امواج", "الکتریسیته", "آزمایشگاه فیزیک",
+    ],
+    "quantum_mechanics": [
+        "مکانیک کوانتومی", "فیزیک کوانتومی", "معادله شرودینگر",
+        "تابع موج", "اصل عدم قطعیت هایزنبرگ", "عملگر", "فضای هیلبرت",
+        "اسپین", "تکانه زاویه‌ای کوانتومی", "اتم هیدروژن",
+        "نظریه اختلال", "پراکندگی کوانتومی", "ذرات یکسان",
+        "نظریه میدان کوانتومی", "الکترودینامیک کوانتومی",
+        "نمودار فاینمن", "بازبهنجارش", "نظریه پیمانه",
+        "کروموداینامیک کوانتومی", "مدل استاندارد",
+    ],
+    "relativity": [
+        "نسبیت", "نسبیت خاص", "نسبیت عام", "فضازمان",
+        "معادلات اینشتین", "انحنای فضازمان", "سیاه‌چاله",
+        "موج گرانشی", "اتساع زمان", "انقباض طول",
+        "چهاربردار", "تانسور متریک", "هندسه ریمانی",
+        "راه‌حل شوارتشیلد", "کیهان‌شناسی نسبیتی",
+    ],
+    "thermodynamics_statistical": [
+        "ترمودینامیک", "مکانیک آماری", "آنتروپی", "دمای مطلق",
+        "قانون اول ترمودینامیک", "قانون دوم ترمودینامیک",
+        "توزیع بولتزمن", "توزیع فرمی-دیراک", "توزیع بوز-اینشتین",
+        "تابع پارش", "پتانسیل شیمیایی", "گذار فازی",
+        "گاز ایده‌آل", "گاز واقعی", "معادله حالت",
+        "فیزیک آماری", "انرژی آزاد", "پتانسیل ترمودینامیکی",
+    ],
+    "mathematical_physics": [
+        "فیزیک ریاضی", "روش‌های ریاضی فیزیک", "معادلات دیفرانسیل",
+        "معادلات دیفرانسیل جزئی", "تحلیل مختلط", "توابع ویژه",
+        "توابع بسل", "چندجمله‌ای لژاندر", "سری فوریه",
+        "تبدیل فوریه", "تبدیل لاپلاس", "توابع گرین",
+        "حساب تغییرات", "نظریه گروه", "جبر لی",
+        "تانسور", "هندسه دیفرانسیل", "توپولوژی",
+    ],
+    "condensed_matter": [
+        "فیزیک ماده چگال", "فیزیک حالت جامد", "ساختار بلور",
+        "فونون", "الکترون‌های آزاد", "نوار انرژی",
+        "نیمه‌رسانا", "ابررسانایی", "مغناطیس",
+        "فرومغناطیس", "پارامغناطیس", "شبکه براوه",
+        "نمودار هرتسپرونگ-راسل", "پیوند شیمیایی",
+        "خواص الکتریکی", "خواص نوری مواد",
+        "ماده نرم", "نانوفیزیک", "فیزیک سطح",
+    ],
+    "optics_amo": [
+        "اپتیک", "نورشناخت", "لیزر", "فیزیک اتمی",
+        "فیزیک مولکولی", "تداخل نور", "پراش نور",
+        "قطبش نور", "اپتیک هندسی", "اپتیک موجی",
+        "اپتیک کوانتومی", "فوتون", "طیف‌سنجی",
+        "هولوگرافی", "فیبر نوری", "فوتونیک",
+    ],
+    "nuclear_physics": [
+        "فیزیک هسته‌ای", "هسته اتم", "نوکلئون",
+        "پروتون", "نوترون", "پوسته هسته‌ای",
+        "واپاشی هسته‌ای", "واپاشی آلفا", "واپاشی بتا",
+        "واپاشی گاما", "شکافت هسته‌ای", "همجوشی هسته‌ای",
+        "واکنش‌های هسته‌ای", "رادیواکتیویته",
+        "مدل قطره مایع", "مدل پوسته هسته‌ای",
+    ],
+    "particle_physics": [
+        "فیزیک ذرات", "ذرات بنیادی", "کوارک", "لپتون",
+        "بوزون", "فرمیون", "مدل استاندارد",
+        "نیروی ضعیف", "نیروی قوی", "الکترودینامیک کوانتومی",
+        "کروموداینامیک کوانتومی", "نظریه الکتروضعیف",
+        "بوزون هیگز", "شتاب‌دهنده ذرات",
+        "پادماده", "نوترینو", "فوتون", "گلوئون",
+    ],
+    "plasma_physics": [
+        "فیزیک پلاسما", "پلاسما", "همجوشی هسته‌ای",
+        "مگنتوهیدرودینامیک", "امواج پلاسما",
+        "ناپایداری پلاسما", "حبس مغناطیسی",
+        "توکامک", "انرژی همجوشی",
+    ],
+    "astrophysics": [
+        "اخترفیزیک", "نجوم", "ستاره", "کهکشان",
+        "سیاه‌چاله", "ستاره نوترونی", "کوتوله سفید",
+        "ابرنواختر", "پالسار", "تکامل ستاره‌ای",
+        "محیط بین‌ستاره‌ای", "طیف‌سنجی نجومی",
+        "فرآیندهای تابشی", "اخترفیزیک نسبیتی",
+        "امواج گرانشی",
+    ],
+    "cosmology": [
+        "کیهان‌شناسی", "انبساط جهان", "بیگ بنگ",
+        "تورم کیهانی", "ماده تاریک", "انرژی تاریک",
+        "ثابت هابل", "تابش زمینه کیهانی",
+        "ساختار بزرگ‌مقیاس", "نوکلئوسنتز",
+        "مدل لامبدا-سی‌دی‌ام", "معادلات فریدمان",
+    ],
+    "computational_nonlinear": [
+        "فیزیک محاسباتی", "دینامیک غیرخطی", "آشوب",
+        "روش‌های عددی", "شبیه‌سازی", "معادلات دیفرانسیل عددی",
+        "مونت‌کارلو", "دینامیک مولکولی",
+        "سیستم‌های آشوبناک", "جاذب عجیب",
+        "انشعاب", "نقشه لاجستیک",
+    ],
+    "biophysics_medical": [
+        "بیوفیزیک", "فیزیک زیستی", "فیزیک پزشکی",
+        "زیست‌شناسی مولکولی", "غشای سلولی",
+        "کانال یونی", "موتور مولکولی", "پروتئین",
+        "DNA", "RNA", "ترمودینامیک زیستی",
+        "پراش اشعه ایکس", "تصویربرداری پزشکی",
+        "میکروسکوپ", "اپتیک زیستی",
+    ],
+    "chemical_physics": [
+        "فیزیک شیمی", "شیمی کوانتومی", "پیوند شیمیایی",
+        "اوربیتال مولکولی", "طیف‌سنجی مولکولی",
+        "واکنش شیمیایی", "دینامیک واکنش",
+    ],
+    "acoustics": [
+        "آکوستیک", "صوت", "امواج صوتی", "ارتعاش",
+        "آکوستیک معماری", "اولتراسوند",
+        "پردازش سیگنال صوتی",
+    ],
+    "history_philosophy": [
+        "تاریخ فیزیک", "فلسفه فیزیک", "فلسفه علم",
+        "انقلاب علمی", "پارادایم", "روش علمی",
+        "تاریخ مکانیک کوانتومی", "بنیان‌های فیزیک",
+        "تفسیر مکانیک کوانتومی", "واقع‌گرایی علمی",
+    ],
+    "other": [
+        "فیزیک میان‌رشته‌ای",
+    ],
+}
+
+# English term (normalised, lower-case) → Persian keyword(s)
+# Matched against normalised title + description text.
+_TERM_KW: dict[str, list[str]] = {
+    # mechanics
+    "lagrangian": ["لاگرانژ", "مکانیک لاگرانژی"],
+    "hamiltonian": ["هامیلتون", "مکانیک هامیلتونی"],
+    "variational": ["حساب تغییرات", "اصل تغییراتی"],
+    "rigid body": ["جسم صلب"],
+    "oscillation": ["نوسان", "ارتعاش"],
+    "chaos": ["آشوب", "دینامیک آشوبناک"],
+    "nonlinear": ["غیرخطی", "دینامیک غیرخطی"],
+    "bifurcation": ["انشعاب"],
+    # EM
+    "maxwell": ["معادلات ماکسول", "ماکسول"],
+    "electrostatics": ["الکتروستاتیک"],
+    "magnetostatics": ["مغناطیس‌استاتیک"],
+    "electrodynamics": ["الکترودینامیک"],
+    "radiation": ["تابش", "تشعشع"],
+    "waveguide": ["موجبر"],
+    "antenna": ["آنتن"],
+    "plasma": ["پلاسما"],
+    # QM / QFT
+    "schrodinger": ["شرودینگر", "معادله شرودینگر"],
+    "heisenberg": ["هایزنبرگ", "اصل عدم قطعیت"],
+    "dirac": ["دیراک", "معادله دیراک"],
+    "hilbert": ["فضای هیلبرت"],
+    "perturbation": ["نظریه اختلال"],
+    "scattering": ["پراکندگی"],
+    "spin": ["اسپین"],
+    "angular momentum": ["تکانه زاویه‌ای"],
+    "path integral": ["انتگرال مسیر"],
+    "feynman": ["فاینمن", "نمودار فاینمن"],
+    "renormalization": ["بازبهنجارش"],
+    "gauge": ["نظریه پیمانه", "پیمانه"],
+    "symmetry": ["تقارن"],
+    "field theory": ["نظریه میدان"],
+    "qed": ["الکترودینامیک کوانتومی"],
+    "qcd": ["کروموداینامیک کوانتومی"],
+    "standard model": ["مدل استاندارد"],
+    "higgs": ["بوزون هیگز", "مکانیزم هیگز"],
+    "supersymmetry": ["ابرتقارن"],
+    "string theory": ["نظریه ریسمان"],
+    # GR / Cosmology
+    "general relativity": ["نسبیت عام"],
+    "special relativity": ["نسبیت خاص"],
+    "spacetime": ["فضازمان"],
+    "einstein": ["اینشتین", "معادلات اینشتین"],
+    "schwarzschild": ["شوارتشیلد"],
+    "black hole": ["سیاه‌چاله"],
+    "gravitational wave": ["موج گرانشی"],
+    "cosmology": ["کیهان‌شناسی"],
+    "inflation": ["تورم کیهانی"],
+    "dark matter": ["ماده تاریک"],
+    "dark energy": ["انرژی تاریک"],
+    "big bang": ["بیگ بنگ"],
+    "friedmann": ["معادلات فریدمان"],
+    "hubble": ["ثابت هابل"],
+    "cmb": ["تابش زمینه کیهانی"],
+    "nucleosynthesis": ["نوکلئوسنتز"],
+    # stat mech / thermo
+    "entropy": ["آنتروپی"],
+    "partition function": ["تابع پارش"],
+    "boltzmann": ["بولتزمن", "توزیع بولتزمن"],
+    "fermi": ["فرمی", "توزیع فرمی-دیراک"],
+    "bose": ["بوز", "توزیع بوز-اینشتین"],
+    "phase transition": ["گذار فازی"],
+    "critical phenomena": ["پدیده‌های بحرانی"],
+    "renormalization group": ["گروه بازبهنجارش"],
+    "ising": ["مدل ایزینگ"],
+    "monte carlo": ["مونت‌کارلو"],
+    # condensed matter
+    "solid state": ["فیزیک حالت جامد"],
+    "crystal": ["بلور", "ساختار بلوری"],
+    "phonon": ["فونون"],
+    "band theory": ["نظریه نوار"],
+    "semiconductor": ["نیمه‌رسانا"],
+    "superconductivity": ["ابررسانایی"],
+    "ferromagnetism": ["فرومغناطیس"],
+    "magnetism": ["مغناطیس", "خواص مغناطیسی"],
+    "many body": ["چندذره‌ای", "مسئله چند جسمی"],
+    "green function": ["تابع گرین"],
+    # nuclear / particle
+    "nuclear": ["هسته‌ای", "فیزیک هسته‌ای"],
+    "radioactivity": ["رادیواکتیویته", "واپاشی هسته‌ای"],
+    "fission": ["شکافت هسته‌ای"],
+    "fusion": ["همجوشی هسته‌ای"],
+    "quark": ["کوارک"],
+    "lepton": ["لپتون"],
+    "neutrino": ["نوترینو"],
+    "accelerator": ["شتاب‌دهنده ذرات"],
+    # optics
+    "optics": ["اپتیک", "نورشناخت"],
+    "laser": ["لیزر"],
+    "diffraction": ["پراش"],
+    "interference": ["تداخل"],
+    "polarization": ["قطبش"],
+    "holography": ["هولوگرافی"],
+    "photonics": ["فوتونیک"],
+    "fiber optic": ["فیبر نوری"],
+    # astro
+    "astrophysics": ["اخترفیزیک"],
+    "stellar": ["ستاره‌ای", "تکامل ستاره‌ای"],
+    "neutron star": ["ستاره نوترونی"],
+    "white dwarf": ["کوتوله سفید"],
+    "supernova": ["ابرنواختر"],
+    "galaxy": ["کهکشان"],
+    "pulsar": ["پالسار"],
+    # math physics
+    "differential geometry": ["هندسه دیفرانسیل"],
+    "lie group": ["گروه لی"],
+    "group theory": ["نظریه گروه"],
+    "tensor": ["تانسور"],
+    "fourier": ["تبدیل فوریه", "سری فوریه"],
+    "green function": ["تابع گرین"],
+    "complex analysis": ["آنالیز مختلط"],
+    "topology": ["توپولوژی"],
+    # biophysics
+    "biophysics": ["بیوفیزیک"],
+    "membrane": ["غشا", "غشای سلولی"],
+    "protein": ["پروتئین"],
+    "dna": ["DNA", "اسید دئوکسی‌ریبونوکلئیک"],
+    "molecular motor": ["موتور مولکولی"],
+    # computational
+    "computational": ["محاسباتی", "فیزیک محاسباتی"],
+    "numerical": ["عددی", "روش‌های عددی"],
+    "simulation": ["شبیه‌سازی"],
+    # history / philosophy
+    "history": ["تاریخ", "تاریخ علم"],
+    "philosophy": ["فلسفه", "فلسفه علم"],
+    "paradigm": ["پارادایم"],
+    "scientific revolution": ["انقلاب علمی"],
+    "kuhn": ["کوهن", "انقلاب علمی"],
+    "foundations": ["بنیان‌ها", "پایه‌های نظری"],
+    "interpretation": ["تفسیر", "تفسیر مکانیک کوانتومی"],
+}
+
+# Pre-compile for fast lookup: sorted longest-first to avoid prefix shadowing
+_TERM_KW_SORTED = sorted(_TERM_KW.keys(), key=len, reverse=True)
+
+
+def generate_keywords(
+    physics_field: str,
+    title: str,
+    description: str,
+    language: str = "en",
+) -> str:
+    """Generate Persian search keywords for an English resource.
+
+    Returns a space-joined string of Persian keyword tokens, deduplicated,
+    ready to store in books.keywords.  For Persian resources returns '' since
+    the title/description are already searchable in Persian.
+    """
+    if language != "en":
+        return ""
+
+    collected: list[str] = []
+
+    # 1. Field-level base keywords
+    base = _FIELD_KW.get(physics_field, [])
+    collected.extend(base)
+
+    # 2. Term-level: scan normalised title + description for known English terms
+    haystack = _norm(f"{title} {description}")
+    for term in _TERM_KW_SORTED:
+        norm_term = _norm(term)
+        # whole-word / phrase match on the normalised haystack
+        if re.search(r"(?<!\w)" + re.escape(norm_term) + r"(?!\w)", haystack):
+            collected.extend(_TERM_KW[term])
+
+    # Deduplicate phrases preserving order, then join with space
+    # (each phrase is stored as-is; the search engine's _norm splits on spaces)
+    seen: set[str] = set()
+    unique: list[str] = []
+    for kw in collected:
+        key = kw.strip()
+        if key and key not in seen:
+            seen.add(key)
+            unique.append(key)
+
+    return " ".join(unique)
+
+
+def update_keywords(resource_id: int) -> str:
+    """Regenerate and persist keywords for one resource. Returns the new value."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT physics_field, title, description, language FROM books WHERE id = ?",
+            (resource_id,)
+        ).fetchone()
+        if not row:
+            return ""
+        kw = generate_keywords(row["physics_field"], row["title"],
+                               row["description"], row["language"])
+        conn.execute("UPDATE books SET keywords = ? WHERE id = ?", (kw, resource_id))
+        conn.commit()
+    return kw
+
+
+def backfill_keywords(verbose: bool = False) -> int:
+    """One-shot: generate keywords for every English resource that has none.
+
+    Returns the number of rows updated.
+    """
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT id, physics_field, title, description, language "
+            "FROM books WHERE language = 'en' AND (keywords IS NULL OR keywords = '')"
+        ).fetchall()
+        updated = 0
+        for row in rows:
+            kw = generate_keywords(row["physics_field"], row["title"],
+                                   row["description"], row["language"])
+            if kw:
+                conn.execute("UPDATE books SET keywords = ? WHERE id = ?",
+                             (kw, row["id"]))
+                updated += 1
+                if verbose:
+                    print(f"  [{row['id']}] {row['title'][:60]} → {len(kw.split())} kws")
+        conn.commit()
+    return updated
+
 
 # Field-class weights: title, author, other metadata, description.
 _FIELD_W = (60, 40, 25, 10)
@@ -639,6 +1019,7 @@ def _score_variant(row, q: dict, min_cover: int) -> Optional[tuple]:
         return (5, 5_000, False) if row_doi and row_doi.startswith(q["doi"]) else None
 
     title, author, desc = _prep(g("title")), _prep(g("author")), _prep(g("description"))
+    kw = _prep(g("keywords"))
     qn, qsq, tokens = q["norm"], q["sq"], q["tokens"]
 
     # ── tier 7: exact title or exact identifier
@@ -666,6 +1047,8 @@ def _score_variant(row, q: dict, min_cover: int) -> Optional[tuple]:
     meta = [p for p in (_prep(x) for x in (
         g("journal"), g("doi"), g("edition"), g("year"), g("publication_date"),
         g("file_name"), fa, en, g("physics_field"), disp)) if p[0]]
+    if kw[0]:
+        meta.append(kw)   # keywords get meta-level weight (25) — higher than description (10)
     groups = ([title], [author], meta, [desc])
 
     covered, worst, total, title_hit, ta_hit, fuzzy = 0, 0, 0.0, False, False, False
