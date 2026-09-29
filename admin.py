@@ -226,7 +226,7 @@ T = {
     "emergency_caption":{"fa": "🆘 بکاپ اضطراری قبل از ریستور — {time}",
                           "en": "🆘 Emergency backup before restore — {time}"},
 
-    # ── CSV Import (Phase 2) ──────────────────────────────────────────────────
+    #CSV Import
     "btn_csv_import":       {"fa": "📥 وارد کردن CSV",              "en": "📥 Import CSV"},
     "csv_ask_file":         {"fa": "📤 فایل CSV متادیتا رو بفرست.\n"
                                    "برای لغو دکمه لغو رو بزن.",
@@ -265,18 +265,18 @@ T = {
                               "en": "❌ No valid rows to import."},
     "csv_import_error":     {"fa": "❌ خطا در ذخیره‌سازی:\n{err}",  "en": "❌ Error during save:\n{err}"},
 
-    # ── Pending Resources (Phase 3) ───────────────────────────────────────────
-    "btn_pending":              {"fa": "📦 منابع در انتظار",              "en": "📦 Pending Resources"},
+
+    "btn_pending":              {"fa": "🗂️ منابع در انتظار",              "en": "🗂️ Pending Resources"},
     "pending_overview":         {
         "fa": (
-            "📦 منابع در انتظار\n\n"
+            "🗂️ منابع در انتظار\n\n"
             "📋 کل: {total}\n"
             "⏳ بدون فایل: {no_file}\n"
             "✅ با فایل / آماده انتشار: {has_file}\n\n"
             "📘 کتاب‌ها: {books}   📄 مقالات: {articles}"
         ),
         "en": (
-            "📦 Pending Resources\n\n"
+            "🗂️ Pending Resources\n\n"
             "📋 Total: {total}\n"
             "⏳ Without file: {no_file}\n"
             "✅ With file / ready to publish: {has_file}\n\n"
@@ -291,8 +291,8 @@ T = {
     "btn_pending_enter_id":     {"fa": "🔢 ورود شناسه",                  "en": "🔢 Enter ID"},
     "btn_pending_back":         {"fa": "⬅️ بازگشت به منابع در انتظار",    "en": "⬅️ Back to Pending"},
 
-    "pending_list_header":      {"fa": "📦 منابع در انتظار ({filter}) — صفحه {page}/{total_pages}:\n",
-                                  "en": "📦 Pending Resources ({filter}) — page {page}/{total_pages}:\n"},
+    "pending_list_header":      {"fa": "🗂️ منابع در انتظار ({filter}) — صفحه {page}/{total_pages}:\n",
+                                  "en": "🗂️ Pending Resources ({filter}) — page {page}/{total_pages}:\n"},
     "pending_filter_all":       {"fa": "همه",       "en": "All"},
     "pending_filter_nofile":    {"fa": "بدون فایل", "en": "No File"},
     "pending_filter_ready":     {"fa": "آماده",     "en": "Ready"},
@@ -308,7 +308,7 @@ T = {
 
     "pending_detail":           {
         "fa": (
-            "📦 جزئیات منبع در انتظار\n\n"
+            "🗂️ جزئیات منبع در انتظار\n\n"
             "🆔 شناسه: P{pid}\n"
             "📂 نوع: {rtype}\n"
             "📘 عنوان: {title}\n"
@@ -324,7 +324,7 @@ T = {
             "🔖 وضعیت: {status}"
         ),
         "en": (
-            "📦 Pending Resource Detail\n\n"
+            "🗂️ Pending Resource Detail\n\n"
             "🆔 ID: P{pid}\n"
             "📂 Type: {rtype}\n"
             "📕 Title: {title}\n"
@@ -377,10 +377,9 @@ T = {
     "pending_file_error":       {"fa": "❌ خطا در ذخیره فایل:\n{err}",
                                   "en": "❌ Error saving file:\n{err}"},
 
-    # ── Publish (Phase 4) ─────────────────────────────────────────────────────
     "publish_confirm": {
         "fa": (
-            "🚀 تأیید انتشار\n\n"
+            "📤 تأیید انتشار\n\n"
             "🆔 شناسه در انتظار: P{pid}\n"
             "📂 نوع: {rtype}\n"
             "📘 عنوان: {title}\n"
@@ -394,7 +393,7 @@ T = {
             "آیا این منبع منتشر شود؟"
         ),
         "en": (
-            "🚀 Publish Confirmation\n\n"
+            "📤 Publish Confirmation\n\n"
             "🆔 Pending ID: P{pid}\n"
             "📂 Type: {rtype}\n"
             "📕 Title: {title}\n"
@@ -446,9 +445,9 @@ T = {
             "Publish anyway?"
         ),
     },
-    "btn_publish":          {"fa": "🚀 انتشار",           "en": "🚀 Publish"},
-    "btn_publish_anyway":   {"fa": "🚀 انتشار به‌هرحال",  "en": "🚀 Publish Anyway"},
-    "btn_view_existing":    {"fa": "👁 مشاهده موجود",      "en": "👁 View Existing"},
+    "btn_publish":          {"fa": "📤 انتشار",           "en": "📤 Publish"},
+    "btn_publish_anyway":   {"fa": "📤 انتشار به‌هرحال",  "en": "📤 Publish Anyway"},
+    "btn_view_existing":    {"fa": "👁 مشاهده منابع موجود",      "en": "👁 View Existing"},
 }
 
 

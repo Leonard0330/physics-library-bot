@@ -1,5 +1,8 @@
 import sqlite3
 import os
+import re
+import unicodedata
+from functools import lru_cache
 from datetime import datetime
 from typing import Optional
 
@@ -443,6 +446,289 @@ def get_resource(resource_id: int) -> Optional[sqlite3.Row]:
         ).fetchone()
 
 
+# ── Search: normalization & relevance ranking ─────────────────────────────────
+#
+# Text (both the query and the stored fields) is normalised the same way:
+# NFKD → drop combining marks (Latin accents, Arabic harakat, hamza/madda
+# marks) → ي/ى→ی, ك→ک, ة/ۀ→ه → Arabic/Persian digits → ASCII → casefold →
+# every run of punctuation / hyphens / underscores / ZWNJ becomes one space.
+
+_CHAR_MAP = str.maketrans({
+    "ي": "ی", "ى": "ی", "ك": "ک", "ة": "ه", "ۀ": "ه", "ہ": "ه", "ھ": "ه",
+    "\u200c": " ",                                    # ZWNJ → word separator
+    "\u0640": None, "\u200d": None, "\u200e": None,   # tatweel, ZWJ, LRM
+    "\u200f": None, "\ufeff": None,                   # RLM, BOM
+})
+_DIGIT_MAP = str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹", "01234567890123456789")
+_NON_WORD_RE = re.compile(r"[\W_]+")
+_DOI_PREFIX_RE = re.compile(r"^\s*(?:https?://)?(?:dx\.)?doi\.org/|^\s*doi:\s*", re.I)
+
+_DOI_RE = re.compile(r"10\.\d{4,9}/\S+")
+
+# Retrieval-only aliases: they expand the *query* and are never stored or shown.
+# Keys are normalised (lower-case, single spaces).
+_SEARCH_ALIASES = {
+    "qm":             "quantum mechanics",
+    "qft":            "quantum field theory",
+    "em":             "electromagnetism",
+    "gr":             "general relativity",
+    "sr":             "special relativity",
+    "stat mech":      "statistical mechanics",
+    "classical mech": "classical mechanics",
+    "thermo":         "thermodynamics",
+}
+_ALIAS_RE = re.compile(
+    r"(?<!\S)(" + "|".join(re.escape(k) for k in sorted(_SEARCH_ALIASES, key=len, reverse=True)) + r")(?!\S)"
+)
+
+# Ignored as search tokens (unless the query consists of nothing else).
+_STOPWORDS = frozenset({
+    "the", "a", "an", "of", "to", "and", "in", "on", "for", "by", "with",
+    "و", "در", "از", "به", "با", "برای", "را", "این", "آن", "که", "تا",
+})
+
+# Field-class weights: title, author, other metadata, description.
+_FIELD_W = (60, 40, 25, 10)
+# Match-kind factors: 4 whole word, 3 word prefix, 2 substring, 1 ignoring spaces.
+_KIND_F = {4: 1.0, 3: 0.8, 2: 0.5, 1: 0.4}
+_FUZZY_F = 0.3      # typo matches weigh less; they are also always listed after exact ones
+
+
+@lru_cache(maxsize=50_000)
+def _norm(text) -> str:
+    if not text:
+        return ""
+    s = unicodedata.normalize("NFKD", str(text))
+    s = "".join(c for c in s if unicodedata.category(c) != "Mn")
+    s = s.translate(_CHAR_MAP).translate(_DIGIT_MAP).casefold()
+    return _NON_WORD_RE.sub(" ", s).strip()
+
+
+def _prep(text) -> tuple:
+    t = _norm(text)
+    w = t.split()
+    return (t, w, frozenset(w), t.replace(" ", ""))
+
+
+def _prepare_query(query: str) -> Optional[dict]:
+    raw = (query or "").strip()
+    hash_id = raw.startswith("#")
+    stripped = _DOI_PREFIX_RE.sub("", raw).strip()
+    q_norm = _norm(stripped)
+    tokens = _tokenize(q_norm)
+    if not tokens:
+        return None
+    q = {"norm": q_norm, "sq": q_norm.replace(" ", ""),
+         "tokens": tokens, "hash_id": hash_id, "doi": None, "alt": None}
+
+    doi = stripped.rstrip(".,;:)]}>\"'").lower()
+    if _DOI_RE.fullmatch(doi):
+        q["doi"] = doi                       # DOI query: only DOI matches count
+        return q
+
+    # Alias variant (e.g. "qm" -> "quantum mechanics"); scored alongside the original.
+    alt_norm = q_norm if hash_id else _ALIAS_RE.sub(lambda m: _SEARCH_ALIASES[m.group(1)], q_norm)
+    if alt_norm != q_norm:
+        q["alt"] = {"norm": alt_norm, "sq": alt_norm.replace(" ", ""),
+                    "tokens": _tokenize(alt_norm), "hash_id": False,
+                    "doi": None, "alt": None}
+    return q
+
+
+def _tokenize(norm: str) -> list:
+    tokens = list(dict.fromkeys(norm.split()))
+    return [t for t in tokens if t not in _STOPWORDS] or tokens
+
+
+@lru_cache(maxsize=20_000)
+def _typo_dist(a: str, b: str) -> int:
+    """Damerau-Levenshtein (adjacent transposition counts as one edit)."""
+    prev2, prev = None, list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i]
+        for j, cb in enumerate(b, 1):
+            v = min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb))
+            if i > 1 and j > 1 and ca == b[j - 2] and a[i - 2] == cb:
+                v = min(v, prev2[j - 2] + 1)
+            cur.append(v)
+        prev2, prev = prev, cur
+    return prev[-1]
+
+
+def _fuzzy_hit(tok: str, words) -> bool:
+    """Controlled typo match: tokens of 6+ letters only (so qm/em/gr/qft never
+    fuzz), same first letter, 1 edit (2 edits for 10+ letters)."""
+    if len(tok) < 6 or not tok.isalpha():
+        return False
+    d = 1 if len(tok) <= 9 else 2
+    return any(
+        len(w) >= 4 and abs(len(w) - len(tok)) <= d and w[0] == tok[0]
+        and _typo_dist(tok, w) <= d
+        for w in words
+    )
+
+
+def _author_kind(tok: str, author: tuple, n_tokens: int) -> int:
+    """Name variations: "d griffiths" (initial), "jj sakurai" (joined initials)."""
+    if not author[0]:
+        return 0
+    if len(tok) == 1 and n_tokens > 1:
+        return 3 if any(w.startswith(tok) for w in author[1]) else 0
+    initials = "".join(w for w in author[1] if len(w) == 1)
+    return 3 if 2 <= len(tok) <= 3 and tok in initials else 0
+
+
+def _kind(tok: str, f: tuple) -> int:
+    text, words, wset, sq = f
+    if tok in wset:
+        return 4
+    n = len(tok)
+    if n < 2 or not text:
+        return 0
+    if any(w.startswith(tok) for w in words):
+        return 3
+    if n >= 3 and tok in text:
+        return 2
+    if n >= 4 and tok in sq:
+        return 1
+    return 0
+
+
+def _default_cover(n: int) -> int:
+    return n if n < 3 else n - 1                # 3+ tokens: tolerate one missing
+
+
+def _score_row(row, q: dict, min_cover: Optional[int]) -> Optional[tuple]:
+    """Best (tier, score, fuzzy) over the original query and its alias variant."""
+    best = None
+    for v in (q, q.get("alt")):
+        if not v:
+            continue
+        if min_cover is not None:
+            mc = min_cover
+        elif v is q:
+            mc = _default_cover(len(q["tokens"]))
+        else:   # alias expansion adds tokens; only allow the slack the original query had
+            mc = len(v["tokens"]) - (len(q["tokens"]) - _default_cover(len(q["tokens"])))
+        res = _score_variant(row, v, mc)
+        if res and (best is None or (res[2], -res[0], -res[1]) < (best[2], -best[0], -best[1])):
+            best = res
+    return best
+
+
+def _score_variant(row, q: dict, min_cover: int) -> Optional[tuple]:
+    """Return (tier, score, used_fuzzy) or None when the row does not match.
+
+    tier 8 exact DOI (DOI queries only match DOIs)
+
+    tier 7 exact title / exact identifier (display ID, DOI)
+         6 title phrase      5 all tokens in title     4 … title + author
+         3 … + other metadata (journal, DOI, edition, year, field, ID)
+         2 … + description   1 weak partial (some tokens missing)
+    """
+    keys = row.keys()
+
+    def g(k):
+        v = row[k] if k in keys else None
+        return "" if v is None else str(v)
+
+    if q["doi"]:
+        row_doi = _DOI_PREFIX_RE.sub("", g("doi")).strip().lower()
+        if row_doi == q["doi"]:
+            return (8, 10_000, False)
+        return (5, 5_000, False) if row_doi and row_doi.startswith(q["doi"]) else None
+
+    title, author, desc = _prep(g("title")), _prep(g("author")), _prep(g("description"))
+    qn, qsq, tokens = q["norm"], q["sq"], q["tokens"]
+
+    # ── tier 7: exact title or exact identifier
+    try:
+        disp = get_display_id(row)
+    except Exception:
+        disp = ""
+    idents = set()
+    disp_sq = _norm(disp).replace(" ", "")
+    if disp_sq and (q["hash_id"] or not disp.lstrip("#").isdigit()):
+        idents.add(disp_sq)
+    if g("field_number") and g("resource_type") != "article":      # legacy "QM-7"
+        idents.add(_norm(field_code(g("physics_field"))).replace(" ", "") + g("field_number"))
+    doi_sq = _norm(g("doi")).replace(" ", "")
+    if doi_sq:
+        idents.add(doi_sq)
+    if qsq in idents or qn == title[0] or (qsq and qsq == title[3]):
+        return (7, 10_000, False)
+
+    fa, en = PHYSICS_FIELDS.get(g("physics_field"), ("", ""))
+    meta = [p for p in (_prep(x) for x in (
+        g("journal"), g("doi"), g("edition"), g("year"), g("publication_date"),
+        g("file_name"), fa, en, g("physics_field"), disp)) if p[0]]
+    groups = ([title], [author], meta, [desc])
+
+    covered, worst, total, title_hit, ta_hit, fuzzy = 0, 0, 0.0, False, False, False
+    for tok in tokens:
+        best_w, best_c, tok_fuzzy = 0.0, None, False
+        for c, group in enumerate(groups):
+            k = max((_kind(tok, f) for f in group), default=0)
+            if not k and c == 1:
+                k = _author_kind(tok, author, len(tokens))
+            if k and _FIELD_W[c] * _KIND_F[k] > best_w:
+                best_w, best_c = _FIELD_W[c] * _KIND_F[k], c
+        if best_c is None and tok not in q.get("known", ()):
+            # typo tolerance (title/author/metadata only) — skipped for words that
+            # are real words in the library, so "mechanics" never fuzzes to "mechanism"
+            for c in (0, 1, 2):
+                if any(_fuzzy_hit(tok, f[1]) for f in groups[c]):
+                    best_w, best_c, tok_fuzzy = _FIELD_W[c] * _FUZZY_F, c, True
+                    break
+        if best_c is not None:
+            fuzzy = fuzzy or tok_fuzzy
+            covered += 1
+            worst = max(worst, best_c)
+            total += best_w
+            title_hit = title_hit or best_c == 0
+            ta_hit = ta_hit or best_c <= 1
+    if covered < min_cover:
+        return None
+    if covered < len(tokens) and not ta_hit:
+        return None          # partial matches need a title/author hit (not just field/ID)
+
+    tier = (5, 4, 3, 2)[worst] if covered == len(tokens) else 1
+
+    # ── tier 6: query is a phrase in the title (word-start; whole word for 1-char queries)
+    t_pad = f" {title[0]} "
+    if (f" {qn}" if len(qsq) >= 2 else f" {qn} ") in t_pad:
+        tier = 6
+        total += 40 if title[0].startswith(qn) else 0
+        total += 10 if f" {qn} " in t_pad else 0
+    if len(qsq) >= 2 and f" {qn}" in f" {author[0]}":
+        total += 30
+    if title_hit:                       # prefer titles that are mostly the query
+        total += 20 * min(1.0, len(tokens) / max(1, len(title[1])))
+    return (tier, int(total), fuzzy)
+
+
+def _rank_rows(rows, q: dict, order_by: str = "default", min_cover: Optional[int] = None) -> list:
+    if any(len(t) >= 6 and t.isalpha() for v in (q, q.get("alt")) if v for t in v["tokens"]):
+        known = set()
+        for row in rows:
+            known.update(_prep(row["title"])[1])
+            known.update(_prep(row["author"])[1])
+        q["known"] = known
+        if q.get("alt"):
+            q["alt"]["known"] = known
+    scored = []
+    for idx, row in enumerate(rows):
+        res = _score_row(row, q, min_cover)
+        if res:
+            scored.append((res, idx, row))
+    # Fuzzy (typo) matches always come after exact/normal ones.
+    if order_by == "default":
+        scored.sort(key=lambda s: (s[0][2], -s[0][0], -s[0][1], s[1]))
+    else:                                        # "recent"/"popular": keep SQL order within groups
+        scored.sort(key=lambda s: s[0][2])
+    return [s[2] for s in scored]
+
+
 def search_resources(
     query: str = "",
     physics_field: str = "",
@@ -455,25 +741,14 @@ def search_resources(
     conditions: list[str] = []
     params: list = []
 
-    # For ranking we need to know the words before building WHERE.
-    words: list[str] = []
-
+    # Text search: the filters below are applied in SQL, then rows are matched
+    # and ranked in Python (see _score_row) so normalisation is consistent for
+    # query and stored text.  Without a query the original SQL path is used.
+    q_info: Optional[dict] = None
     if query:
-        # Split query into words; require every word to appear in at least one
-        # searchable field (AND across words, OR across fields per word).
-        # "griffiths quantum" → title/author/... must match "griffiths" AND
-        # title/author/... must match "quantum".
-        # Single-word queries behave identically to the previous implementation.
-        words = [w for w in query.split() if w]
-        if not words:
-            words = [query]
-        for word in words:
-            like = f"%{word}%"
-            conditions.append(
-                "(title LIKE ? OR author LIKE ? OR description LIKE ?"
-                " OR doi LIKE ? OR journal LIKE ?)"
-            )
-            params += [like, like, like, like, like]
+        q_info = _prepare_query(query)
+        if q_info is None:
+            return []        # nothing searchable (only punctuation/whitespace)
 
     if physics_field:
         conditions.append("physics_field = ?")
@@ -491,34 +766,16 @@ def search_resources(
 
     if order_by == "recent":
         order_clause = "ORDER BY created_at DESC, id DESC"
-        rank_params: list = []
     elif order_by == "popular":
         order_clause = "ORDER BY download_count DESC, created_at DESC"
-        rank_params = []
-    elif words:
-        # Relevance ranking with a lightweight CASE expression:
-        #   tier 0 — any search word appears in the title
-        #   tier 1 — any search word appears in the author field
-        #   tier 2 — match only in description / doi / journal
-        # Within each tier results are sorted alphabetically.
-        title_likes  = " OR ".join("title LIKE ?"  for _ in words)
-        author_likes = " OR ".join("author LIKE ?" for _ in words)
-        rank_params  = [f"%{w}%" for w in words] + [f"%{w}%" for w in words]
-        order_clause = (
-            f"ORDER BY "
-            f"CASE WHEN ({title_likes})  THEN 0 "
-            f"     WHEN ({author_likes}) THEN 1 "
-            f"     ELSE 2 END ASC, "
-            f"title ASC"
-        )
     else:
-        # default: alphabetical — neutral ordering for "all" lists
-        order_clause = "ORDER BY title ASC"
-        rank_params = []
+        # default: alphabetical — also the tie-break for relevance ranking
+        order_clause = "ORDER BY title ASC, id ASC"
 
-    # rank_params go before WHERE params because ORDER BY is evaluated after
-    # WHERE but SQLite needs the CASE literals in positional order.
-    all_params = rank_params + params + [limit, offset]
+    if q_info is not None:
+        with get_connection() as conn:
+            rows = conn.execute(f"SELECT * FROM books {where} {order_clause}", params).fetchall()
+        return _rank_rows(rows, q_info, order_by)[offset:offset + limit]
 
     sql = f"""
         SELECT * FROM books
@@ -528,7 +785,7 @@ def search_resources(
     """
 
     with get_connection() as conn:
-        return conn.execute(sql, all_params).fetchall()
+        return conn.execute(sql, params + [limit, offset]).fetchall()
 
 
 def find_resource_by_display_id(text: str) -> Optional[sqlite3.Row]:
@@ -695,26 +952,13 @@ def search_books(
 
 
 def suggest_similar(query: str, limit: int = 3) -> list[sqlite3.Row]:
-    words = [w.strip() for w in query.split() if len(w.strip()) >= 2]
-    if not words:
+    q_info = _prepare_query(query)
+    if not q_info:
         return []
-    seen: set[int] = set()
-    results: list[sqlite3.Row] = []
     with get_connection() as conn:
-        for word in words:
-            like = f"%{word}%"
-            rows = conn.execute(
-                "SELECT * FROM books WHERE title LIKE ? OR author LIKE ?"
-                " OR description LIKE ? OR doi LIKE ? OR journal LIKE ? LIMIT ?",
-                (like, like, like, like, like, limit)
-            ).fetchall()
-            for row in rows:
-                if row["id"] not in seen:
-                    seen.add(row["id"])
-                    results.append(row)
-            if len(results) >= limit:
-                break
-    return results[:limit]
+        rows = conn.execute("SELECT * FROM books ORDER BY title ASC, id ASC").fetchall()
+    # Relaxed matching: a single matching token is enough, best matches first.
+    return _rank_rows(rows, q_info, min_cover=1)[:limit]
 
 
 # ── Bookmarks ──────────────────────────────────────────────────────────────────

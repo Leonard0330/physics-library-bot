@@ -289,10 +289,10 @@ TEXTS = {
         "fa": (
             r"*📚 به ربات کتابخانه فیزیک خوش آمدید\!*" + "\n\n"
             r"_این ربات مجموعه‌ای منتخب از کتاب‌ها و مقالات علمی فیزیک را در شاخه‌های مختلف این علم در اختیار شما قرار می‌دهد_\." + "\n\n"
-            "🔍 *جستجو* \u2014 جستجو در همه منابع\n"
-            "📂 *کتابخانه* \u2014 کتاب‌ها، مقالات و فیلدهای فیزیک\n"
-            "🌐 *زبان* \u2014 تغییر زبان رابط\n\n"
-            "برای راهنمای کامل: درباره ← راهنما 👇"
+            r"🔍 *جستجو* \- جستجو در همه منابع\n"
+            r"📂 *کتابخانه* \- کتاب‌ها، مقالات و فیلدهای فیزیک\n"
+            r"🌐 *زبان* \- تغییر زبان رابط\n\n"
+            r"برای راهنمای کامل: *درباره ←\ راهنما* 👇"
         ),
         "en": (
             r"📚 *Welcome to the Physics Library Bot\!*" + "\n\n"
@@ -300,7 +300,7 @@ TEXTS = {
             r"🔍 *Search* \- Quickly find any book or article by title or keywords\." + "\n"
             r"📂 *Browse* \- Explore the library by category, popularity, or recently added resources\." + "\n"
             r"🌐 *Language* \- switch interface language\n\n"
-            "For detailed instructions and additional information, open About → Help 👇"
+            r"For detailed instructions and additional information, open *About \→ Help* 👇"
         ),
     },
     "no_books": {
@@ -435,49 +435,96 @@ TEXTS = {
     },
     "about_project": {
         "fa": (
-            "درباره پروژه\n\n"
+            r"درباره پروژه" + "\n\n"
             "کتابخانه فیزیک یک ربات تلگرام است که با هدف فراهم کردن دسترسی آسان به مجموعه‌ای رو‌به‌رشد از کتاب‌ها و مقالات علمی فیزیک طراحی شده است.\n"
             "این کتابخانه طیف گسترده‌ای از شاخه‌های فیزیک، از مباحث پایه تا زمینه‌های تخصصی، را پوشش می‌دهد و تلاش می‌کند دانشجویان، پژوهشگران و علاقه‌مندان به فیزیک بتوانند منابع موردنیاز خود را به‌سادگی پیدا کنند.\n"
             "این پروژه به‌صورت مستمر در حال توسعه است و به مرور زمان کتاب‌ها و مقالات جدیدی به آن افزوده خواهند شد.\n\n"
             "📬 ارتباط و پشتیبانی: @Kimhmda0705\n"
-            "Version: 3.0"
+            "Version: 4.0"
         ),
         "en": (
-            "🔭 About the Project\n\n"
+            r"*About the Project*" + "\n\n"
             "Physics Library is a Telegram bot designed to provide easy access to a growing collection of physics books and research articles.\n"
             "The library covers a wide range of topics, from foundational physics to specialized fields, and aims to help students, educators, and researchers quickly discover useful learning resources.The project is continuously expanding, with new books and articles being added over time.\n\n"
             "Thank you for using Physics Library and supporting its growth.\n"
             "📬 Contact & Support: @Kimhmda0705\n"
-            "Version: 3.0"
+            "Version: 4.0"
         ),
     },
     "help": {
         "fa": (
-            "📖 راهنما:\n\n"
-            "🔍 جستجو ← جستجو در عنوان، نویسنده و همه منابع\n"
-            "📂 کتابخانه ←  کتاب‌ها، مقالات، فیلدهای فیزیک، پرطرفدارها و جدیدترین‌ها\n"
-            "   ↳ 📘 کتاب‌ها ← همه / فیلد / پرطرفدار / جدید\n"
-            "   ↳ 📄 مقالات ← همه / فیلد / پرطرفدار / جدید\n"
-            "   ↳ 🌌 فیلدهای فیزیک ← جستجو بر اساس موضوع\n"
-            "   ↳ ⭐ پرطرفدارها ← پرطرفدارترین منابع\n"
-            "   ↳ 🆕 جدیدترین‌ها ← آخرین منابع اضافه‌شده\n"
-            "ℹ️ درباره ← راهنما / آمار / پرطرفدارها / درباره پروژه\n"
-            "🌐 زبان ← سوئیچ FA / EN\n\n"
-            "⚠️ هرجایی گیر کردی از /start استفاده کن"
+            r"📖 *راهنمای استفاده از کتابخانه فیزیک*" + "\n\n"
+
+            r"📚 *پیدا کردن منابع فیزیک*" + "\n"
+            r"از بخش *جستجو* برای پیدا کردن سریع کتاب‌ها و مقالات پژوهشی بر اساس عنوان، نویسنده، کلیدواژه، DOI یا سایر اطلاعات موجود استفاده کنید**\\.**" + "\n\n"
+
+            r"🔎 *جستجو*" + "\n"
+            r"در تمام منابع کتابخانه جستجو کنید**\\.** می‌توانید نتایج را بر اساس *نوع منبع، زبان و فیلدهای فیزیکی* محدود کنید**\\.**" + "\n\n"
+
+            r"📂 *کتابخانه*" + "\n"
+            r"بدون نیاز به جستجوی یک منبع خاص، در کتابخانه کاوش کنید**:**" + "\n"
+            r"• 📕 *کتاب‌ها* **\\-** مشاهده همه کتاب‌ها یا مرور آن‌ها بر اساس حوزه، محبوبیت یا منابع تازه‌اضافه‌شده" + "\n"
+            r"• 📄 *مقالات* **\\-** مرور مقالات پژوهشی به همین شیوه" + "\n"
+            r"• 🌌 *حوزه‌های فیزیک* **\\-** کاوش منابع بر اساس موضوعات مختلف فیزیک" + "\n"
+            r"• ⭐ *منابع برتر* **\\-** مشاهده پرمخاطب‌ترین منابع کتابخانه" + "\n"
+            r"• 🆕 *تازه‌اضافه‌شده‌ها* **\\-** مشاهده جدیدترین منابع اضافه‌شده به کتابخانه" + "\n\n"
+
+            r"🔖 *ذخیره شده ها*" + "\n"
+            r"منابع موردنظر خود را ذخیره کنید تا بعداً به آن‌ها دسترسی داشته باشید**\\.** کتاب‌ها و مقالات نشان‌شده از منوی اصلی در دسترس هستند**\\.**" + "\n\n"
+
+            r"📥 *تاریخچه دانلودها*" + "\n"
+            r"منابعی را که قبلاً دانلود کرده‌اید مشاهده کنید**\\.**" + "\n\n"
+
+            r"🔔 *دنبال کردن فیلدهای فیزیک*" + "\n"
+            r"با دنبال کردن فیلد موردنظر **\\.**" + "\n\n"
+
+            r"⭐ *امتیازدهی به منابع*" + "\n"
+            r"پس از دانلود یک منبع، می‌توانید به آن امتیاز دهید و به بهبود کتابخانه برای سایر کاربران کمک کنید**\\.**" + "\n\n"
+
+            r"🌐 *زبان*" + "\n"
+            r"زبان رابط کاربری ربات را بین *فارسی و English* تغییر دهید**\\.** انتخاب زبان فقط رابط کاربری را تغییر می‌دهد و جستجوی شما را به منابع یک زبان خاص محدود نمی‌کند**\\.**" + "\n\n"
+
+            r"💡 *نکته*" + "\n"
+            r"هر زمان که مسیر خود را گم کردید، می‌توانید به منوی اصلی برگردید یا از دستور `/start` استفاده کنید**\\.**"
         ),
+        
         "en": (
-            "📖 Help:\n\n"
-            "🔍 Search ← search by title, author, across all resources\n"
-            "📂 Browse ← books, articles, physics fields, popular & recent\n"
-            "   ↳ 📕 Books ← All / Field / Popular / Recent\n"
-            "   ↳ 📄 Articles ← All / Field / Popular / Recent\n"
-            "   ↳ 🌌 Physics Fields ← browse by topic\n"
-            "   ↳ ⭐ Top Resources ← most downloaded\n"
-            "   ↳ 🆕 Recently Added ← latest resources\n"
-            "ℹ️ About ← Help / Stats / Top / About Project\n"
-            "🌐 Language ← switch FA / EN\n\n"
-            "⚠️ Stuck? Use /start"
+            r"📖 *How to use the Physics Library*" + "\n\n"
+
+            r"📚 *Find physics resources*" + "\n"
+            r"Use *Search* to quickly find books and research articles by title, author, keywords, DOI, or other available information**\\.**" + "\n\n"
+
+            r"🔎 *Search*" + "\n"
+            r"Search across the entire library**\\.** You can refine your results by *resource type, language, and physics field**\\.**" + "\n\n"
+
+            r"📂 *Browse*" + "\n"
+            r"Explore the library without searching for a specific resource**:**" + "\n"
+            r"• 📕 *Books* **\\-** browse all books or explore them by field, popularity, or recently added" + "\n"
+            r"• 📄 *Articles* **\\-** browse research articles in the same way" + "\n"
+            r"• 🌌 *Physics Fields* **\\-** explore resources organized by physics topics" + "\n"
+            r"• ⭐ *Top Resources* **\\-** discover the most downloaded resources" + "\n"
+            r"• 🆕 *Recently Added* **\\-** see the latest additions to the library" + "\n\n"
+
+            r"🔖 *Bookmarks*" + "\n"
+            r"Save resources you want to return to later**\\.** Your bookmarked books and articles are available from the main menu**\\.**" + "\n\n"
+
+            r"📥 *Download History*" + "\n"
+            r"View the resources you have previously downloaded**\\.**" + "\n\n"
+
+            r"🔔 *Field Subscriptions*" + "\n"
+            r"Subscribe to a physics field to receive notifications when new resources are added to that field**\\.**" + "\n\n"
+
+            r"⭐ *Rate Resources*" + "\n"
+            r"After downloading a resource, you can rate it to help improve the library for other users**\\.**" + "\n\n"
+
+
+            r"🌐 *Language*" + "\n"
+            r"Switch the bot interface between *English and فارسی**\\.** Your language choice only changes the interface; it does not limit your search results**\\.**" + "\n\n"
+
+            r"💡 *Tip*" + "\n"
+            r"You can always return to the main menu or use `/start` if you get lost**\\.**"
         ),
+
     },
 }
 
@@ -748,7 +795,7 @@ BTN = {
     "ab_help":    {"fa": "❓ راهنما",          "en": "❓ Help"},
     "ab_stats":   {"fa": "📊 آمار کتابخانه",   "en": "📊 Library Stats"},
     "ab_top":     {"fa": "⭐ پرطرفدارها",     "en": "⭐ Top Resources"},
-    "ab_about":   {"fa": "🔭 درباره پروژه",    "en": "🔭 About Project"},
+    "ab_about":   {"fa": "💡 درباره پروژه",    "en": "💡 About Project"},
 
     # Advanced search filter buttons
     "sf_lang":       {"fa": "🌐 زبان",            "en": "🌐 Language"},
@@ -772,7 +819,7 @@ BTN = {
     "ra_help":    {"fa": "❓ راهنما",         "en": "❓ Help"},
     "ra_stats":   {"fa": "📊 آمار کتابخانه",  "en": "📊 Library Stats"},
     "ra_top":     {"fa": "⭐ پرطرفدارها",    "en": "⭐ Top Resources"},
-    "ra_about":   {"fa": "🔭 درباره پروژه",   "en": "🔭 About Project"},
+    "ra_about":   {"fa": "💡 درباره پروژه",   "en": "💡 About Project"},
 
     # Back button
     "back": {"fa": "🔙 بازگشت", "en": "🔙 Back"},
