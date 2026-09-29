@@ -609,7 +609,7 @@ def _score_row(row, q: dict, min_cover: Optional[int]) -> Optional[tuple]:
         elif v is q:
             mc = _default_cover(len(q["tokens"]))
         else:   # alias expansion adds tokens; only allow the slack the original query had
-            mc = len(v["tokens"]) - (len(q["tokens"]) - _default_cover(len(q["tokens"])))
+            mc = max(1, len(v["tokens"]) - (len(q["tokens"]) - _default_cover(len(q["tokens"]))))
         res = _score_variant(row, v, mc)
         if res and (best is None or (res[2], -res[0], -res[1]) < (best[2], -best[0], -best[1])):
             best = res
@@ -650,6 +650,10 @@ def _score_variant(row, q: dict, min_cover: int) -> Optional[tuple]:
     disp_sq = _norm(disp).replace(" ", "")
     if disp_sq and (q["hash_id"] or not disp.lstrip("#").isdigit()):
         idents.add(disp_sq)
+        # Also add the no-type-prefix variant so "#QM-7" matches books displayed as "#QM-B7"
+        no_type = re.sub(r'^([a-z]+)[ab](\d+)$', r'\1\2', disp_sq)
+        if no_type != disp_sq:
+            idents.add(no_type)
     if g("field_number") and g("resource_type") != "article":      # legacy "QM-7"
         idents.add(_norm(field_code(g("physics_field"))).replace(" ", "") + g("field_number"))
     doi_sq = _norm(g("doi")).replace(" ", "")
@@ -722,10 +726,10 @@ def _rank_rows(rows, q: dict, order_by: str = "default", min_cover: Optional[int
         if res:
             scored.append((res, idx, row))
     # Fuzzy (typo) matches always come after exact/normal ones.
-    if order_by == "default":
-        scored.sort(key=lambda s: (s[0][2], -s[0][0], -s[0][1], s[1]))
-    else:                                        # "recent"/"popular": keep SQL order within groups
-        scored.sort(key=lambda s: s[0][2])
+    # For all order_by values: sort by (fuzzy, -tier, -score, original_sql_idx).
+    # The original SQL ordering (recent/popular) is preserved as a tiebreak via idx,
+    # so exact matches still rank above weak partial matches even in recent/popular lists.
+    scored.sort(key=lambda s: (s[0][2], -s[0][0], -s[0][1], s[1]))
     return [s[2] for s in scored]
 
 
@@ -775,6 +779,18 @@ def search_resources(
     if q_info is not None:
         with get_connection() as conn:
             rows = conn.execute(f"SELECT * FROM books {where} {order_clause}", params).fetchall()
+            # Build the "known" word set from the full library so that narrow filters
+            # don't prevent real words from suppressing spurious fuzzy matches.
+            if any(len(t) >= 6 and t.isalpha()
+                   for v in (q_info, q_info.get("alt")) if v
+                   for t in v["tokens"]):
+                known: set[str] = set()
+                for r in conn.execute("SELECT title, author FROM books").fetchall():
+                    known.update(_prep(r["title"])[1])
+                    known.update(_prep(r["author"])[1])
+                q_info["known"] = known
+                if q_info.get("alt"):
+                    q_info["alt"]["known"] = known
         return _rank_rows(rows, q_info, order_by)[offset:offset + limit]
 
     sql = f"""

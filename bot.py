@@ -287,20 +287,20 @@ def _send_paginated_list(
 TEXTS = {
     "start": {
         "fa": (
-            r"*📚 به ربات کتابخانه فیزیک خوش آمدید\!*" + "\n\n"
-            r"_این ربات مجموعه‌ای منتخب از کتاب‌ها و مقالات علمی فیزیک را در شاخه‌های مختلف این علم در اختیار شما قرار می‌دهد_\." + "\n\n"
-            r"🔍 *جستجو* \- جستجو در همه منابع\n"
-            r"📂 *کتابخانه* \- کتاب‌ها، مقالات و فیلدهای فیزیک\n"
-            r"🌐 *زبان* \- تغییر زبان رابط\n\n"
-            r"برای راهنمای کامل: *درباره ←\ راهنما* 👇"
+            "<b>📚 به ربات کتابخانه فیزیک خوش آمدید!</b>\n\n"
+            "<i>این ربات مجموعه‌ای منتخب از کتاب‌ها و مقالات علمی فیزیک را در شاخه‌های مختلف این علم در اختیار شما قرار می‌دهد.</i>\n\n"
+            "🔍 <b>جستجو</b> — جستجو در همه منابع\n"
+            "📂 <b>کتابخانه</b> — کتاب‌ها، مقالات و فیلدهای فیزیک\n"
+            "🌐 <b>زبان</b> — تغییر زبان رابط\n\n"
+            "برای راهنمای کامل: <b>درباره ← راهنما</b> 👇"
         ),
         "en": (
-            r"📚 *Welcome to the Physics Library Bot\!*" + "\n\n"
-            r"_This bot provides a curated collection of physics books and research articles across multiple fields of physics\._" + "\n\n"
-            r"🔍 *Search* \- Quickly find any book or article by title or keywords\." + "\n"
-            r"📂 *Browse* \- Explore the library by category, popularity, or recently added resources\." + "\n"
-            r"🌐 *Language* \- switch interface language\n\n"
-            r"For detailed instructions and additional information, open *About \→ Help* 👇"
+            "<b>📚 Welcome to the Physics Library Bot!</b>\n\n"
+            "<i>This bot provides a curated collection of physics books and research articles across multiple fields of physics.</i>\n\n"
+            "🔍 <b>Search</b> — Quickly find any book or article by title or keywords.\n"
+            "📂 <b>Browse</b> — Explore the library by category, popularity, or recently added resources.\n"
+            "🌐 <b>Language</b> — Switch interface language.\n\n"
+            "For detailed instructions and additional information, open <b>About → Help</b> 👇"
         ),
     },
     "no_books": {
@@ -435,94 +435,93 @@ TEXTS = {
     },
     "about_project": {
         "fa": (
-            r"درباره پروژه" + "\n\n"
+            "<b>درباره پروژه</b>\n\n"
             "کتابخانه فیزیک یک ربات تلگرام است که با هدف فراهم کردن دسترسی آسان به مجموعه‌ای رو‌به‌رشد از کتاب‌ها و مقالات علمی فیزیک طراحی شده است.\n"
             "این کتابخانه طیف گسترده‌ای از شاخه‌های فیزیک، از مباحث پایه تا زمینه‌های تخصصی، را پوشش می‌دهد و تلاش می‌کند دانشجویان، پژوهشگران و علاقه‌مندان به فیزیک بتوانند منابع موردنیاز خود را به‌سادگی پیدا کنند.\n"
             "این پروژه به‌صورت مستمر در حال توسعه است و به مرور زمان کتاب‌ها و مقالات جدیدی به آن افزوده خواهند شد.\n\n"
-            "📬 ارتباط و پشتیبانی: @Kimhmda0705\n"
-            "Version: 4.0"
+            "<b>📬 ارتباط و پشتیبانی:</b> @Kimhmda0705\n"
+            "<i>Version: 4.0</i>"
         ),
         "en": (
-            r"*About the Project*" + "\n\n"
+            "<b>About the Project</b>\n\n"
             "Physics Library is a Telegram bot designed to provide easy access to a growing collection of physics books and research articles.\n"
-            "The library covers a wide range of topics, from foundational physics to specialized fields, and aims to help students, educators, and researchers quickly discover useful learning resources.The project is continuously expanding, with new books and articles being added over time.\n\n"
+            "The library covers a wide range of topics, from foundational physics to specialized fields, and aims to help students, educators, and researchers quickly discover useful learning resources. The project is continuously expanding, with new books and articles being added over time.\n\n"
             "Thank you for using Physics Library and supporting its growth.\n"
-            "📬 Contact & Support: @Kimhmda0705\n"
-            "Version: 4.0"
+            "<b>📬 Contact &amp; Support:</b> @Kimhmda0705\n"
+            "<i>Version: 4.0</i>"
         ),
     },
     "help": {
         "fa": (
-            r"📖 *راهنمای استفاده از کتابخانه فیزیک*" + "\n\n"
+            "<b>📖 راهنمای استفاده از کتابخانه فیزیک</b>\n\n"
 
-            r"📚 *پیدا کردن منابع فیزیک*" + "\n"
-            r"از بخش *جستجو* برای پیدا کردن سریع کتاب‌ها و مقالات پژوهشی بر اساس عنوان، نویسنده، کلیدواژه، DOI یا سایر اطلاعات موجود استفاده کنید**\\.**" + "\n\n"
+            "<b>📚 پیدا کردن منابع فیزیک</b>\n"
+            "از بخش <b>جستجو</b> برای پیدا کردن سریع کتاب\u200c\u0647\u0627 و مقالات پژوهشی بر اساس عنوان، نویسنده، کلیدواژه، DOI یا سایر اطلاعات موجود استفاده کنید.\n\n"
 
-            r"🔎 *جستجو*" + "\n"
-            r"در تمام منابع کتابخانه جستجو کنید**\\.** می‌توانید نتایج را بر اساس *نوع منبع، زبان و فیلدهای فیزیکی* محدود کنید**\\.**" + "\n\n"
+            "<b>🔎 جستجو</b>\n"
+            "در تمام منابع کتابخانه جستجو کنید. می\u200cتوانید نتایج را بر اساس <b>نوع منبع، زبان و فیلدهای فیزیکی</b> محدود کنید.\n\n"
 
-            r"📂 *کتابخانه*" + "\n"
-            r"بدون نیاز به جستجوی یک منبع خاص، در کتابخانه کاوش کنید**:**" + "\n"
-            r"• 📕 *کتاب‌ها* **\\-** مشاهده همه کتاب‌ها یا مرور آن‌ها بر اساس حوزه، محبوبیت یا منابع تازه‌اضافه‌شده" + "\n"
-            r"• 📄 *مقالات* **\\-** مرور مقالات پژوهشی به همین شیوه" + "\n"
-            r"• 🌌 *حوزه‌های فیزیک* **\\-** کاوش منابع بر اساس موضوعات مختلف فیزیک" + "\n"
-            r"• ⭐ *منابع برتر* **\\-** مشاهده پرمخاطب‌ترین منابع کتابخانه" + "\n"
-            r"• 🆕 *تازه‌اضافه‌شده‌ها* **\\-** مشاهده جدیدترین منابع اضافه‌شده به کتابخانه" + "\n\n"
+            "<b>📂 کتابخانه</b>\n"
+            "بدون نیاز به جستجوی یک منبع خاص، در کتابخانه کاوش کنید:\n"
+            "\u2022 📕 <b>کتاب\u200c\u0647\u0627</b> \u2014 مشاهده همه کتاب\u200c\u0647\u0627 یا مرور آن\u200c\u0647\u0627 بر اساس حوزه، محبوبیت یا منابع تازه\u200c\u0627\u0636\u0627\u0641\u0647\u200c\u0634\u062f\u0647\n"
+            "\u2022 📄 <b>مقالات</b> \u2014 مرور مقالات پژوهشی به همین شیوه\n"
+            "\u2022 🌌 <b>حوزه\u200c\u0647\u0627\u06cc فیزیک</b> \u2014 کاوش منابع بر اساس موضوعات مختلف فیزیک\n"
+            "\u2022 ⭐ <b>منابع برتر</b> \u2014 مشاهده پرمخاطب\u200c\u062a\u0631\u06cc\u0646 منابع کتابخانه\n"
+            "\u2022 🆕 <b>تازه\u200c\u0627\u0636\u0627\u0641\u0647\u200c\u0634\u062f\u0647\u200c\u0647\u0627</b> \u2014 مشاهده جدیدترین منابع اضافه\u200c\u0634\u062f\u0647 به کتابخانه\n\n"
 
-            r"🔖 *ذخیره شده ها*" + "\n"
-            r"منابع موردنظر خود را ذخیره کنید تا بعداً به آن‌ها دسترسی داشته باشید**\\.** کتاب‌ها و مقالات نشان‌شده از منوی اصلی در دسترس هستند**\\.**" + "\n\n"
+            "<b>🔖 ذخیره\u200c\u0634\u062f\u0647\u200c\u0647\u0627</b>\n"
+            "منابع موردنظر خود را ذخیره کنید تا بعداً به آن\u200c\u0647\u0627 دسترسی داشته باشید. کتاب\u200c\u0647\u0627 و مقالات نشان\u200c\u0634\u062f\u0647 از منوی اصلی در دسترس هستند.\n\n"
 
-            r"📥 *تاریخچه دانلودها*" + "\n"
-            r"منابعی را که قبلاً دانلود کرده‌اید مشاهده کنید**\\.**" + "\n\n"
+            "<b>📥 تاریخچه دانلودها</b>\n"
+            "منابعی را که قبلاً دانلود کرده\u200c\u0627\u06cc\u062f مشاهده کنید.\n\n"
 
-            r"🔔 *دنبال کردن فیلدهای فیزیک*" + "\n"
-            r"با دنبال کردن فیلد موردنظر **\\.**" + "\n\n"
+            "<b>🔔 دنبال کردن فیلدهای فیزیک</b>\n"
+            "با دنبال کردن فیلد موردنظر، هر بار که منبع جدیدی در آن فیلد اضافه شود اطلاع\u200c\u0631\u0633\u0627\u0646\u06cc دریافت می\u200cکنید.\n\n"
 
-            r"⭐ *امتیازدهی به منابع*" + "\n"
-            r"پس از دانلود یک منبع، می‌توانید به آن امتیاز دهید و به بهبود کتابخانه برای سایر کاربران کمک کنید**\\.**" + "\n\n"
+            "<b>⭐ امتیازدهی به منابع</b>\n"
+            "پس از دانلود یک منبع، می\u200cتوانید به آن امتیاز دهید و به بهبود کتابخانه برای سایر کاربران کمک کنید.\n\n"
 
-            r"🌐 *زبان*" + "\n"
-            r"زبان رابط کاربری ربات را بین *فارسی و English* تغییر دهید**\\.** انتخاب زبان فقط رابط کاربری را تغییر می‌دهد و جستجوی شما را به منابع یک زبان خاص محدود نمی‌کند**\\.**" + "\n\n"
+            "<b>🌐 زبان</b>\n"
+            "زبان رابط کاربری ربات را بین <b>فارسی</b> و <b>English</b> تغییر دهید. انتخاب زبان فقط رابط کاربری را تغییر می\u200cدهد و جستجوی شما را به منابع یک زبان خاص محدود نمی\u200cکند.\n\n"
 
-            r"💡 *نکته*" + "\n"
-            r"هر زمان که مسیر خود را گم کردید، می‌توانید به منوی اصلی برگردید یا از دستور `/start` استفاده کنید**\\.**"
+            "<b>💡 نکته</b>\n"
+            "هر زمان که مسیر خود را گم کردید، می\u200cتوانید به منوی اصلی برگردید یا از دستور /start استفاده کنید."
         ),
-        
+
         "en": (
-            r"📖 *How to use the Physics Library*" + "\n\n"
+            "<b>📖 How to use the Physics Library</b>\n\n"
 
-            r"📚 *Find physics resources*" + "\n"
-            r"Use *Search* to quickly find books and research articles by title, author, keywords, DOI, or other available information**\\.**" + "\n\n"
+            "<b>📚 Find physics resources</b>\n"
+            "Use <b>Search</b> to quickly find books and research articles by title, author, keywords, DOI, or other available information.\n\n"
 
-            r"🔎 *Search*" + "\n"
-            r"Search across the entire library**\\.** You can refine your results by *resource type, language, and physics field**\\.**" + "\n\n"
+            "<b>🔎 Search</b>\n"
+            "Search across the entire library. You can refine your results by <b>resource type, language, and physics field</b>.\n\n"
 
-            r"📂 *Browse*" + "\n"
-            r"Explore the library without searching for a specific resource**:**" + "\n"
-            r"• 📕 *Books* **\\-** browse all books or explore them by field, popularity, or recently added" + "\n"
-            r"• 📄 *Articles* **\\-** browse research articles in the same way" + "\n"
-            r"• 🌌 *Physics Fields* **\\-** explore resources organized by physics topics" + "\n"
-            r"• ⭐ *Top Resources* **\\-** discover the most downloaded resources" + "\n"
-            r"• 🆕 *Recently Added* **\\-** see the latest additions to the library" + "\n\n"
+            "<b>📂 Browse</b>\n"
+            "Explore the library without searching for a specific resource:\n"
+            "\u2022 📕 <b>Books</b> \u2014 browse all books or explore them by field, popularity, or recently added\n"
+            "\u2022 📄 <b>Articles</b> \u2014 browse research articles in the same way\n"
+            "\u2022 🌌 <b>Physics Fields</b> \u2014 explore resources organized by physics topics\n"
+            "\u2022 ⭐ <b>Top Resources</b> \u2014 discover the most downloaded resources\n"
+            "\u2022 🆕 <b>Recently Added</b> \u2014 see the latest additions to the library\n\n"
 
-            r"🔖 *Bookmarks*" + "\n"
-            r"Save resources you want to return to later**\\.** Your bookmarked books and articles are available from the main menu**\\.**" + "\n\n"
+            "<b>🔖 Bookmarks</b>\n"
+            "Save resources you want to return to later. Your bookmarked books and articles are available from the main menu.\n\n"
 
-            r"📥 *Download History*" + "\n"
-            r"View the resources you have previously downloaded**\\.**" + "\n\n"
+            "<b>📥 Download History</b>\n"
+            "View the resources you have previously downloaded.\n\n"
 
-            r"🔔 *Field Subscriptions*" + "\n"
-            r"Subscribe to a physics field to receive notifications when new resources are added to that field**\\.**" + "\n\n"
+            "<b>🔔 Field Subscriptions</b>\n"
+            "Subscribe to a physics field to receive notifications when new resources are added to that field.\n\n"
 
-            r"⭐ *Rate Resources*" + "\n"
-            r"After downloading a resource, you can rate it to help improve the library for other users**\\.**" + "\n\n"
+            "<b>⭐ Rate Resources</b>\n"
+            "After downloading a resource, you can rate it to help improve the library for other users.\n\n"
 
+            "<b>🌐 Language</b>\n"
+            "Switch the bot interface between <b>English</b> and <b>\u0641\u0627\u0631\u0633\u06cc</b>. Your language choice only changes the interface; it does not limit your search results.\n\n"
 
-            r"🌐 *Language*" + "\n"
-            r"Switch the bot interface between *English and فارسی**\\.** Your language choice only changes the interface; it does not limit your search results**\\.**" + "\n\n"
-
-            r"💡 *Tip*" + "\n"
-            r"You can always return to the main menu or use `/start` if you get lost**\\.**"
+            "<b>💡 Tip</b>\n"
+            "You can always return to the main menu or use /start if you get lost."
         ),
 
     },
@@ -1102,7 +1101,7 @@ def send_home(chat_id: int, user: types.User):
         chat_id,
         t(user, "start"),
         reply_markup=main_keyboard(user),
-        parse_mode="MarkdownV2"
+        parse_mode="HTML"
     )
 
 
@@ -1305,29 +1304,29 @@ def text_handler(message: types.Message):
 
     # ── About submenu Reply Keyboard buttons ───────────────────────────────
     elif text in (BTN["ra_help"]["fa"], BTN["ra_help"]["en"]):
-        bot.send_message(message.chat.id, t(user, "help"), reply_markup=about_reply_keyboard(user))
+        bot.send_message(message.chat.id, t(user, "help"), reply_markup=about_reply_keyboard(user), parse_mode="HTML")
 
     elif text in (BTN["ra_stats"]["fa"], BTN["ra_stats"]["en"]):
         s = database.get_library_stats()
         if lang == "fa":
             stats_text = (
-                f"📊 آمار کتابخانه\n\n"
-                f"📘 کتاب‌ها: {s['total_books']}\n"
-                f"📄 مقالات: {s.get('total_articles', 0)}\n"
-                f"فارسی: {s['fa_books']}  |  انگلیسی: {s['en_books']}\n"
-                f"⬇️ کل دانلودها: {s['total_downloads']}\n"
-                f"🌌 فیلدهای فعال: {s['unique_fields']}"
+                f"<b>📊 آمار کتابخانه</b>\n\n"
+                f"📘 کتاب‌ها: <b>{s['total_books']}</b>\n"
+                f"📄 مقالات: <b>{s.get('total_articles', 0)}</b>\n"
+                f"<i>🌐 فارسی: {s['fa_books']}  |  انگلیسی: {s['en_books']}</i>\n"
+                f"⬇️ کل دانلودها: <b>{s['total_downloads']}</b>\n"
+                f"🌌 فیلدهای فعال: <b>{s['unique_fields']}</b>"
             )
         else:
             stats_text = (
-                f"📊 Library Stats\n\n"
-                f"📕 Books: {s['total_books']}\n"
-                f"📄 Articles: {s.get('total_articles', 0)}\n"
-                f"Persian: {s['fa_books']}  |  English: {s['en_books']}\n"
-                f"⬇️ Total Downloads: {s['total_downloads']}\n"
-                f"🌌 Active Fields: {s['unique_fields']}"
+                f"<b>📊 Library Stats</b>\n\n"
+                f"📕 Books: <b>{s['total_books']}</b>\n"
+                f"📄 Articles: <b>{s.get('total_articles', 0)}</b>\n"
+                f"<i>🌐 Persian: {s['fa_books']}  |  English: {s['en_books']}</i>\n"
+                f"⬇️ Total Downloads: <b>{s['total_downloads']}</b>\n"
+                f"🌌 Active Fields: <b>{s['unique_fields']}</b>"
             )
-        bot.send_message(message.chat.id, stats_text, reply_markup=about_reply_keyboard(user))
+        bot.send_message(message.chat.id, stats_text, reply_markup=about_reply_keyboard(user), parse_mode="HTML")
 
     elif text in (BTN["ra_top"]["fa"], BTN["ra_top"]["en"]):
         probe = database.get_top_downloads(limit=1, offset=0)
@@ -1335,7 +1334,7 @@ def text_handler(message: types.Message):
                            pg_context="top_all|")
 
     elif text in (BTN["ra_about"]["fa"], BTN["ra_about"]["en"]):
-        bot.send_message(message.chat.id, t(user, "about_project"), reply_markup=about_reply_keyboard(user))
+        bot.send_message(message.chat.id, t(user, "about_project"), reply_markup=about_reply_keyboard(user), parse_mode="HTML")
 
     # ── backward-compat: old reply-keyboard buttons still work ─────────────
     elif text == btn(user, "books"):
@@ -1347,7 +1346,7 @@ def text_handler(message: types.Message):
     elif text == btn(user, "top"):
         handle_top(message)
     elif text == btn(user, "help"):
-        bot.send_message(message.chat.id, t(user, "help"), reply_markup=main_keyboard(user))
+        bot.send_message(message.chat.id, t(user, "help"), reply_markup=main_keyboard(user), parse_mode="HTML")
 
     elif text not in all_btns:
         send_home(message.chat.id, user)
@@ -1470,25 +1469,25 @@ def handle_stats(message: types.Message, user_override: types.User = None,
 
     if lang == "fa":
         text = (
-            f"📊 آمار کتابخانه\n\n"
-            f"📘 کتاب‌ها: {s['total_books']}\n"
-            f"📄 مقالات: {s.get('total_articles', 0)}\n"
-            f"فارسی: {s['fa_books']}  |  انگلیسی: {s['en_books']}\n"
-            f"⬇️ کل دانلودها: {s['total_downloads']}\n"
-            f"🌌 فیلدهای فعال: {s['unique_fields']}"
+            f"<b>📊 آمار کتابخانه</b>\n\n"
+            f"📘 کتاب‌ها: <b>{s['total_books']}</b>\n"
+            f"📄 مقالات: <b>{s.get('total_articles', 0)}</b>\n"
+            f"<i>🌐 فارسی: {s['fa_books']}  |  انگلیسی: {s['en_books']}</i>\n"
+            f"⬇️ کل دانلودها: <b>{s['total_downloads']}</b>\n"
+            f"🌌 فیلدهای فعال: <b>{s['unique_fields']}</b>"
         )
     else:
         text = (
-            f"📊 Library Stats\n\n"
-            f"📕 Books: {s['total_books']}\n"
-            f"📄 Articles: {s.get('total_articles', 0)}\n"
-            f"Persian: {s['fa_books']}  |  English: {s['en_books']}\n"
-            f"⬇️ Total Downloads: {s['total_downloads']}\n"
-            f"🌌 Active Fields: {s['unique_fields']}"
+            f"<b>📊 Library Stats</b>\n\n"
+            f"📕 Books: <b>{s['total_books']}</b>\n"
+            f"📄 Articles: <b>{s.get('total_articles', 0)}</b>\n"
+            f"<i>🌐 Persian: {s['fa_books']}  |  English: {s['en_books']}</i>\n"
+            f"⬇️ Total Downloads: <b>{s['total_downloads']}</b>\n"
+            f"🌌 Active Fields: <b>{s['unique_fields']}</b>"
         )
 
     markup = reply_markup_override if reply_markup_override is not None else main_keyboard(user)
-    bot.send_message(message.chat.id, text, reply_markup=markup)
+    bot.send_message(message.chat.id, text, reply_markup=markup, parse_mode="HTML")
 
 
 def handle_top(message: types.Message):
@@ -2166,7 +2165,7 @@ def about_callback(callback: types.CallbackQuery):
 
     user_menu_state[user.id] = "about"
     if action == "help":
-        bot.send_message(chat_id, t(user, "help"), reply_markup=about_reply_keyboard(user))
+        bot.send_message(chat_id, t(user, "help"), reply_markup=about_reply_keyboard(user), parse_mode="HTML")
     elif action == "stats":
         handle_stats(callback.message, user_override=user,
                      reply_markup_override=about_reply_keyboard(user))
@@ -2175,7 +2174,7 @@ def about_callback(callback: types.CallbackQuery):
         send_resource_list(chat_id, user, probe, header_key="top_books_header",
                            pg_context="top_all|")
     elif action == "project":
-        bot.send_message(chat_id, t(user, "about_project"), reply_markup=about_reply_keyboard(user))
+        bot.send_message(chat_id, t(user, "about_project"), reply_markup=about_reply_keyboard(user), parse_mode="HTML")
 
 
 def send_field_page(chat_id: int, user: types.User, field_key: str,
@@ -2447,8 +2446,8 @@ def handle_my_bookmarks(message: types.Message):
             f"{icon} {disp} — {res['title'][:35]}",
             callback_data=f"resinfo:{res['id']}"
         ))
-    count_label = f"({len(rows)})"
-    bot.send_message(message.chat.id, count_label, reply_markup=markup)
+    header = f"{TEXTS['bookmarks_header'][lang]} ({len(rows)})"
+    bot.send_message(message.chat.id, header, reply_markup=markup)
 
 
 def handle_my_history(message: types.Message):
@@ -2468,8 +2467,8 @@ def handle_my_history(message: types.Message):
             f"{icon} {disp} — {res['title'][:35]}",
             callback_data=f"resinfo:{res['id']}"
         ))
-    count_label = f"({len(rows)})"
-    bot.send_message(message.chat.id, count_label, reply_markup=markup)
+    header = f"{TEXTS['history_header'][lang]} ({len(rows)})"
+    bot.send_message(message.chat.id, header, reply_markup=markup)
 
 
 print("Bot is running...")

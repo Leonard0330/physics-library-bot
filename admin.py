@@ -204,11 +204,11 @@ T = {
                           "en": "❌ Not a valid SQLite file or incompatible schema."},
     "restore_confirm_prompt": {
         "fa": "⚠️ بکاپ اضطراری ساخته شد و برای ادمین‌ها ارسال شد.\n"
-              "برای تأیید ریستور عبارت زیر را **عیناً** تایپ کن:\n\n"
-              "`CONFIRM RESTORE`",
+              "برای تأیید ریستور عبارت زیر را <b>عیناً</b> تایپ کن:\n\n"
+              "<code>CONFIRM RESTORE</code>",
         "en": "⚠️ Emergency backup created and sent to admins.\n"
-              "To confirm the restore, type **exactly**:\n\n"
-              "`CONFIRM RESTORE`"},
+              "To confirm the restore, type <b>exactly</b>:\n\n"
+              "<code>CONFIRM RESTORE</code>"},
     "restore_cancelled":{"fa": "↩️ ریستور لغو شد.",                "en": "↩️ Restore cancelled."},
     "restore_timeout":  {"fa": "⏱ تایم‌اوت ریستور. دوباره /restore بزن.",
                           "en": "⏱ Restore timed out. Run /restore again."},
@@ -1073,7 +1073,7 @@ def handle_restore_document(bot, message: types.Message) -> bool:
     sess["step"] = "wait_confirm"
     sess["tmp_db_path"] = tmp_path
     sess["emergency_path"] = em_path
-    bot.send_message(message.chat.id, tr("restore_confirm_prompt", lang), parse_mode="Markdown")
+    bot.send_message(message.chat.id, tr("restore_confirm_prompt", lang), parse_mode="HTML")
     return True
 
 
@@ -2663,39 +2663,39 @@ def _show_stats(bot, message: types.Message, lang: str):
     header = tr("stats_header", lang)
     if lang == "fa":
         pending_line = (
-            f"\n⏳ در انتظار انتشار: {s['pending_total']}"
+            f"\n⏳ در انتظار انتشار: <b>{s['pending_total']}</b>"
             + (f"\n  • منتظر فایل: {s['pending_awaiting_file']}" if s['pending_awaiting_file'] else "")
             + (f"\n  • فایل دریافت شده: {s['pending_file_received']}" if s['pending_file_received'] else "")
             if s['pending_total'] else "\n✅ هیچ منبع در انتظاری وجود ندارد"
         )
         text = (
-            f"{header}\n\n"
-            f"📚 کتاب‌ها: {s['total_books']}\n"
-            f"📄 مقالات: {s['total_articles']}\n"
-            f"🌐 فارسی: {s['fa_books']} | انگلیسی: {s['en_books']}\n"
-            f"⬇️ کل دانلودها: {s['total_downloads']}\n"
-            f"🌌 فیلدهای فعال: {s['unique_fields']}\n"
-            f"👥 کل کاربران: {s['total_users']}"
+            f"<b>{header}</b>\n\n"
+            f"📚 کتاب‌ها: <b>{s['total_books']}</b>\n"
+            f"📄 مقالات: <b>{s['total_articles']}</b>\n"
+            f"<i>🌐 فارسی: {s['fa_books']} | انگلیسی: {s['en_books']}</i>\n"
+            f"⬇️ کل دانلودها: <b>{s['total_downloads']}</b>\n"
+            f"🌌 فیلدهای فعال: <b>{s['unique_fields']}</b>\n"
+            f"👥 کل کاربران: <b>{s['total_users']}</b>"
             f"{pending_line}"
         )
     else:
         pending_line = (
-            f"\n⏳ Pending: {s['pending_total']}"
+            f"\n⏳ Pending: <b>{s['pending_total']}</b>"
             + (f"\n  • Awaiting file: {s['pending_awaiting_file']}" if s['pending_awaiting_file'] else "")
             + (f"\n  • File received: {s['pending_file_received']}" if s['pending_file_received'] else "")
             if s['pending_total'] else "\n✅ No pending resources"
         )
         text = (
-            f"{header}\n\n"
-            f"📚 Books: {s['total_books']}\n"
-            f"📄 Articles: {s['total_articles']}\n"
-            f"🌐 Persian: {s['fa_books']} | English: {s['en_books']}\n"
-            f"⬇️ Total Downloads: {s['total_downloads']}\n"
-            f"🌌 Active Fields: {s['unique_fields']}\n"
-            f"👥 Total Users: {s['total_users']}"
+            f"<b>{header}</b>\n\n"
+            f"📚 Books: <b>{s['total_books']}</b>\n"
+            f"📄 Articles: <b>{s['total_articles']}</b>\n"
+            f"<i>🌐 Persian: {s['fa_books']} | English: {s['en_books']}</i>\n"
+            f"⬇️ Total Downloads: <b>{s['total_downloads']}</b>\n"
+            f"🌌 Active Fields: <b>{s['unique_fields']}</b>\n"
+            f"👥 Total Users: <b>{s['total_users']}</b>"
             f"{pending_line}"
         )
-    bot.send_message(message.chat.id, text, reply_markup=admin_keyboard(lang))
+    bot.send_message(message.chat.id, text, reply_markup=admin_keyboard(lang), parse_mode="HTML")
 
 
 def _show_admins(bot, message: types.Message, lang: str):
@@ -2703,8 +2703,8 @@ def _show_admins(bot, message: types.Message, lang: str):
     if not rows:
         bot.send_message(message.chat.id, tr("no_admins", lang), reply_markup=admins_menu_keyboard(lang))
         return
-    lines = [tr("admins_list_header", lang)]
+    lines = [f"<b>{tr('admins_list_header', lang)}</b>"]
     for a in rows:
         name = a["first_name"] or a["username"] or "-"
-        lines.append(f"🆔 {a['user_id']} — {name}")
-    bot.send_message(message.chat.id, "\n".join(lines), reply_markup=admins_menu_keyboard(lang))
+        lines.append(f"🆔 <code>{a['user_id']}</code> — <i>{name}</i>")
+    bot.send_message(message.chat.id, "\n".join(lines), reply_markup=admins_menu_keyboard(lang), parse_mode="HTML")
