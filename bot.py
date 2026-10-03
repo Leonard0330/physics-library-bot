@@ -1,4 +1,5 @@
 import os
+import logging
 import telebot
 from telebot import types
 import database
@@ -105,6 +106,9 @@ database.init_db()
 
 user_langs: dict[int, str] = {}
 waiting_search: set[int] = set()
+# Users currently composing a Contact Us message (per-user, cleared on send/cancel)
+waiting_contact: set[int] = set()
+CONTACT_MAX_LEN = 3500
 
 # Advanced search filter state
 search_filters: dict[int, dict] = {}
@@ -433,6 +437,40 @@ TEXTS = {
         "fa": "ℹ️ درباره — یه گزینه انتخاب کن:",
         "en": "ℹ️ About — choose an option:"
     },
+    "contact_prompt": {
+        "fa": (
+            "📩 <b>تماس با ما</b>\n\n"
+            "پیام خودت رو بنویس و بفرست. می‌تونی منبع جامانده، اطلاعات نادرست، مشکل فنی، "
+            "درخواست افزودن کتاب یا مقاله، پیشنهاد یا هر سؤال دیگه‌ای رو برای ادمین‌ها بفرستی.\n\n"
+            "برای انصراف روی «❌ لغو» بزن."
+        ),
+        "en": (
+            "📩 <b>Contact Us</b>\n\n"
+            "Type your message and send it. You can report a missing resource, incorrect information, "
+            "a technical problem, request a book or article, share a suggestion, or ask the admins anything.\n\n"
+            "Tap “❌ Cancel” to abort."
+        )
+    },
+    "contact_sent": {
+        "fa": "✅ پیامت با موفقیت برای ادمین‌ها ارسال شد. ممنون!",
+        "en": "✅ Your message was sent to the admins. Thank you!"
+    },
+    "contact_failed": {
+        "fa": "⚠️ ارسال پیام ممکن نشد. لطفاً دوباره امتحان کن یا «❌ لغو» رو بزن.",
+        "en": "⚠️ Couldn't deliver your message. Please try again or tap “❌ Cancel”."
+    },
+    "contact_cancelled": {
+        "fa": "↩️ ارسال پیام لغو شد.",
+        "en": "↩️ Message cancelled."
+    },
+    "contact_invalid": {
+        "fa": "❗️ لطفاً یک پیام متنی (یا عکس/فایل) بفرست، یا «❌ لغو» رو بزن.",
+        "en": "❗️ Please send a text message (or photo/file), or tap “❌ Cancel”."
+    },
+    "contact_too_long": {
+        "fa": "❗️ پیام خیلی طولانیه. لطفاً کوتاه‌ترش کن (حداکثر {n} کاراکتر).",
+        "en": "❗️ Your message is too long. Please shorten it (max {n} characters)."
+    },
     "about_project": {
         "fa": (
             "<b>درباره پروژه</b>\n\n"
@@ -455,7 +493,7 @@ TEXTS = {
         "fa": (
             "<b>📖 راهنمای استفاده از کتابخانه فیزیک</b>\n\n"
 
-            "<b>📚 پیدا کردن منابع فیزیک</b>\n"
+            "<b>📚 پیدا کردن منابع</b>\n"
             "از بخش <b>جستجو</b> برای پیدا کردن سریع کتاب\u200c\u0647\u0627 و مقالات پژوهشی بر اساس عنوان، نویسنده، کلیدواژه، DOI یا سایر اطلاعات موجود استفاده کنید.\n\n"
 
             "<b>🔎 جستجو</b>\n"
@@ -491,7 +529,7 @@ TEXTS = {
         "en": (
             "<b>📖 How to use the Physics Library</b>\n\n"
 
-            "<b>📚 Find physics resources</b>\n"
+            "<b>📚 Find Physics resources</b>\n"
             "Use <b>Search</b> to quickly find books and research articles by title, author, keywords, DOI, or other available information.\n\n"
 
             "<b>🔎 Search</b>\n"
@@ -793,7 +831,7 @@ BTN = {
     # About sub-menu inline buttons
     "ab_help":    {"fa": "❓ راهنما",          "en": "❓ Help"},
     "ab_stats":   {"fa": "📊 آمار کتابخانه",   "en": "📊 Library Stats"},
-    "ab_top":     {"fa": "⭐ پرطرفدارها",     "en": "⭐ Top Resources"},
+    "ab_top":     {"fa": "📩 تماس با ما",      "en": "📩 Contact Us"},  # key kept; now Contact Us
     "ab_about":   {"fa": "💡 درباره پروژه",    "en": "💡 About Project"},
 
     # Advanced search filter buttons
@@ -817,7 +855,7 @@ BTN = {
     # Reply keyboard sub-menu items (About)
     "ra_help":    {"fa": "❓ راهنما",         "en": "❓ Help"},
     "ra_stats":   {"fa": "📊 آمار کتابخانه",  "en": "📊 Library Stats"},
-    "ra_top":     {"fa": "⭐ پرطرفدارها",    "en": "⭐ Top Resources"},
+    "ra_top":     {"fa": "📩 تماس با ما",     "en": "📩 Contact Us"},  # key kept; now Contact Us
     "ra_about":   {"fa": "💡 درباره پروژه",   "en": "💡 About Project"},
 
     # Back button
@@ -1093,8 +1131,78 @@ def search_filter_keyboard(user: types.User) -> types.InlineKeyboardMarkup:
     )
     return mk
 
+def _start_contact(chat_id: int, user: types.User):
+    """Enter the Contact Us composing state for this user only."""
+    uid = user.id
+    waiting_search.discard(uid)
+    user_menu_state[uid] = "about"
+    waiting_contact.add(uid)
+    bot.send_message(chat_id, t(user, "contact_prompt"),
+                     reply_markup=cancel_keyboard(user), parse_mode="HTML")
+
+
+def _contact_known_labels() -> set:
+    labels = {BTN[k][l] for k in BTN for l in ("fa", "en")}
+    labels.update({"🌐 English", "🌐 فارسی"})
+    labels.update({admin.tr("open_panel_btn", "fa"), admin.tr("open_panel_btn", "en")})
+    return labels
+
+
+def _forward_contact_to_admins(message: types.Message) -> int:
+    """Send the user's message to every admin independently. Returns #successes."""
+    user = message.from_user
+    uname = f"@{user.username}" if user.username else "—"
+    sent = 0
+    try:
+        admins = database.list_admins()
+    except Exception as exc:
+        logging.error("contact: could not load admin list: %s", exc)
+        return 0
+    for a in admins:
+        admin_id = a["user_id"]
+        a_lang = admin.get_lang(admin_id)
+        if a_lang == "fa":
+            header = (f"📩 پیام جدید از کاربر\n👤 نام: {user.first_name or '—'}\n"
+                      f"🔗 یوزرنیم: {uname}\n🆔 آیدی: {user.id}")
+        else:
+            header = (f"📩 New message from a user\n👤 Name: {user.first_name or '—'}\n"
+                      f"🔗 Username: {uname}\n🆔 ID: {user.id}")
+        try:
+            if message.content_type == "text":
+                bot.send_message(admin_id, f"{header}\n\n{message.text.strip()}")
+            else:
+                bot.send_message(admin_id, header)
+                bot.copy_message(admin_id, message.chat.id, message.message_id)
+            sent += 1
+        except Exception as exc:
+            logging.warning("contact: failed to deliver message from %s to admin %s: %s",
+                            user.id, admin_id, exc)
+    return sent
+
+
+def _finish_contact(message: types.Message):
+    """Deliver the message, then confirm / report failure to the user."""
+    user = message.from_user
+    uid = user.id
+    try:
+        sent = _forward_contact_to_admins(message)
+    except Exception as exc:
+        logging.exception("contact: unexpected error for user %s: %s", uid, exc)
+        sent = 0
+    if sent:
+        waiting_contact.discard(uid)
+        user_menu_state[uid] = "about"
+        bot.send_message(message.chat.id, t(user, "contact_sent"),
+                         reply_markup=about_reply_keyboard(user))
+    else:
+        # Keep the state so the user can retry or press Cancel.
+        bot.send_message(message.chat.id, t(user, "contact_failed"),
+                         reply_markup=cancel_keyboard(user))
+
+
 def send_home(chat_id: int, user: types.User):
     uid = user.id
+    waiting_contact.discard(uid)
     browse_submenu_type.pop(uid, None)
     user_menu_state.pop(uid, None)
     bot.send_message(
@@ -1120,6 +1228,7 @@ def start(message: types.Message):
 # /admin
 @bot.message_handler(commands=["admin"])
 def admin_command(message: types.Message):
+    waiting_contact.discard(message.from_user.id)
     admin.handle_admin_command(bot, message)
 
 # /backup 
@@ -1142,11 +1251,28 @@ def restore_command(message: types.Message):
 # /cancel
 @bot.message_handler(commands=["cancel"])
 def cancel_command(message: types.Message):
+    if message.from_user.id in waiting_contact:
+        waiting_contact.discard(message.from_user.id)
+        user_menu_state[message.from_user.id] = "about"
+        bot.send_message(message.chat.id, t(message.from_user, "contact_cancelled"),
+                         reply_markup=about_reply_keyboard(message.from_user))
+        return
     admin.handle_cancel_command(bot, message)
 
 
 
 # document handler 
+@bot.message_handler(
+    func=lambda m: m.from_user.id in waiting_contact,
+    content_types=["photo", "document", "video", "voice", "audio"],
+)
+def contact_media_handler(message: types.Message):
+    try:
+        _finish_contact(message)
+    except Exception as exc:
+        logging.exception("contact_media_handler error: %s", exc)
+
+
 @bot.message_handler(content_types=["document"])
 def document_handler(message: types.Message):
     admin.handle_admin_document(bot, message)
@@ -1182,6 +1308,7 @@ def text_handler(message: types.Message):
     # Check it first so that an admin in the middle of a panel flow cannot
     # accidentally have "Back" swallowed by the admin text handler.
     if text in (BTN["back"]["fa"], BTN["back"]["en"]):
+        waiting_contact.discard(uid)
         if uid in browse_submenu_type:
             browse_submenu_type.pop(uid, None)
             user_menu_state[uid] = "browse"
@@ -1199,6 +1326,30 @@ def text_handler(message: types.Message):
         else:
             send_home(message.chat.id, user)
         return
+
+    # ── Contact Us composing state ──────────────────────────────────────────
+    if uid in waiting_contact:
+        if text in ("❌ لغو", "❌ Cancel"):
+            waiting_contact.discard(uid)
+            user_menu_state[uid] = "about"
+            bot.send_message(message.chat.id, t(user, "contact_cancelled"),
+                             reply_markup=about_reply_keyboard(user))
+            return
+        if not text:
+            bot.send_message(message.chat.id, t(user, "contact_invalid"),
+                             reply_markup=cancel_keyboard(user))
+            return
+        if text in _contact_known_labels():
+            # User pressed another menu button: leave contact mode, handle normally.
+            waiting_contact.discard(uid)
+        elif len(text) > CONTACT_MAX_LEN:
+            bot.send_message(message.chat.id,
+                             t(user, "contact_too_long").format(n=CONTACT_MAX_LEN),
+                             reply_markup=cancel_keyboard(user))
+            return
+        else:
+            _finish_contact(message)
+            return
 
     if admin.handle_admin_text(bot, message):
         return
@@ -1329,9 +1480,7 @@ def text_handler(message: types.Message):
         bot.send_message(message.chat.id, stats_text, reply_markup=about_reply_keyboard(user), parse_mode="HTML")
 
     elif text in (BTN["ra_top"]["fa"], BTN["ra_top"]["en"]):
-        probe = database.get_top_downloads(limit=1, offset=0)
-        send_resource_list(message.chat.id, user, probe, header_key="top_books_header",
-                           pg_context="top_all|")
+        _start_contact(message.chat.id, user)   # was Top Resources; now Contact Us
 
     elif text in (BTN["ra_about"]["fa"], BTN["ra_about"]["en"]):
         bot.send_message(message.chat.id, t(user, "about_project"), reply_markup=about_reply_keyboard(user), parse_mode="HTML")
@@ -2169,10 +2318,8 @@ def about_callback(callback: types.CallbackQuery):
     elif action == "stats":
         handle_stats(callback.message, user_override=user,
                      reply_markup_override=about_reply_keyboard(user))
-    elif action == "top":
-        probe = database.get_top_downloads(limit=1, offset=0)
-        send_resource_list(chat_id, user, probe, header_key="top_books_header",
-                           pg_context="top_all|")
+    elif action == "top":   # callback name kept; now Contact Us
+        _start_contact(chat_id, user)
     elif action == "project":
         bot.send_message(chat_id, t(user, "about_project"), reply_markup=about_reply_keyboard(user), parse_mode="HTML")
 
