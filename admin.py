@@ -462,7 +462,7 @@ T.update({
     "btn_next":           _t("⏭ بعدی", "⏭ Next"),
     "btn_next_nofile":    _t("⏭ بعدی بدون فایل", "⏭ Next w/o file"),
     "btn_back_list":      _t("📋 بازگشت به لیست", "📋 Back to list"),
-    "btn_quick":          _t("🚀 افزودن سریع فایل‌ها ({n})", "🚀 Quick-add files ({n})"),
+    "btn_quick":          _t("📥 افزودن سریع فایل‌ها ({n})", "📥 Quick-add files ({n})"),
     "btn_search":         _t("🔎 جستجو", "🔎 Search"),
     "btn_q_skip":         _t("⏭ رد شدن", "⏭ Skip"),
     "btn_q_stop":         _t("⏹ توقف", "⏹ Stop"),
@@ -487,10 +487,10 @@ T.update({
     "pending_no_more":     _t("ℹ️ منبع دیگه‌ای در این فهرست نیست.", "ℹ️ No more resources in this list."),
 
     # Quick (queue) mode
-    "queue_start":  _t("🚀 حالت سریع شروع شد.\nفقط فایل‌ها رو یکی‌یکی بفرست؛ بعد از هر فایل خودکار می‌رم سراغ منبع بعدی.",
-                       "🚀 Quick mode started.\nJust send the files one by one; after each file I jump to the next resource."),
-    "queue_header": _t("🚀 حالت سریع — {left} منبع بدون فایل باقی مونده",
-                       "🚀 Quick mode — {left} resource(s) still without a file"),
+    "queue_start":  _t("📥 حالت سریع شروع شد.\nفقط فایل‌ها رو یکی‌یکی بفرست؛ بعد از هر فایل خودکار می‌رم سراغ منبع بعدی.",
+                       "📥 Quick mode started.\nJust send the files one by one; after each file I jump to the next resource."),
+    "queue_header": _t("📥 حالت سریع — {left} منبع بدون فایل باقی مونده",
+                       "📥 Quick mode — {left} resource(s) still without a file"),
     "queue_hint":   _t("📎 فایل همین منبع رو همین الان بفرست.",
                        "📎 Send this resource's file right now."),
     "queue_saved":  _t("✅ P{pid} — {title}\n📁 {fname}", "✅ P{pid} — {title}\n📁 {fname}"),
@@ -2664,6 +2664,7 @@ def _pending_list_page(bot, chat_id: int, lang: str, filter_key: str, page: int,
         rtype = "📘" if r["resource_type"] == "book" else "📄"
         fmark = "✅" if r["file_id"] else "⏳"
         title = (r["title"] or "")[:34]
+        lines.append(f"  {fmark} P{pid} — {(r['title'] or '')[:40]} | {(r['author'] or '')[:20]}")
         markup.add(types.InlineKeyboardButton(f"{fmark} P{pid} {rtype} {title}",
                                               callback_data=f"adm_pnd:detail:{pid}"))
 
