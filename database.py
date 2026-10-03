@@ -84,8 +84,25 @@ def get_display_id(resource: "sqlite3.Row | dict") -> str:
     return f"#{resource['id']}"
 
 
+class _AutoClosingConnection(sqlite3.Connection):
+    """sqlite3.Connection, used as a context manager, only commits/rolls
+    back the current transaction on `__exit__` — it does NOT close the
+    connection. Every ``with get_connection() as conn:`` block in this
+    codebase (there are dozens) assumed the connection would also be
+    closed, so each call was silently leaking a connection / file handle.
+    This subclass closes the connection once the `with` block exits, which
+    fixes every existing call site without having to touch each of them.
+    """
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        try:
+            return super().__exit__(exc_type, exc_val, exc_tb)
+        finally:
+            self.close()
+
+
 def get_connection() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, factory=_AutoClosingConnection)
     conn.row_factory = sqlite3.Row         
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA journal_mode = WAL")  
@@ -422,6 +439,11 @@ def add_resource(
     keywords = generate_keywords(physics_field, title, description, language)
 
     with get_connection() as conn:
+        # BEGIN IMMEDIATE grabs the write lock up front, so two admins adding
+        # a resource to the same field at the same time can't both read the
+        # same MAX(field_number) and insert a duplicate — the second
+        # connection blocks until the first commits.
+        conn.execute("BEGIN IMMEDIATE")
         row = conn.execute(
             "SELECT COALESCE(MAX(field_number), 0) AS mx FROM books "
             "WHERE physics_field = ? AND resource_type = ?",
@@ -1299,6 +1321,9 @@ def update_book(book_id: int, **kwargs) -> bool:
 
     with get_connection() as conn:
         if "physics_field" in fields:
+            # Same race as add_resource(): lock before reading MAX(field_number)
+            # so a concurrent edit/add can't be assigned the same number.
+            conn.execute("BEGIN IMMEDIATE")
             current = conn.execute(
                 "SELECT physics_field, resource_type FROM books WHERE id = ?", (book_id,)
             ).fetchone()

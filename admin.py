@@ -451,6 +451,56 @@ T = {
 }
 
 
+def _t(fa: str, en: str) -> dict:
+    return {"fa": fa, "en": en}
+
+
+T.update({
+    # Pending – management buttons
+    "btn_edit_pending":   _t("✏️ ویرایش", "✏️ Edit"),
+    "btn_delete_pending": _t("🗑 حذف", "🗑 Delete"),
+    "btn_next":           _t("⏭ بعدی", "⏭ Next"),
+    "btn_next_nofile":    _t("⏭ بعدی بدون فایل", "⏭ Next w/o file"),
+    "btn_back_list":      _t("📋 بازگشت به لیست", "📋 Back to list"),
+    "btn_quick":          _t("🚀 افزودن سریع فایل‌ها ({n})", "🚀 Quick-add files ({n})"),
+    "btn_search":         _t("🔎 جستجو", "🔎 Search"),
+    "btn_q_skip":         _t("⏭ رد شدن", "⏭ Skip"),
+    "btn_q_stop":         _t("⏹ توقف", "⏹ Stop"),
+    "btn_yes_delete":     _t("🗑 بله، حذف شود", "🗑 Yes, delete"),
+    "btn_no_keep":        _t("↩️ نه، برگرد", "↩️ No, go back"),
+    "edit_field_language": _t("🌐 زبان", "🌐 Language"),
+    "edit_field_rtype":    _t("📂 نوع (کتاب/مقاله)", "📂 Type (book/article)"),
+
+    # Pending – messages
+    "pending_search_ask":  _t("🔎 بخشی از عنوان یا نویسنده رو بنویس:",
+                              "🔎 Type part of the title or author:"),
+    "pending_search_none": _t("🤷 چیزی پیدا نشد.", "🤷 Nothing found."),
+    "pending_search_header": _t("🔎 نتایج جستجو برای «{q}» ({n} مورد):",
+                                "🔎 Results for \"{q}\" ({n}):"),
+    "pending_del_confirm": _t("🗑 این منبع در انتظار برای همیشه حذف بشه؟\n\n🆔 P{pid}\n📘 {title}\n✍ {author}",
+                              "🗑 Permanently delete this pending resource?\n\n🆔 P{pid}\n📕 {title}\n✍ {author}"),
+    "pending_deleted":     _t("🗑 P{pid} حذف شد.", "🗑 P{pid} deleted."),
+    "pending_edit_pick":   _t("✏️ P{pid} — {title}\nکدوم فیلد رو ویرایش کنم؟",
+                              "✏️ P{pid} — {title}\nWhich field do you want to edit?"),
+    "pending_edit_saved":  _t("✅ P{pid} به‌روزرسانی شد.", "✅ P{pid} updated."),
+    "pending_edit_required": _t("❗️ این فیلد نمی‌تونه خالی باشه.", "❗️ This field can't be empty."),
+    "pending_no_more":     _t("ℹ️ منبع دیگه‌ای در این فهرست نیست.", "ℹ️ No more resources in this list."),
+
+    # Quick (queue) mode
+    "queue_start":  _t("🚀 حالت سریع شروع شد.\nفقط فایل‌ها رو یکی‌یکی بفرست؛ بعد از هر فایل خودکار می‌رم سراغ منبع بعدی.",
+                       "🚀 Quick mode started.\nJust send the files one by one; after each file I jump to the next resource."),
+    "queue_header": _t("🚀 حالت سریع — {left} منبع بدون فایل باقی مونده",
+                       "🚀 Quick mode — {left} resource(s) still without a file"),
+    "queue_hint":   _t("📎 فایل همین منبع رو همین الان بفرست.",
+                       "📎 Send this resource's file right now."),
+    "queue_saved":  _t("✅ P{pid} — {title}\n📁 {fname}", "✅ P{pid} — {title}\n📁 {fname}"),
+    "queue_done":   _t("🎉 همه‌ی منابع بدون فایل تموم شد!\n✅ ثبت‌شده در این نوبت: {done}\n📤 آماده انتشار: {ready}",
+                       "🎉 No more resources without a file!\n✅ Saved this round: {done}\n📤 Ready to publish: {ready}"),
+    "queue_stopped": _t("⏹ حالت سریع متوقف شد. ✅ ثبت‌شده: {done}",
+                        "⏹ Quick mode stopped. ✅ Saved: {done}"),
+})
+
+
 def tr(key: str, lang: str, **kwargs) -> str:
     text = T[key][lang if lang in ("fa", "en") else DEFAULT_LANG]
     return text.format(**kwargs) if kwargs else text
@@ -564,15 +614,21 @@ def csv_import_confirm_keyboard(lang: str) -> types.InlineKeyboardMarkup:
     return markup
 
 
-def pending_overview_keyboard(lang: str) -> types.InlineKeyboardMarkup:
+def pending_overview_keyboard(lang: str, no_file: int = 0) -> types.InlineKeyboardMarkup:
     """Inline keyboard shown on the Pending Resources overview screen."""
     markup = types.InlineKeyboardMarkup()
+    if no_file:
+        markup.row(types.InlineKeyboardButton(
+            tr("btn_quick", lang, n=no_file), callback_data="adm_pnd:q_start"))
     markup.row(
         types.InlineKeyboardButton(tr("btn_pending_list_all",    lang), callback_data="adm_pnd:list:all:0"),
         types.InlineKeyboardButton(tr("btn_pending_list_nofile", lang), callback_data="adm_pnd:list:nofile:0"),
     )
     markup.row(
         types.InlineKeyboardButton(tr("btn_pending_list_ready",  lang), callback_data="adm_pnd:list:ready:0"),
+        types.InlineKeyboardButton(tr("btn_search",              lang), callback_data="adm_pnd:search"),
+    )
+    markup.row(
         types.InlineKeyboardButton(tr("btn_pending_enter_id",    lang), callback_data="adm_pnd:enter_id"),
     )
     return markup
@@ -583,28 +639,96 @@ def pending_detail_keyboard(lang: str, pending_id: int, has_file: bool) -> types
     markup = types.InlineKeyboardMarkup()
     file_btn_key = "btn_replace_file" if has_file else "btn_send_file"
     markup.row(
-        types.InlineKeyboardButton(tr(file_btn_key, lang), callback_data=f"adm_pnd:send_file:{pending_id}"),
+        types.InlineKeyboardButton(tr(file_btn_key, lang),         callback_data=f"adm_pnd:send_file:{pending_id}"),
+        types.InlineKeyboardButton(tr("btn_edit_pending", lang),   callback_data=f"adm_pnd:edit:{pending_id}"),
     )
+    row2 = []
     if has_file:
-        markup.row(
-            types.InlineKeyboardButton(tr("btn_publish", lang), callback_data=f"adm_pnd:publish:{pending_id}"),
-        )
+        row2.append(types.InlineKeyboardButton(tr("btn_publish", lang), callback_data=f"adm_pnd:publish:{pending_id}"))
+    row2.append(types.InlineKeyboardButton(tr("btn_delete_pending", lang), callback_data=f"adm_pnd:del:{pending_id}"))
+    markup.row(*row2)
     markup.row(
-        types.InlineKeyboardButton(tr("btn_pending_back", lang), callback_data="adm_pnd:overview"),
+        types.InlineKeyboardButton(tr("btn_back_list", lang), callback_data="adm_pnd:back"),
+        types.InlineKeyboardButton(tr("btn_next", lang),      callback_data=f"adm_pnd:next:{pending_id}"),
+    )
+    return markup
+
+
+def pending_queue_keyboard(lang: str, pending_id: int) -> types.InlineKeyboardMarkup:
+    """Card keyboard used in quick (queue) mode — the file is expected next."""
+    markup = types.InlineKeyboardMarkup()
+    markup.row(
+        types.InlineKeyboardButton(tr("btn_edit_pending", lang),   callback_data=f"adm_pnd:edit:{pending_id}:q"),
+        types.InlineKeyboardButton(tr("btn_delete_pending", lang), callback_data=f"adm_pnd:del:{pending_id}:q"),
+    )
+    markup.row(
+        types.InlineKeyboardButton(tr("btn_q_skip", lang), callback_data=f"adm_pnd:q_skip:{pending_id}"),
+        types.InlineKeyboardButton(tr("btn_q_stop", lang), callback_data="adm_pnd:q_stop"),
     )
     return markup
 
 
 def pending_file_received_keyboard(lang: str, pending_id: int = 0) -> types.InlineKeyboardMarkup:
-    """Inline keyboard shown after a file is successfully attached to a pending resource."""
+    """Inline keyboard shown after a file is attached (non-queue mode)."""
     markup = types.InlineKeyboardMarkup()
     if pending_id:
         markup.row(
             types.InlineKeyboardButton(tr("btn_publish", lang), callback_data=f"adm_pnd:publish:{pending_id}"),
+            types.InlineKeyboardButton(tr("btn_next_nofile", lang), callback_data=f"adm_pnd:next:{pending_id}:nofile"),
         )
     markup.row(
-        types.InlineKeyboardButton(tr("btn_replace_file",   lang), callback_data="adm_pnd:replace_same"),
-        types.InlineKeyboardButton(tr("btn_pending_back",   lang), callback_data="adm_pnd:overview"),
+        types.InlineKeyboardButton(tr("btn_replace_file", lang), callback_data="adm_pnd:replace_same"),
+        types.InlineKeyboardButton(tr("btn_back_list", lang),    callback_data="adm_pnd:back"),
+    )
+    return markup
+
+
+def pending_delete_confirm_keyboard(lang: str, pending_id: int, queue: bool) -> types.InlineKeyboardMarkup:
+    q = ":q" if queue else ""
+    markup = types.InlineKeyboardMarkup()
+    markup.row(
+        types.InlineKeyboardButton(tr("btn_yes_delete", lang), callback_data=f"adm_pnd:do_del:{pending_id}{q}"),
+        types.InlineKeyboardButton(tr("btn_no_keep", lang),
+                                   callback_data=(f"adm_pnd:q_card:{pending_id}" if queue
+                                                  else f"adm_pnd:detail:{pending_id}")),
+    )
+    return markup
+
+
+def pending_edit_keyboard(lang: str, pending_id: int, resource_type: str) -> types.InlineKeyboardMarkup:
+    markup = types.InlineKeyboardMarkup()
+
+    def b(label_key, field):
+        return types.InlineKeyboardButton(tr(label_key, lang), callback_data=f"adm_pnd:ef:{pending_id}:{field}")
+
+    markup.row(b("edit_field_title", "title"),        b("edit_field_author", "author"))
+    markup.row(b("edit_field_physics", "physics_field"), b("edit_field_language", "language"))
+    markup.row(b("edit_field_year", "year"),          b("edit_field_desc", "description"))
+    if resource_type == "article":
+        markup.row(b("edit_field_journal", "journal"), b("edit_field_doi", "doi"))
+        markup.row(b("edit_field_volume", "volume"),   b("edit_field_issue", "issue"))
+        markup.row(b("edit_field_pages", "pages"),     b("edit_field_pub_date", "publication_date"))
+        markup.row(b("edit_field_url", "url"))
+    else:
+        markup.row(b("edit_field_edition", "edition"))
+    markup.row(b("edit_field_rtype", "resource_type"))
+    return markup
+
+
+def pending_lang_keyboard(pending_id: int) -> types.InlineKeyboardMarkup:
+    markup = types.InlineKeyboardMarkup()
+    markup.row(
+        types.InlineKeyboardButton("فارسی",   callback_data=f"adm_pnd:efv:{pending_id}:language:fa"),
+        types.InlineKeyboardButton("English", callback_data=f"adm_pnd:efv:{pending_id}:language:en"),
+    )
+    return markup
+
+
+def pending_rtype_keyboard(lang: str, pending_id: int) -> types.InlineKeyboardMarkup:
+    markup = types.InlineKeyboardMarkup()
+    markup.row(
+        types.InlineKeyboardButton(tr("btn_type_book", lang),    callback_data=f"adm_pnd:efv:{pending_id}:resource_type:book"),
+        types.InlineKeyboardButton(tr("btn_type_article", lang), callback_data=f"adm_pnd:efv:{pending_id}:resource_type:article"),
     )
     return markup
 
@@ -905,15 +1029,20 @@ def handle_backup_command(bot, message: types.Message):
 
 def _validate_restore_db(path: str) -> bool:
     required_tables = {"books", "users", "download_logs"}
+    conn = None
     try:
         conn = sqlite3.connect(path)
         tables = {row[0] for row in conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table'"
         ).fetchall()}
-        conn.close()
         return required_tables.issubset(tables)
     except Exception:
         return False
+    finally:
+        # Previously conn.close() only ran on the success path, so a bad/
+        # corrupt upload (which raises inside the try) leaked the connection.
+        if conn is not None:
+            conn.close()
 
 
 def _do_restore(bot, initiator_uid: int, tmp_db_path: str, emergency_path: str):
@@ -960,6 +1089,32 @@ def _do_restore(bot, initiator_uid: int, tmp_db_path: str, emergency_path: str):
             pass
 
 
+def _expire_restore_session(bot, uid: int) -> None:
+    """Auto-release a restore session that timed out without the admin ever
+    sending another message (previously the RESTORE_TIMEOUT check only ran
+    *inside* handle_restore_document/handle_restore_confirm_text, so an
+    admin who ran /restore and then walked away left the lock held forever,
+    locking every admin out of /backup and /restore indefinitely)."""
+    sess = _restore_sessions.pop(uid, None)
+    if sess is None:
+        return  # already completed/cancelled by the time the timer fired
+    for key in ("emergency_path", "tmp_db_path"):
+        p = sess.get(key)
+        if p:
+            try:
+                os.unlink(p)
+            except Exception:
+                pass
+    try:
+        _backup_restore_lock.release()
+    except RuntimeError:
+        pass
+    try:
+        bot.send_message(uid, tr("restore_timeout", get_lang(uid)))
+    except Exception:
+        pass
+
+
 def handle_restore_command(bot, message: types.Message):
     uid = message.from_user.id
     lang = get_lang(uid)
@@ -970,14 +1125,19 @@ def handle_restore_command(bot, message: types.Message):
         bot.send_message(message.chat.id, tr("backup_busy", lang))
         return
     try:
+        timer = threading.Timer(RESTORE_TIMEOUT, _expire_restore_session, args=(bot, uid))
+        timer.daemon = True
         _restore_sessions[uid] = {
             "step": "wait_file",
             "expire": datetime.now().timestamp() + RESTORE_TIMEOUT,
             "emergency_path": None,
             "tmp_db_path": None,
+            "timer": timer,
         }
+        timer.start()
         bot.send_message(message.chat.id, tr("restore_prompt", lang))
     except Exception:
+        _restore_sessions.pop(uid, None)
         _backup_restore_lock.release()
         raise
 
@@ -992,6 +1152,9 @@ def handle_cancel_command(bot, message: types.Message):
         bot.send_message(message.chat.id, tr("restore_no_session", lang))
         return
     sess = _restore_sessions.pop(uid)
+    timer = sess.get("timer")
+    if timer:
+        timer.cancel()
     # Delete Temporary files
     for key in ("emergency_path", "tmp_db_path"):
         p = sess.get(key)
@@ -1015,6 +1178,9 @@ def handle_restore_document(bot, message: types.Message) -> bool:
     # Check Time-out
     if datetime.now().timestamp() > sess["expire"]:
         _restore_sessions.pop(uid)
+        timer = sess.get("timer")
+        if timer:
+            timer.cancel()
         _backup_restore_lock.release()
         bot.send_message(message.chat.id, tr("restore_timeout", get_lang(uid)))
         return True
@@ -1088,16 +1254,22 @@ def handle_restore_confirm_text(bot, message: types.Message) -> bool:
     
     if datetime.now().timestamp() > sess["expire"]:
         _restore_sessions.pop(uid)
+        timer = sess.get("timer")
+        if timer:
+            timer.cancel()
         _backup_restore_lock.release()
         bot.send_message(message.chat.id, tr("restore_timeout", get_lang(uid)))
         return True
 
     text = message.text.strip()
     lang = get_lang(uid)
+    timer = sess.get("timer")
 
     if text != "CONFIRM RESTORE":
         # Cancel all except CONFIRM RESTORE
         _restore_sessions.pop(uid)
+        if timer:
+            timer.cancel()
         for key in ("emergency_path", "tmp_db_path"):
             p = sess.get(key)
             if p:
@@ -1113,6 +1285,8 @@ def handle_restore_confirm_text(bot, message: types.Message) -> bool:
     tmp_db_path = sess.pop("tmp_db_path", None)
     emergency_path = sess.pop("emergency_path", None)
     _restore_sessions.pop(uid)
+    if timer:
+        timer.cancel()
     try:
         _do_restore(bot, uid, tmp_db_path, emergency_path)
     finally:
@@ -1406,6 +1580,41 @@ def handle_admin_text(bot, message: types.Message) -> bool:
             bot.send_message(message.chat.id, tr("admin_removed", lang, id=target_id))
         admin_sessions.pop(uid, None)
         bot.send_message(message.chat.id, tr("admins_menu_title", lang), reply_markup=admins_menu_keyboard(lang))
+        return True
+
+    # ── Pending: search ────────────────────────────────────────────────────────
+    if step == "wait_pending_search":
+        admin_sessions.pop(uid, None)
+        bot.send_message(message.chat.id, "🔎", reply_markup=admin_keyboard(lang))
+        _pending_search(bot, message.chat.id, lang, text)
+        return True
+
+    # ── Pending: new value for a metadata field ────────────────────────────────
+    if step == "wait_pending_edit_value":
+        sess  = admin_sessions[uid]
+        pid   = sess.get("pending_id")
+        field = sess.get("edit_field")
+        if not pid or field not in _PENDING_TEXT_FIELDS:
+            admin_sessions.pop(uid, None)
+            return True
+        is_skip = text == tr("btn_skip", lang)
+        value: object = text
+        if field in ("title", "author") and (is_skip or not text):
+            bot.send_message(message.chat.id, tr("pending_edit_required", lang))
+            return True
+        if is_skip and field in _PENDING_SKIPPABLE:
+            value = None if field == "year" else ""
+        elif field == "year":
+            try:
+                value = int(text)
+            except ValueError:
+                bot.send_message(message.chat.id, tr("year_not_number", lang))
+                return True
+        if not _pending_update(pid, {field: value}):
+            admin_sessions.pop(uid, None)
+            bot.send_message(message.chat.id, tr("pending_stale", lang, pid=pid), reply_markup=admin_keyboard(lang))
+            return True
+        _after_pending_edit(bot, message.chat.id, uid, lang, pid)
         return True
 
     # ── Phase 3: Pending ID entry ──────────────────────────────────────────────
@@ -1727,6 +1936,7 @@ def handle_admin_callback(bot, callback: types.CallbackQuery) -> bool:
 
         try:
             parts = data.split(":")   # ["adm_pnd", action, ...]
+            chat_id = callback.message.chat.id
             action = parts[1] if len(parts) > 1 else ""
 
             # Overview screen
@@ -1848,6 +2058,148 @@ def handle_admin_callback(bot, callback: types.CallbackQuery) -> bool:
                         )
                 return True
 
+            # ── Back to the list the admin was browsing ───────────────────────────
+            if action == "back":
+                admin_sessions.pop(uid, None)
+                _pending_back_to_list(bot, chat_id, lang)
+                return True
+
+            # ── Next resource: adm_pnd:next:<pid>[:<filter>] ──────────────────────
+            if action == "next":
+                pid = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
+                fk  = parts[3] if len(parts) > 3 else _pending_ctx.get(chat_id, {}).get("filter", "all")
+                nxt = _pending_next(pid, fk)
+                admin_sessions.pop(uid, None)
+                if nxt:
+                    _show_pending_detail(bot, chat_id, lang, nxt["id"])
+                else:
+                    bot.send_message(chat_id, tr("pending_no_more", lang))
+                    _pending_back_to_list(bot, chat_id, lang)
+                return True
+
+            # ── Search ────────────────────────────────────────────────────────────
+            if action == "search":
+                admin_sessions[uid] = {"step": "wait_pending_search"}
+                bot.send_message(chat_id, tr("pending_search_ask", lang), reply_markup=cancel_keyboard(lang))
+                return True
+
+            # ── Quick (queue) mode ────────────────────────────────────────────────
+            if action == "q_start":
+                admin_sessions[uid] = {"step": "wait_pending_file", "pending_id": None,
+                                       "queue": True, "skipped": [], "done": 0}
+                bot.send_message(chat_id, tr("queue_start", lang), reply_markup=cancel_keyboard(lang))
+                _queue_show(bot, chat_id, uid, lang)
+                return True
+
+            if action == "q_skip":
+                pid = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
+                skipped, done = _queue_state(uid)
+                if pid and pid not in skipped:
+                    skipped.append(pid)
+                admin_sessions[uid] = {"step": "wait_pending_file", "pending_id": pid,
+                                       "queue": True, "skipped": skipped, "done": done}
+                _queue_show(bot, chat_id, uid, lang, after_pid=pid)
+                return True
+
+            if action == "q_card":
+                pid = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
+                _queue_show(bot, chat_id, uid, lang, pid_override=pid)
+                return True
+
+            if action == "q_stop":
+                _, done = _queue_state(uid)
+                admin_sessions.pop(uid, None)
+                bot.send_message(chat_id, tr("queue_stopped", lang, done=done), reply_markup=admin_keyboard(lang))
+                _show_pending_overview(bot, chat_id, lang)
+                return True
+
+            # ── Delete: adm_pnd:del:<pid>[:q]  →  adm_pnd:do_del:<pid>[:q] ────────
+            if action == "del":
+                pid   = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
+                queue = len(parts) > 3 and parts[3] == "q"
+                row   = database.get_pending_resource(pid) if pid else None
+                if not row or row["status"] == "published":
+                    bot.send_message(chat_id, tr("pending_stale", lang, pid=pid))
+                    return True
+                bot.send_message(
+                    chat_id,
+                    tr("pending_del_confirm", lang, pid=pid, title=row["title"], author=row["author"] or "-"),
+                    reply_markup=pending_delete_confirm_keyboard(lang, pid, queue),
+                )
+                return True
+
+            if action == "do_del":
+                pid   = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
+                queue = len(parts) > 3 and parts[3] == "q"
+                ok    = _pending_delete(pid) if pid else False
+                bot.send_message(chat_id, tr("pending_deleted", lang, pid=pid) if ok
+                                 else tr("pending_stale", lang, pid=pid))
+                if queue:
+                    _queue_show(bot, chat_id, uid, lang, after_pid=pid)
+                else:
+                    admin_sessions.pop(uid, None)
+                    _pending_back_to_list(bot, chat_id, lang)
+                return True
+
+            # ── Edit metadata ─────────────────────────────────────────────────────
+            # adm_pnd:edit:<pid>[:q] → pick field → adm_pnd:ef:<pid>:<field>
+            if action == "edit":
+                pid   = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
+                queue = len(parts) > 3 and parts[3] == "q"
+                row   = database.get_pending_resource(pid) if pid else None
+                if not row or row["status"] in ("published", "rejected"):
+                    bot.send_message(chat_id, tr("pending_stale", lang, pid=pid))
+                    return True
+                skipped, done = _queue_state(uid) if queue else ([], 0)
+                admin_sessions[uid] = {"step": "edit_pending_choose", "pending_id": pid,
+                                       **({"queue": True, "skipped": skipped, "done": done} if queue else {})}
+                bot.send_message(
+                    chat_id,
+                    tr("pending_edit_pick", lang, pid=pid, title=row["title"]),
+                    reply_markup=pending_edit_keyboard(lang, pid, row["resource_type"]),
+                )
+                return True
+
+            if action == "ef":
+                pid   = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
+                field = parts[3] if len(parts) > 3 else ""
+                if not pid or field not in _PENDING_EDITABLE:
+                    return True
+                sess = admin_sessions.get(uid, {})
+                if field == "physics_field":
+                    bot.send_message(chat_id, tr("ask_field", lang),
+                                     reply_markup=field_keyboard(lang, prefix=f"adm_pnd:efv:{pid}:physics_field"))
+                elif field == "language":
+                    bot.send_message(chat_id, tr("ask_lang", lang), reply_markup=pending_lang_keyboard(pid))
+                elif field == "resource_type":
+                    bot.send_message(chat_id, tr("ask_resource_type", lang),
+                                     reply_markup=pending_rtype_keyboard(lang, pid))
+                else:
+                    sess.update({"step": "wait_pending_edit_value", "pending_id": pid, "edit_field": field})
+                    admin_sessions[uid] = sess
+                    kb = skip_cancel_keyboard(lang) if field in _PENDING_SKIPPABLE else cancel_keyboard(lang)
+                    bot.send_message(chat_id, tr("ask_new_value", lang), reply_markup=kb)
+                return True
+
+            # adm_pnd:efv:<pid>:<field>:<value>   (inline choices)
+            if action == "efv":
+                p = data.split(":", 4)
+                if len(p) < 5 or not p[2].isdigit():
+                    return True
+                pid, field, value = int(p[2]), p[3], p[4]
+                valid = (
+                    (field == "physics_field" and value in database.PHYSICS_FIELDS) or
+                    (field == "language" and value in ("fa", "en")) or
+                    (field == "resource_type" and value in ("book", "article"))
+                )
+                if not valid:
+                    return True
+                if not _pending_update(pid, {field: value}):
+                    bot.send_message(chat_id, tr("pending_stale", lang, pid=pid))
+                    return True
+                _after_pending_edit(bot, chat_id, uid, lang, pid)
+                return True
+
             return True   # unknown adm_pnd sub-action — swallow gracefully
 
         except Exception as _pnd_exc:
@@ -1902,6 +2254,7 @@ def _handle_pending_file_upload(bot, message, uid: int) -> None:
     lang    = get_lang(uid)
     sess    = admin_sessions.get(uid, {})
     pid     = sess.get("pending_id")
+    queue   = bool(sess.get("queue"))
 
     if not pid:
         admin_sessions.pop(uid, None)
@@ -1911,8 +2264,11 @@ def _handle_pending_file_upload(bot, message, uid: int) -> None:
     # Re-fetch the pending row to guard against stale state
     row = database.get_pending_resource(pid)
     if not row or row["status"] in ("published", "rejected"):
-        admin_sessions.pop(uid, None)
         bot.send_message(message.chat.id, tr("pending_stale", lang, pid=pid), reply_markup=admin_keyboard(lang))
+        if queue:
+            _queue_show(bot, message.chat.id, uid, lang, after_pid=pid)
+        else:
+            admin_sessions.pop(uid, None)
         return
 
     doc = message.document
@@ -1921,7 +2277,6 @@ def _handle_pending_file_upload(bot, message, uid: int) -> None:
         bot.send_message(message.chat.id, tr("pending_file_only", lang))
         return  # stay in wait_pending_file
 
-    # Attach the file to the pending resource
     try:
         ok = database.attach_pending_file(
             pending_id=pid,
@@ -1934,22 +2289,27 @@ def _handle_pending_file_upload(bot, message, uid: int) -> None:
         return
 
     if not ok:
-        admin_sessions.pop(uid, None)
         bot.send_message(message.chat.id, tr("pending_stale", lang, pid=pid), reply_markup=admin_keyboard(lang))
+        if queue:
+            _queue_show(bot, message.chat.id, uid, lang, after_pid=pid)
+        else:
+            admin_sessions.pop(uid, None)
         return
 
-    # Success — store last pid BEFORE clearing session so "Replace File" works
-    admin_sessions[uid] = {"step": "pending_file_done", "last_pid": pid}
+    fname = doc.file_name or doc.file_id
 
-    confirmation = tr(
-        "pending_file_saved", lang,
-        pid=pid,
-        title=row["title"],
-        fname=doc.file_name or doc.file_id,
-    )
+    # ── Quick mode: confirm in one line and jump straight to the next resource
+    if queue:
+        admin_sessions[uid] = {**sess, "done": int(sess.get("done", 0)) + 1}
+        bot.send_message(message.chat.id, tr("queue_saved", lang, pid=pid, title=row["title"], fname=fname))
+        _queue_show(bot, message.chat.id, uid, lang, after_pid=pid)
+        return
+
+    # ── Normal mode
+    admin_sessions[uid] = {"step": "pending_file_done", "last_pid": pid}
     bot.send_message(
         message.chat.id,
-        confirmation,
+        tr("pending_file_saved", lang, pid=pid, title=row["title"], fname=fname),
         reply_markup=pending_file_received_keyboard(lang, pending_id=pid),
     )
 
@@ -2215,45 +2575,98 @@ def _show_pending_overview(bot, chat_id: int, lang: str):
         books=stats["books"],
         articles=stats["articles"],
     )
-    bot.send_message(chat_id, text, reply_markup=pending_overview_keyboard(lang))
+    bot.send_message(chat_id, text, reply_markup=pending_overview_keyboard(lang, stats["no_file"]))
+
+
+# Remembers which list/page the admin was browsing so "back" returns there.
+_pending_ctx: dict[int, dict] = {}
+
+_PENDING_SKIPPABLE = {"year", "edition", "description", "doi", "journal",
+                      "volume", "issue", "pages", "publication_date", "url"}
+_PENDING_TEXT_FIELDS = _PENDING_SKIPPABLE | {"title", "author"}
+_PENDING_EDITABLE = _PENDING_TEXT_FIELDS | {"physics_field", "language", "resource_type"}
+
+
+def _pending_rows(filter_key: str = "all") -> list:
+    """Active (not published / rejected) pending rows, ordered by id."""
+    rows = database.list_pending_resources(limit=100_000, offset=0)
+    rows = [r for r in rows if r["status"] not in ("published", "rejected")]
+    if filter_key == "nofile":
+        rows = [r for r in rows if not r["file_id"]]
+    elif filter_key == "ready":
+        rows = [r for r in rows if r["status"] == "file_received"]
+    return sorted(rows, key=lambda r: r["id"])
+
+
+def _pending_next(pid: int, filter_key: str = "all"):
+    rows = _pending_rows(filter_key)
+    after = [r for r in rows if r["id"] > pid]
+    if after:
+        return after[0]
+    if rows and rows[0]["id"] != pid:
+        return rows[0]
+    return None
+
+
+def _pending_update(pid: int, fields: dict) -> bool:
+    """UPDATE a pending row (whitelisted columns only). False if not found / already published."""
+    fields = {k: v for k, v in fields.items() if k in _PENDING_EDITABLE}
+    if not fields:
+        return False
+    conn = sqlite3.connect(database.DB_PATH, timeout=15)
+    try:
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(pending_resources)")}
+        fields = {k: v for k, v in fields.items() if k in cols}
+        if not fields:
+            return False
+        sets = ", ".join(f"{k} = ?" for k in fields)
+        with conn:
+            cur = conn.execute(
+                f"UPDATE pending_resources SET {sets} WHERE id = ? AND status NOT IN ('published')",
+                (*fields.values(), pid),
+            )
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+def _pending_delete(pid: int) -> bool:
+    conn = sqlite3.connect(database.DB_PATH, timeout=15)
+    try:
+        with conn:
+            cur = conn.execute(
+                "DELETE FROM pending_resources WHERE id = ? AND status NOT IN ('published')", (pid,))
+        return cur.rowcount > 0
+    finally:
+        conn.close()
 
 
 def _pending_list_page(bot, chat_id: int, lang: str, filter_key: str, page: int,
                        edit_message_id: int | None = None):
-    """Fetch and display a paginated list of pending resources with select buttons."""
-    status_filter = ""
-    if filter_key == "nofile":
-        # We filter manually after fetching (no direct status filter for "no file")
-        rows_all = database.list_pending_resources(limit=100_000, offset=0)
-        rows_all = [r for r in rows_all if not r["file_id"]]
-    elif filter_key == "ready":
-        rows_all = database.list_pending_resources(status="file_received", limit=100_000, offset=0)
-    else:
-        rows_all = database.list_pending_resources(limit=100_000, offset=0)
+    """Paginated list of pending resources with select buttons."""
+    rows_all = _pending_rows(filter_key)
 
-    total      = len(rows_all)
+    total       = len(rows_all)
     total_pages = max(1, (total + _PENDING_PAGE_SIZE - 1) // _PENDING_PAGE_SIZE)
     page        = max(0, min(page, total_pages - 1))
-    offset      = page * _PENDING_PAGE_SIZE
-    page_rows   = rows_all[offset: offset + _PENDING_PAGE_SIZE]
+    page_rows   = rows_all[page * _PENDING_PAGE_SIZE:(page + 1) * _PENDING_PAGE_SIZE]
+    _pending_ctx[chat_id] = {"filter": filter_key, "page": page}
 
     filter_label = tr(f"pending_filter_{filter_key}", lang)
-    header = tr("pending_list_header", lang,
-                filter=filter_label, page=page + 1, total_pages=total_pages)
-
-    lines = [header]
+    lines = [tr("pending_list_header", lang, filter=filter_label, page=page + 1, total_pages=total_pages)]
     markup = types.InlineKeyboardMarkup()
 
-    for r in page_rows:
-        pid    = r["id"]
-        rtype  = "📘" if r["resource_type"] == "book" else "📄"
-        fmark  = "✅" if r["file_id"] else "⏳"
-        title  = (r["title"] or "")[:30]
-        label  = f"{fmark} P{pid} {rtype} {title}"
-        lines.append(f"  {fmark} P{pid} — {r['title'][:40]} | {r['author'][:20]}")
-        markup.add(types.InlineKeyboardButton(label, callback_data=f"adm_pnd:detail:{pid}"))
+    if not page_rows:
+        lines.append(tr("pending_empty", lang))
 
-    # Pagination row
+    for r in page_rows:
+        pid   = r["id"]
+        rtype = "📘" if r["resource_type"] == "book" else "📄"
+        fmark = "✅" if r["file_id"] else "⏳"
+        title = (r["title"] or "")[:34]
+        markup.add(types.InlineKeyboardButton(f"{fmark} P{pid} {rtype} {title}",
+                                              callback_data=f"adm_pnd:detail:{pid}"))
+
     nav = []
     if page > 0:
         nav.append(types.InlineKeyboardButton("◀️", callback_data=f"adm_pnd:list:{filter_key}:{page - 1}"))
@@ -2261,6 +2674,8 @@ def _pending_list_page(bot, chat_id: int, lang: str, filter_key: str, page: int,
         nav.append(types.InlineKeyboardButton("▶️", callback_data=f"adm_pnd:list:{filter_key}:{page + 1}"))
     if nav:
         markup.row(*nav)
+    if filter_key == "nofile" and total:
+        markup.row(types.InlineKeyboardButton(tr("btn_quick", lang, n=total), callback_data="adm_pnd:q_start"))
     markup.row(types.InlineKeyboardButton(tr("btn_pending_back", lang), callback_data="adm_pnd:overview"))
 
     text = "\n".join(lines)
@@ -2271,6 +2686,33 @@ def _pending_list_page(bot, chat_id: int, lang: str, filter_key: str, page: int,
         except Exception:
             pass
     bot.send_message(chat_id, text, reply_markup=markup)
+
+
+def _pending_back_to_list(bot, chat_id: int, lang: str):
+    ctx = _pending_ctx.get(chat_id)
+    if ctx:
+        _pending_list_page(bot, chat_id, lang, ctx["filter"], ctx["page"])
+    else:
+        _show_pending_overview(bot, chat_id, lang)
+
+
+def _pending_search(bot, chat_id: int, lang: str, query: str):
+    q = query.strip().lower()
+    hits = [r for r in _pending_rows("all")
+            if q in (r["title"] or "").lower() or q in (r["author"] or "").lower()]
+    if not hits:
+        markup = types.InlineKeyboardMarkup()
+        markup.row(types.InlineKeyboardButton(tr("btn_pending_back", lang), callback_data="adm_pnd:overview"))
+        bot.send_message(chat_id, tr("pending_search_none", lang), reply_markup=markup)
+        return
+    markup = types.InlineKeyboardMarkup()
+    for r in hits[:20]:
+        fmark = "✅" if r["file_id"] else "⏳"
+        rtype = "📘" if r["resource_type"] == "book" else "📄"
+        markup.add(types.InlineKeyboardButton(f"{fmark} P{r['id']} {rtype} {(r['title'] or '')[:34]}",
+                                              callback_data=f"adm_pnd:detail:{r['id']}"))
+    markup.row(types.InlineKeyboardButton(tr("btn_pending_back", lang), callback_data="adm_pnd:overview"))
+    bot.send_message(chat_id, tr("pending_search_header", lang, q=query.strip(), n=len(hits)), reply_markup=markup)
 
 
 def _pending_detail_text(r, lang: str) -> str:
@@ -2359,6 +2801,57 @@ def _show_pending_detail(bot, chat_id: int, lang: str, pending_id: int):
         text += "\n\n" + tr("pending_has_file_warn", lang, fname=row["file_name"] or row["file_id"])
 
     bot.send_message(chat_id, text, reply_markup=pending_detail_keyboard(lang, pending_id, has_file))
+
+
+# ── Quick (queue) mode ─────────────────────────────────────────────────────────
+
+def _queue_state(uid: int) -> tuple[list, int]:
+    sess = admin_sessions.get(uid, {})
+    if sess.get("queue"):
+        return list(sess.get("skipped", [])), int(sess.get("done", 0))
+    return [], 0
+
+
+def _queue_show(bot, chat_id: int, uid: int, lang: str,
+                after_pid: int | None = None, pid_override: int | None = None):
+    """Show the next card in quick mode and wait for its file."""
+    skipped, done = _queue_state(uid)
+    rows = [r for r in _pending_rows("nofile") if r["id"] not in skipped]
+
+    row = None
+    if pid_override:
+        cand = database.get_pending_resource(pid_override)
+        if cand and cand["status"] not in ("published", "rejected"):
+            row = cand
+    if row is None and rows:
+        after = [r for r in rows if after_pid is None or r["id"] > after_pid]
+        row = (after or rows)[0]
+
+    if row is None:
+        admin_sessions.pop(uid, None)
+        ready = len(_pending_rows("ready"))
+        bot.send_message(chat_id, tr("queue_done", lang, done=done, ready=ready),
+                         reply_markup=admin_keyboard(lang))
+        _show_pending_overview(bot, chat_id, lang)
+        return
+
+    admin_sessions[uid] = {"step": "wait_pending_file", "pending_id": row["id"],
+                           "queue": True, "skipped": skipped, "done": done}
+    text = (tr("queue_header", lang, left=len(rows) or 1) + "\n\n"
+            + _pending_detail_text(row, lang) + "\n\n" + tr("queue_hint", lang))
+    bot.send_message(chat_id, text, reply_markup=pending_queue_keyboard(lang, row["id"]))
+
+
+def _after_pending_edit(bot, chat_id: int, uid: int, lang: str, pid: int):
+    sess = admin_sessions.get(uid, {})
+    queue = bool(sess.get("queue"))
+    if queue:
+        bot.send_message(chat_id, tr("pending_edit_saved", lang, pid=pid), reply_markup=cancel_keyboard(lang))
+        _queue_show(bot, chat_id, uid, lang, pid_override=pid)
+    else:
+        admin_sessions.pop(uid, None)
+        bot.send_message(chat_id, tr("pending_edit_saved", lang, pid=pid), reply_markup=admin_keyboard(lang))
+        _show_pending_detail(bot, chat_id, lang, pid)
 
 
 # ── Phase 4: Publish helpers ───────────────────────────────────────────────────
