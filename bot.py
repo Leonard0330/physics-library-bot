@@ -1200,6 +1200,16 @@ def _finish_contact(message: types.Message):
                          reply_markup=cancel_keyboard(user))
 
 
+def _enter_admin_panel_state(uid: int):
+    """Admin panel replaces the user menus: drop stale Browse/About/Search/Contact
+    state and mark the user as 'admin' so the shared 🔙 Back label is routed to
+    the admin panel handler instead of the user home."""
+    browse_submenu_type.pop(uid, None)
+    waiting_search.discard(uid)
+    waiting_contact.discard(uid)
+    user_menu_state[uid] = "admin"
+
+
 def send_home(chat_id: int, user: types.User):
     uid = user.id
     waiting_contact.discard(uid)
@@ -1228,6 +1238,8 @@ def start(message: types.Message):
 # /admin
 @bot.message_handler(commands=["admin"])
 def admin_command(message: types.Message):
+    if admin.is_admin(message.from_user.id):
+        _enter_admin_panel_state(message.from_user.id)
     waiting_contact.discard(message.from_user.id)
     admin.handle_admin_command(bot, message)
 
@@ -1309,6 +1321,11 @@ def text_handler(message: types.Message):
     # accidentally have "Back" swallowed by the admin text handler.
     if text in (BTN["back"]["fa"], BTN["back"]["en"]):
         waiting_contact.discard(uid)
+        waiting_search.discard(uid)
+        if user_menu_state.get(uid) == "admin" and admin.is_admin(uid):
+            # Admin "Manage Admins" → Back uses the same label as the user Back.
+            admin.handle_admin_text(bot, message)
+            return
         if uid in browse_submenu_type:
             browse_submenu_type.pop(uid, None)
             user_menu_state[uid] = "browse"
@@ -1424,6 +1441,8 @@ def text_handler(message: types.Message):
         toggle_language(message)
 
     elif text in (admin.tr("open_panel_btn", "fa"), admin.tr("open_panel_btn", "en")):
+        if admin.is_admin(uid):
+            _enter_admin_panel_state(uid)
         admin.handle_admin_command(bot, message)
 
     # ── Browse submenu Reply Keyboard buttons ──────────────────────────────
