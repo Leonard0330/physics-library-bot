@@ -67,8 +67,8 @@ T = {
     "list_header":      {"fa": "📋 لیست کتاب‌ها:\n",                            "en": "📋 List of books:\n"},
     "stats_header":     {"fa": "📊 آمار کتابخانه",                              "en": "📊 Library Stats"},
     "unknown_field":    {"fa": "نامشخص",                                        "en": "Unknown"},
-    "lang_fa":          {"fa": "فارسی",                                     "en": "Persian"},
-    "lang_en":          {"fa": "انگلیسی",                                   "en": "English"},
+    "lang_fa":          {"fa": "فارسی",                                     "en": "فارسی"},
+    "lang_en":          {"fa": "English",                                   "en": "English"},
 
     # Main Panel Buttons
 
@@ -575,10 +575,23 @@ def skip_cancel_keyboard(lang: str) -> types.ReplyKeyboardMarkup:
 
 
 def lang_keyboard() -> types.InlineKeyboardMarkup:
+    """Keyboard for selecting the resource language.
+
+    Shows fa and en as quick buttons (the most common cases) while the admin
+    can also type any other valid ISO 639-1 code as free text.
+    """
     markup = types.InlineKeyboardMarkup()
     markup.row(
-        types.InlineKeyboardButton("فارسی", callback_data="adm_lang:fa"),
-        types.InlineKeyboardButton("English", callback_data="adm_lang:en"),
+        types.InlineKeyboardButton("فارسی (fa)", callback_data="adm_lang:fa"),
+        types.InlineKeyboardButton("English (en)", callback_data="adm_lang:en"),
+    )
+    markup.row(
+        types.InlineKeyboardButton("Français (fr)", callback_data="adm_lang:fr"),
+        types.InlineKeyboardButton("Deutsch (de)", callback_data="adm_lang:de"),
+    )
+    markup.row(
+        types.InlineKeyboardButton("Nederlands (nl)", callback_data="adm_lang:nl"),
+        types.InlineKeyboardButton("…دیگر / Other", callback_data="adm_lang:__type__"),
     )
     return markup
 
@@ -718,8 +731,16 @@ def pending_edit_keyboard(lang: str, pending_id: int, resource_type: str) -> typ
 def pending_lang_keyboard(pending_id: int) -> types.InlineKeyboardMarkup:
     markup = types.InlineKeyboardMarkup()
     markup.row(
-        types.InlineKeyboardButton("فارسی",   callback_data=f"adm_pnd:efv:{pending_id}:language:fa"),
-        types.InlineKeyboardButton("English", callback_data=f"adm_pnd:efv:{pending_id}:language:en"),
+        types.InlineKeyboardButton("فارسی (fa)",   callback_data=f"adm_pnd:efv:{pending_id}:language:fa"),
+        types.InlineKeyboardButton("English (en)", callback_data=f"adm_pnd:efv:{pending_id}:language:en"),
+    )
+    markup.row(
+        types.InlineKeyboardButton("Français (fr)", callback_data=f"adm_pnd:efv:{pending_id}:language:fr"),
+        types.InlineKeyboardButton("Deutsch (de)",  callback_data=f"adm_pnd:efv:{pending_id}:language:de"),
+    )
+    markup.row(
+        types.InlineKeyboardButton("Nederlands (nl)", callback_data=f"adm_pnd:efv:{pending_id}:language:nl"),
+        types.InlineKeyboardButton("…دیگر / Other",   callback_data=f"adm_pnd:ef:{pending_id}:language_text"),
     )
     return markup
 
@@ -823,7 +844,13 @@ def summary_text(data: dict, lang: str) -> str:
         data.get("physics_field", ""), (tr("unknown_field", lang), tr("unknown_field", lang))
     )
     field_label = field_fa if lang == "fa" else field_en
-    lang_label = tr("lang_fa", lang) if data.get("language") == "fa" else tr("lang_en", lang)
+    _res_lang = data.get("language", "")
+    if _res_lang == "fa":
+        lang_label = tr("lang_fa", lang)
+    elif _res_lang == "en":
+        lang_label = tr("lang_en", lang)
+    else:
+        lang_label = _res_lang.upper() if _res_lang else "-"
     rtype = data.get("resource_type", "book")
     rtype_label = tr("btn_type_article", lang) if rtype == "article" else tr("btn_type_book", lang)
 
@@ -1385,6 +1412,21 @@ def handle_admin_text(bot, message: types.Message) -> bool:
     if _handle_article_skip_file(bot, message, uid, lang):
         return True
 
+    # Language (free-text ISO 639-1 entry — from "other" button)
+    if step == "wait_language_text":
+        code = text.strip().lower()
+        if code not in database.VALID_ISO_639_1:
+            err_msg = (f"❗️ کد '{code}' معتبر نیست. یک کد دو‌حرفی ISO 639-1 وارد کن (مثلاً: fr, de, nl, ru):"
+                       if lang == "fa" else
+                       f"❗️ '{code}' is not a valid ISO 639-1 code. Enter a two-letter code (e.g. fr, de, nl, ru):")
+            bot.send_message(message.chat.id, err_msg)
+            return True
+        admin_sessions[uid]["data"]["language"] = code
+        admin_sessions[uid]["step"] = "wait_field"
+        bot.send_message(message.chat.id, tr("ask_field", lang), reply_markup=cancel_keyboard(lang))
+        bot.send_message(message.chat.id, "👇", reply_markup=field_keyboard(lang))
+        return True
+
     # Title
     if step == "wait_title":
         admin_sessions[uid]["data"]["title"] = text
@@ -1602,6 +1644,15 @@ def handle_admin_text(bot, message: types.Message) -> bool:
         if field in ("title", "author") and (is_skip or not text):
             bot.send_message(message.chat.id, tr("pending_edit_required", lang))
             return True
+        if field == "language" and not is_skip:
+            code = text.strip().lower()
+            if code not in database.VALID_ISO_639_1:
+                err_msg = (f"❗️ کد '{code}' معتبر نیست. یک کد دو‌حرفی ISO 639-1 وارد کن (مثلاً: fr, de, nl, ru):"
+                           if lang == "fa" else
+                           f"❗️ '{code}' is not a valid ISO 639-1 code. Enter a two-letter code (e.g. fr, de, nl, ru):")
+                bot.send_message(message.chat.id, err_msg)
+                return True
+            value = code
         if is_skip and field in _PENDING_SKIPPABLE:
             value = None if field == "year" else ""
         elif field == "year":
@@ -1765,6 +1816,18 @@ def handle_admin_callback(bot, callback: types.CallbackQuery) -> bool:
             bot.answer_callback_query(callback.id, tr("wrong_step", lang))
             return True
         book_lang = data.split(":")[1]
+        # دکمه «دیگر» → از ادمین کد ISO را به‌صورت متن می‌خواهیم
+        if book_lang == "__type__":
+            bot.answer_callback_query(callback.id)
+            admin_sessions[uid]["step"] = "wait_language_text"
+            hint = ("🌐 کد ISO 639-1 زبان منبع را تایپ کن (مثلاً: fr، de، nl، zh، ru، …):"
+                    if lang == "fa" else
+                    "🌐 Type the ISO 639-1 language code (e.g. fr, de, nl, zh, ru, …):")
+            bot.send_message(callback.message.chat.id, hint, reply_markup=cancel_keyboard(lang))
+            return True
+        if book_lang not in database.VALID_ISO_639_1:
+            bot.answer_callback_query(callback.id, "❌ کد زبان نامعتبر")
+            return True
         admin_sessions[uid]["data"]["language"] = book_lang
         admin_sessions[uid]["step"] = "wait_field"
         bot.answer_callback_query(callback.id, "✅")
@@ -2171,6 +2234,14 @@ def handle_admin_callback(bot, callback: types.CallbackQuery) -> bool:
                                      reply_markup=field_keyboard(lang, prefix=f"adm_pnd:efv:{pid}:physics_field"))
                 elif field == "language":
                     bot.send_message(chat_id, tr("ask_lang", lang), reply_markup=pending_lang_keyboard(pid))
+                elif field == "language_text":
+                    # Free-text ISO 639-1 entry for pending resources
+                    sess.update({"step": "wait_pending_edit_value", "pending_id": pid, "edit_field": "language"})
+                    admin_sessions[uid] = sess
+                    hint = ("🌐 کد ISO 639-1 زبان منبع را تایپ کن (مثلاً: fr، de، nl، zh، ru، …):"
+                            if lang == "fa" else
+                            "🌐 Type the ISO 639-1 language code (e.g. fr, de, nl, zh, ru, …):")
+                    bot.send_message(chat_id, hint, reply_markup=cancel_keyboard(lang))
                 elif field == "resource_type":
                     bot.send_message(chat_id, tr("ask_resource_type", lang),
                                      reply_markup=pending_rtype_keyboard(lang, pid))
@@ -2189,7 +2260,7 @@ def handle_admin_callback(bot, callback: types.CallbackQuery) -> bool:
                 pid, field, value = int(p[2]), p[3], p[4]
                 valid = (
                     (field == "physics_field" and value in database.PHYSICS_FIELDS) or
-                    (field == "language" and value in ("fa", "en")) or
+                    (field == "language" and value in database.VALID_ISO_639_1) or
                     (field == "resource_type" and value in ("book", "article"))
                 )
                 if not valid:
@@ -2356,8 +2427,11 @@ def _validate_csv_row(row_num: int, raw: dict, norm_map: dict[str, str]) -> tupl
         return None, f"row {row_num}: author خالی است"
 
     language = get("language").lower()
-    if language not in ("fa", "en"):
-        return None, f"row {row_num}: language نامعتبر '{language}' (باید 'fa' یا 'en' باشد)"
+    if language not in database.VALID_ISO_639_1:
+        return None, (
+            f"row {row_num}: language نامعتبر '{language}' "
+            f"(کد دو‌حرفی ISO 639-1 وارد کنید، مثلاً: fa, en, fr, de, nl)"
+        )
 
     physics_field = get("physics_field").strip()
     if physics_field not in database.PHYSICS_FIELDS:
@@ -2583,8 +2657,8 @@ _pending_ctx: dict[int, dict] = {}
 
 _PENDING_SKIPPABLE = {"year", "edition", "description", "doi", "journal",
                       "volume", "issue", "pages", "publication_date", "url"}
-_PENDING_TEXT_FIELDS = _PENDING_SKIPPABLE | {"title", "author"}
-_PENDING_EDITABLE = _PENDING_TEXT_FIELDS | {"physics_field", "language", "resource_type"}
+_PENDING_TEXT_FIELDS = _PENDING_SKIPPABLE | {"title", "author", "language"}
+_PENDING_EDITABLE = _PENDING_TEXT_FIELDS | {"physics_field", "resource_type"}
 
 
 def _pending_rows(filter_key: str = "all") -> list:
@@ -2728,7 +2802,13 @@ def _pending_detail_text(r, lang: str) -> str:
     )
     field = field_fa if lang == "fa" else field_en
 
-    lang_label = ("فارسی" if lang == "fa" else "Persian") if r["language"] == "fa" else ("انگلیسی" if lang == "fa" else "English")
+    _rlang = r["language"] or ""
+    if _rlang == "fa":
+        lang_label = "فارسی" if lang == "fa" else "Persian"
+    elif _rlang == "en":
+        lang_label = "انگلیسی" if lang == "fa" else "English"
+    else:
+        lang_label = _rlang.upper() if _rlang else "-"
 
     year    = str(r["year"]) if r["year"] else ("-")
     edition = r["edition"] or ""
@@ -2866,8 +2946,13 @@ def _publish_confirm_text(r, lang: str) -> str:
         r["physics_field"], (r["physics_field"], r["physics_field"])
     )
     field = field_fa if lang == "fa" else field_en
-    lang_label = ("فارسی" if lang == "fa" else "Persian") if r["language"] == "fa" \
-                 else ("انگلیسی" if lang == "fa" else "English")
+    _rlang2 = r["language"] or ""
+    if _rlang2 == "fa":
+        lang_label = "فارسی" if lang == "fa" else "Persian"
+    elif _rlang2 == "en":
+        lang_label = "انگلیسی" if lang == "fa" else "English"
+    else:
+        lang_label = _rlang2.upper() if _rlang2 else "-"
 
     def _pg(key):
         try:

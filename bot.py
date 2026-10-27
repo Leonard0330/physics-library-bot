@@ -112,6 +112,8 @@ CONTACT_MAX_LEN = 3500
 
 # Advanced search filter state
 search_filters: dict[int, dict] = {}
+# Users typing a custom ISO 639-1 code for the language filter
+waiting_search_lang: set[int] = set()
 
 # Track whether user is in books or articles sub-menu layer.
 # Values: "book" | "article"
@@ -1206,6 +1208,7 @@ def _enter_admin_panel_state(uid: int):
     the admin panel handler instead of the user home."""
     browse_submenu_type.pop(uid, None)
     waiting_search.discard(uid)
+    waiting_search_lang.discard(uid)
     waiting_contact.discard(uid)
     user_menu_state[uid] = "admin"
 
@@ -1213,6 +1216,7 @@ def _enter_admin_panel_state(uid: int):
 def send_home(chat_id: int, user: types.User):
     uid = user.id
     waiting_contact.discard(uid)
+    waiting_search_lang.discard(uid)
     browse_submenu_type.pop(uid, None)
     user_menu_state.pop(uid, None)
     bot.send_message(
@@ -1369,6 +1373,30 @@ def text_handler(message: types.Message):
             return
 
     if admin.handle_admin_text(bot, message):
+        return
+
+    # custom language code entry for search filter
+    if uid in waiting_search_lang:
+        waiting_search_lang.discard(uid)
+        cancel_labels = {"❌ لغو", "❌ Cancel"}
+        if text in cancel_labels:
+            bot.send_message(
+                message.chat.id,
+                "↩️ لغو شد." if get_lang(user) == "fa" else "↩️ Cancelled.",
+                reply_markup=main_keyboard(user)
+            )
+            return
+        code = text.strip().lower()
+        if code not in database.VALID_ISO_639_1:
+            lang = get_lang(user)
+            err_msg = (f"❗️ کد '{code}' معتبر نیست. یک کد دو‌حرفی ISO 639-1 وارد کن (مثلاً: nl, ru, zh):"
+                       if lang == "fa" else
+                       f"❗️ '{code}' is not a valid ISO 639-1 code. Enter a two-letter code (e.g. nl, ru, zh):")
+            waiting_search_lang.add(uid)   # let user retry
+            bot.send_message(message.chat.id, err_msg, reply_markup=cancel_keyboard(user))
+            return
+        search_filters.setdefault(uid, {})["language"] = code
+        _send_search_filter_panel(message.chat.id, user)
         return
 
     # waiting search
@@ -1747,6 +1775,33 @@ def _h(s) -> str:
     return str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
+# نام بومی زبان‌ها برای نمایش در رابط کاربری (بر اساس کد ISO 639-1)
+_LANG_NATIVE: dict[str, str] = {
+    "fa": "فارسی",
+    "en": "English",
+    "de": "Deutsch",
+    "fr": "Français",
+    "nl": "Nederlands",
+    "ru": "Русский",
+    "ar": "العربية",
+    "zh": "中文",
+    "es": "Español",
+    "it": "Italiano",
+    "pt": "Português",
+    "tr": "Türkçe",
+    "ja": "日本語",
+    "ko": "한국어",
+}
+
+
+def _lang_native(code: str) -> str:
+    """Return the native name of a language given its ISO 639-1 code.
+
+    Falls back to the upper-cased code for codes not in the lookup table.
+    """
+    return _LANG_NATIVE.get(code, code.upper() if code else code)
+
+
 def _fmt_book_card(book, lang: str, field: str, lang_label: str, disp: str,
                    rating_str: str) -> str:
     """
@@ -1970,7 +2025,7 @@ def send_book_card(chat_id: int, user: types.User, book):
         book["physics_field"], ("نامشخص", "Unknown")
     )
     field = field_fa if lang == "fa" else field_en
-    lang_label = "فارسی" if book["language"] == "fa" else "English"
+    lang_label = _lang_native(book["language"])
     disp = database.get_display_id(book)
 
     rs = database.get_rating_stats(book["id"])
@@ -2010,7 +2065,7 @@ def send_resource_card(chat_id: int, user: types.User, res):
     # Article card
     field_fa, field_en = database.PHYSICS_FIELDS.get(res["physics_field"], ("نامشخص", "Unknown"))
     field = field_fa if lang == "fa" else field_en
-    lang_label = "فارسی" if res["language"] == "fa" else "English"
+    lang_label = _lang_native(res["language"])
     disp = database.get_display_id(res)
 
     rs = database.get_rating_stats(res["id"])
@@ -2074,7 +2129,7 @@ def download(callback: types.CallbackQuery):
         res["physics_field"], ("نامشخص", "Unknown")
     )
     field = field_fa if lang == "fa" else field_en
-    lang_label = "فارسی" if res["language"] == "fa" else "English"
+    lang_label = _lang_native(res["language"])
     disp = database.get_display_id(res)
     rtype = res["resource_type"] if "resource_type" in res.keys() else "book"
 
@@ -2154,12 +2209,18 @@ def search_filter_callback(callback: types.CallbackQuery):
         # Inline keyboard for language selection
         mk = types.InlineKeyboardMarkup()
         mk.row(
-            types.InlineKeyboardButton(" فارسی", callback_data="sf_lang:fa"),
-            types.InlineKeyboardButton(" English", callback_data="sf_lang:en"),
+            types.InlineKeyboardButton("فارسی", callback_data="sf_lang:fa"),
+            types.InlineKeyboardButton("English", callback_data="sf_lang:en"),
+        )
+        mk.row(
+            types.InlineKeyboardButton("Deutsch", callback_data="sf_lang:de"),
+            types.InlineKeyboardButton("Français", callback_data="sf_lang:fr"),
         )
         if lang == "fa":
+            mk.row(types.InlineKeyboardButton("🔤 کد دیگر…", callback_data="sf_lang:__type__"))
             mk.row(types.InlineKeyboardButton("✖️ بدون فیلتر زبان", callback_data="sf_lang:"))
         else:
+            mk.row(types.InlineKeyboardButton("🔤 Other code…", callback_data="sf_lang:__type__"))
             mk.row(types.InlineKeyboardButton("✖️ No language filter", callback_data="sf_lang:"))
         bot.send_message(callback.message.chat.id,
                          "🌐 زبان:" if lang == "fa" else "🌐 Language:",
@@ -2205,11 +2266,23 @@ def search_filter_callback(callback: types.CallbackQuery):
 @bot.callback_query_handler(func=lambda c: c.data.startswith("sf_lang:"))
 def sf_lang_callback(callback: types.CallbackQuery):
     uid = callback.from_user.id
+    user = callback.from_user
+    lang = get_lang(user)
     val = callback.data.split(":", 1)[1]
+
+    # دکمه «کد دیگر» → از کاربر کد ISO را به‌صورت متن می‌خواهیم
+    if val == "__type__":
+        bot.answer_callback_query(callback.id)
+        waiting_search_lang.add(uid)
+        hint = ("🔤 کد ISO 639-1 زبان را تایپ کن (مثلاً: nl، ru، zh، …):"
+                if lang == "fa" else
+                "🔤 Type the ISO 639-1 language code (e.g. nl, ru, zh, …):")
+        bot.send_message(callback.message.chat.id, hint, reply_markup=cancel_keyboard(user))
+        return
+
     search_filters.setdefault(uid, {})["language"] = val
     bot.answer_callback_query(callback.id, "✅")
-    _send_search_filter_panel(callback.message.chat.id, callback.from_user,
-                              edit_message_id=None)
+    _send_search_filter_panel(callback.message.chat.id, user, edit_message_id=None)
 
 
 @bot.callback_query_handler(func=lambda c: c.data.startswith("sf_field:"))

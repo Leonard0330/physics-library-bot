@@ -8,6 +8,38 @@ from typing import Optional
 
 DB_PATH = os.getenv("DB_PATH", "physics_library.db")
 
+# مجموعه کامل کدهای معتبر ISO 639-1 (دو حرفی).
+# به‌جای محدود کردن به fa و en، هر کد دو‌حرفی استاندارد پذیرفته می‌شود.
+VALID_ISO_639_1: frozenset = frozenset({
+    "aa", "ab", "ae", "af", "ak", "am", "an", "ar", "as", "av", "ay", "az",
+    "ba", "be", "bg", "bh", "bi", "bm", "bn", "bo", "br", "bs",
+    "ca", "ce", "ch", "co", "cr", "cs", "cu", "cv", "cy",
+    "da", "de", "dv", "dz",
+    "ee", "el", "en", "eo", "es", "et", "eu",
+    "fa", "ff", "fi", "fj", "fo", "fr", "fy",
+    "ga", "gd", "gl", "gn", "gu", "gv",
+    "ha", "he", "hi", "ho", "hr", "ht", "hu", "hy",
+    "hz",
+    "ia", "id", "ie", "ig", "ii", "ik", "io", "is", "it", "iu",
+    "ja", "jv",
+    "ka", "kg", "ki", "kj", "kk", "kl", "km", "kn", "ko", "kr", "ks", "ku", "kv", "kw", "ky",
+    "la", "lb", "lg", "li", "ln", "lo", "lt", "lu", "lv",
+    "mg", "mh", "mi", "mk", "ml", "mn", "mr", "ms", "mt", "my",
+    "na", "nb", "nd", "ne", "ng", "nl", "nn", "no", "nr", "nv", "ny",
+    "oc", "oj", "om", "or", "os",
+    "pa", "pi", "pl", "ps", "pt",
+    "qu",
+    "rm", "rn", "ro", "ru", "rw",
+    "sa", "sc", "sd", "se", "sg", "si", "sk", "sl", "sm", "sn", "so", "sq", "sr", "ss", "st", "su", "sv", "sw",
+    "ta", "te", "tg", "th", "ti", "tk", "tl", "tn", "to", "tr", "ts", "tt", "tw", "ty",
+    "ug", "uk", "ur", "uz",
+    "va", "ve", "vi", "vo",
+    "wa", "wo",
+    "xh",
+    "yi", "yo",
+    "za", "zh", "zu",
+})
+
 _PHYSICS_FIELDS_SEED = {
     "classical_mechanics":        ("مکانیک کلاسیک", "Classical Mechanics",                                              "CM"),
     "electromagnetism":           ("الکترومغناطیس", "Electromagnetism",                                                "EM"),
@@ -158,7 +190,7 @@ def init_db() -> None:
                 id              INTEGER PRIMARY KEY AUTOINCREMENT,
                 title           TEXT    NOT NULL,
                 author          TEXT    NOT NULL,
-                language        TEXT    NOT NULL CHECK(language IN ('fa', 'en')),
+                language        TEXT    NOT NULL,
                 physics_field   TEXT    NOT NULL,
                 description     TEXT,
                 edition         TEXT,
@@ -295,7 +327,7 @@ def init_db() -> None:
                                          CHECK(resource_type IN ('book', 'article')),
                 title            TEXT    NOT NULL,
                 author           TEXT    NOT NULL,
-                language         TEXT    NOT NULL CHECK(language IN ('fa', 'en')),
+                language         TEXT    NOT NULL,
                 physics_field    TEXT    NOT NULL,
                 description      TEXT    NOT NULL DEFAULT '',
                 edition          TEXT    NOT NULL DEFAULT '',
@@ -357,7 +389,7 @@ def _migrate_db() -> None:
                                              CHECK(resource_type IN ('book', 'article')),
                     title            TEXT    NOT NULL,
                     author           TEXT    NOT NULL,
-                    language         TEXT    NOT NULL CHECK(language IN ('fa', 'en')),
+                    language         TEXT    NOT NULL,
                     physics_field    TEXT    NOT NULL,
                     description      TEXT    NOT NULL DEFAULT '',
                     edition          TEXT    NOT NULL DEFAULT '',
@@ -431,8 +463,8 @@ def add_resource(
 ) -> int:
     if physics_field not in PHYSICS_FIELDS:
         raise ValueError(f"فیلد نامعتبر: {physics_field}")
-    if language not in ("fa", "en"):
-        raise ValueError("زبان باید 'fa' یا 'en' باشد")
+    if language not in VALID_ISO_639_1:
+        raise ValueError(f"زبان نامعتبر: '{language}'. کد دو‌حرفی ISO 639-1 وارد کنید (مثلاً fa, en, fr, de, nl)")
     if resource_type not in ("book", "article"):
         raise ValueError("resource_type باید 'book' یا 'article' باشد")
 
@@ -1726,7 +1758,7 @@ def get_user_lang(user_id: int) -> Optional[str]:
 
 
 def set_user_lang(user_id: int, lang: str) -> None:
-    if lang not in ("fa", "en"):
+    if lang not in VALID_ISO_639_1:
         return
     with get_connection() as conn:
         conn.execute("""
@@ -1762,8 +1794,8 @@ def _validate_pending_fields(
     """
     if resource_type is not None and resource_type not in ("book", "article"):
         raise ValueError("resource_type باید 'book' یا 'article' باشد")
-    if language is not None and language not in ("fa", "en"):
-        raise ValueError("زبان باید 'fa' یا 'en' باشد")
+    if language is not None and language not in VALID_ISO_639_1:
+        raise ValueError(f"زبان نامعتبر: '{language}'. کد دو‌حرفی ISO 639-1 وارد کنید (مثلاً fa, en, fr, de, nl)")
     if physics_field is not None and physics_field not in PHYSICS_FIELDS:
         raise ValueError(f"فیلد نامعتبر: {physics_field}")
 
