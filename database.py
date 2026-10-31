@@ -428,6 +428,63 @@ def _migrate_db() -> None:
             conn.commit()
             print("[DB] Migration applied: books.keywords column added.")
 
+        # ── Migration 3: remove old language CHECK constraint from pending_resources
+        # قدیمی‌ترین نسخه جدول با CHECK(language IN ('fa','en')) ساخته شده بود.
+        # SQLite اجازه حذف مستقیم constraint نمیده؛ راه‌حل: rebuild جدول.
+        ddl_row = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='pending_resources'"
+        ).fetchone()
+        if ddl_row and ("'fa', 'en'" in ddl_row[0] or "\"fa\", \"en\"" in ddl_row[0]
+                        or "'fa','en'" in ddl_row[0]):
+            conn.execute("ALTER TABLE pending_resources RENAME TO _pending_resources_old")
+            conn.execute("""
+                CREATE TABLE pending_resources (
+                    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                    resource_type    TEXT    NOT NULL DEFAULT 'book'
+                                             CHECK(resource_type IN ('book', 'article')),
+                    title            TEXT    NOT NULL,
+                    author           TEXT    NOT NULL,
+                    language         TEXT    NOT NULL,
+                    physics_field    TEXT    NOT NULL,
+                    description      TEXT    NOT NULL DEFAULT '',
+                    edition          TEXT    NOT NULL DEFAULT '',
+                    year             INTEGER,
+                    doi              TEXT    NOT NULL DEFAULT '',
+                    journal          TEXT    NOT NULL DEFAULT '',
+                    volume           TEXT    NOT NULL DEFAULT '',
+                    issue            TEXT    NOT NULL DEFAULT '',
+                    pages            TEXT    NOT NULL DEFAULT '',
+                    url              TEXT    NOT NULL DEFAULT '',
+                    publication_date TEXT    NOT NULL DEFAULT '',
+                    file_id          TEXT,
+                    file_name        TEXT,
+                    file_size        INTEGER,
+                    status           TEXT    NOT NULL DEFAULT 'pending'
+                                             CHECK(status IN ('pending', 'file_received', 'published', 'rejected')),
+                    created_at       TEXT    NOT NULL DEFAULT (datetime('now')),
+                    updated_at       TEXT    NOT NULL DEFAULT (datetime('now'))
+                )
+            """)
+            conn.execute("""
+                INSERT INTO pending_resources
+                SELECT id, resource_type, title, author, language, physics_field,
+                       description, edition, year, doi, journal, volume, issue,
+                       pages, url, publication_date, file_id, file_name, file_size,
+                       status, created_at, updated_at
+                FROM _pending_resources_old
+            """)
+            conn.execute("DROP TABLE _pending_resources_old")
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_pending_status
+                ON pending_resources(status)
+            """)
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_pending_field
+                ON pending_resources(physics_field)
+            """)
+            conn.commit()
+            print("[DB] Migration applied: pending_resources language CHECK constraint removed.")
+
         # ── Future migrations go here ──────────────────────────────────────────
         # Example pattern:
         #   pending_cols = {r["name"] for r in conn.execute("PRAGMA table_info(pending_resources)")}
