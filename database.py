@@ -434,8 +434,12 @@ def _migrate_db() -> None:
         ddl_row = conn.execute(
             "SELECT sql FROM sqlite_master WHERE type='table' AND name='pending_resources'"
         ).fetchone()
-        if ddl_row and ("'fa', 'en'" in ddl_row[0] or "\"fa\", \"en\"" in ddl_row[0]
-                        or "'fa','en'" in ddl_row[0]):
+        _needs_lang_fix = False
+        if ddl_row:
+            _ddl = ddl_row[0].replace(" ", "").lower()
+            _needs_lang_fix = ("language" in _ddl and "check" in _ddl
+                               and ("'fa'" in _ddl or '"fa"' in _ddl))
+        if _needs_lang_fix:
             conn.execute("ALTER TABLE pending_resources RENAME TO _pending_resources_old")
             conn.execute("""
                 CREATE TABLE pending_resources (
