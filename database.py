@@ -435,17 +435,24 @@ def init_db() -> None:
         """)
 
         # ── Backfill FTS for existing rows (idempotent) ───────────────────────
-        fts_count = conn.execute("SELECT COUNT(*) FROM books_fts").fetchone()[0]
-        books_count = conn.execute("SELECT COUNT(*) FROM books").fetchone()[0]
-        if fts_count < books_count:
-            conn.execute("DELETE FROM books_fts")
-            conn.execute("""
-                INSERT INTO books_fts(rowid, title, author, description, keywords, publisher)
-                SELECT id, title, author,
-                       COALESCE(description,''), COALESCE(keywords,''),
-                       COALESCE(publisher,'')
-                FROM books
-            """)
+        # Guard with try/except: if the books table doesn't yet have the
+        # 'keywords' column (migration runs after init_db), the content-based
+        # FTS query will raise OperationalError.  In that case we skip the
+        # backfill here and let Migration 5 handle it after the column exists.
+        try:
+            fts_count = conn.execute("SELECT COUNT(*) FROM books_fts").fetchone()[0]
+            books_count = conn.execute("SELECT COUNT(*) FROM books").fetchone()[0]
+            if fts_count < books_count:
+                conn.execute("DELETE FROM books_fts")
+                conn.execute("""
+                    INSERT INTO books_fts(rowid, title, author, description, keywords, publisher)
+                    SELECT id, title, author,
+                           COALESCE(description,''), COALESCE(keywords,''),
+                           COALESCE(publisher,'')
+                    FROM books
+                """)
+        except Exception as _fts_err:
+            print(f"[DB] FTS backfill skipped (will retry after migrations): {_fts_err}")
 
         conn.commit()
         _load_field_caches(conn)
@@ -586,9 +593,69 @@ def _migrate_db() -> None:
             conn.commit()
             print("[DB] Migration applied: books.publisher column added.")
 
-        # ── Migration 5: backfill FTS for existing rows ───────────────────────
-        # (safe to run every time; only rebuilds when counts differ)
+        # ── Migration 5: rebuild FTS if stale or schema is outdated ─────────
+        # An existing books_fts built against an old books schema (without
+        # 'keywords' or 'publisher') will raise OperationalError on any query.
+        # Strategy:
+        #   1. Try a cheap probe query. If it fails, the FTS is stale.
+        #   2. Drop all FTS-related objects and recreate from scratch.
+        #   3. Otherwise just backfill missing rows as before.
+        def _rebuild_fts(conn):
+            """Drop and recreate books_fts plus its triggers, then backfill."""
+            for obj in ("books_fts_au", "books_fts_ad", "books_fts_ai"):
+                conn.execute(f"DROP TRIGGER IF EXISTS {obj}")
+            conn.execute("DROP TABLE IF EXISTS books_fts")
+            conn.execute("""
+                CREATE VIRTUAL TABLE books_fts USING fts5(
+                    title, author, description, keywords, publisher,
+                    content='books', content_rowid='id',
+                    tokenize='unicode61 remove_diacritics 2'
+                )
+            """)
+            conn.execute("""
+                CREATE TRIGGER books_fts_ai
+                AFTER INSERT ON books BEGIN
+                    INSERT INTO books_fts(rowid, title, author, description, keywords, publisher)
+                    VALUES (new.id, new.title, new.author,
+                            COALESCE(new.description,''), COALESCE(new.keywords,''),
+                            COALESCE(new.publisher,''));
+                END
+            """)
+            conn.execute("""
+                CREATE TRIGGER books_fts_ad
+                AFTER DELETE ON books BEGIN
+                    INSERT INTO books_fts(books_fts, rowid, title, author, description, keywords, publisher)
+                    VALUES ('delete', old.id, old.title, old.author,
+                            COALESCE(old.description,''), COALESCE(old.keywords,''),
+                            COALESCE(old.publisher,''));
+                END
+            """)
+            conn.execute("""
+                CREATE TRIGGER books_fts_au
+                AFTER UPDATE ON books BEGIN
+                    INSERT INTO books_fts(books_fts, rowid, title, author, description, keywords, publisher)
+                    VALUES ('delete', old.id, old.title, old.author,
+                            COALESCE(old.description,''), COALESCE(old.keywords,''),
+                            COALESCE(old.publisher,''));
+                    INSERT INTO books_fts(rowid, title, author, description, keywords, publisher)
+                    VALUES (new.id, new.title, new.author,
+                            COALESCE(new.description,''), COALESCE(new.keywords,''),
+                            COALESCE(new.publisher,''));
+                END
+            """)
+            book_cnt = conn.execute("SELECT COUNT(*) FROM books").fetchone()[0]
+            conn.execute("""
+                INSERT INTO books_fts(rowid, title, author, description, keywords, publisher)
+                SELECT id, title, author,
+                       COALESCE(description,''), COALESCE(keywords,''),
+                       COALESCE(publisher,'')
+                FROM books
+            """)
+            conn.commit()
+            print(f"[DB] Migration applied: FTS rebuilt ({book_cnt} rows).")
+
         try:
+            # Probe: will raise if schema is stale
             fts_cnt  = conn.execute("SELECT COUNT(*) FROM books_fts").fetchone()[0]
             book_cnt = conn.execute("SELECT COUNT(*) FROM books").fetchone()[0]
             if fts_cnt < book_cnt:
@@ -603,7 +670,11 @@ def _migrate_db() -> None:
                 conn.commit()
                 print(f"[DB] Migration applied: FTS backfilled ({book_cnt} rows).")
         except Exception:
-            pass  # FTS table may not exist yet on first migration run
+            # Stale FTS — rebuild from scratch
+            try:
+                _rebuild_fts(conn)
+            except Exception as _rb_err:
+                print(f"[DB] FTS rebuild failed: {_rb_err}")
 
         # ── Future migrations go here ──────────────────────────────────────────
         # Example pattern:
