@@ -283,6 +283,21 @@ T = {
             "📘 Books: {books}   📄 Articles: {articles}"
         ),
     },
+    # ── NEW: detailed overview with per-type breakdown ──────────────────────
+    "pending_overview_detail": {
+        "fa": (
+            "🗂️ منابع در انتظار\n\n"
+            "📋 کل: {total}   |   ⏳ بدون فایل: {no_file}   |   ✅ آماده: {has_file}\n\n"
+            "📘 کتاب‌ها: {books}   (⏳ {books_nofile} بدون فایل  /  ✅ {books_ready} آماده)\n"
+            "📄 مقالات: {articles}   (⏳ {articles_nofile} بدون فایل  /  ✅ {articles_ready} آماده)"
+        ),
+        "en": (
+            "🗂️ Pending Resources\n\n"
+            "📋 Total: {total}   |   ⏳ No file: {no_file}   |   ✅ Ready: {has_file}\n\n"
+            "📘 Books: {books}   (⏳ {books_nofile} w/o file  /  ✅ {books_ready} ready)\n"
+            "📄 Articles: {articles}   (⏳ {articles_nofile} w/o file  /  ✅ {articles_ready} ready)"
+        ),
+    },
     "pending_empty":            {"fa": "📭 هیچ منبع در انتظاری وجود ندارد.",
                                   "en": "📭 No pending resources found."},
     "btn_pending_list_all":     {"fa": "📋 نمایش همه",                   "en": "📋 Show All"},
@@ -291,11 +306,41 @@ T = {
     "btn_pending_enter_id":     {"fa": "🔢 ورود شناسه",                  "en": "🔢 Enter ID"},
     "btn_pending_back":         {"fa": "⬅️ بازگشت به منابع در انتظار",    "en": "⬅️ Back to Pending"},
 
+    # ── NEW: type-split buttons ──────────────────────────────────────────────
+    "btn_pending_books":        {"fa": "📘 کتاب‌ها",                     "en": "📘 Books"},
+    "btn_pending_articles":     {"fa": "📄 مقالات",                      "en": "📄 Articles"},
+    "btn_quick_books":          {"fa": "📥 سریع: کتاب ({n})",            "en": "📥 Quick: Books ({n})"},
+    "btn_quick_articles":       {"fa": "📥 سریع: مقاله ({n})",           "en": "📥 Quick: Articles ({n})"},
+    "queue_choose_type":        {"fa": "📥 حالت سریع\n\nکدام نوع منابع رو پردازش کنم؟",
+                                  "en": "📥 Quick Mode\n\nWhich resource type do you want to process?"},
+    "btn_q_all":                {"fa": "📋 همه ({n})",                   "en": "📋 All ({n})"},
+    "btn_q_books":              {"fa": "📘 کتاب‌ها ({n})",               "en": "📘 Books ({n})"},
+    "btn_q_articles":           {"fa": "📄 مقالات ({n})",                "en": "📄 Articles ({n})"},
+    # ── NEW: export / bulk-delete ────────────────────────────────────────────
+    "btn_export_pending":       {"fa": "📤 خروجی CSV",                   "en": "📤 Export CSV"},
+    "export_pending_caption":   {"fa": "📤 خروجی منابع در انتظار — {time}",
+                                  "en": "📤 Pending resources export — {time}"},
+    "btn_bulk_delete":          {"fa": "🗑 حذف دسته‌جمعی",               "en": "🗑 Bulk Delete"},
+    "bulk_del_confirm":         {
+        "fa": "🗑 حذف دسته‌جمعی\n\n{n} منبع با فیلتر «{filter}» حذف بشن؟\n⚠️ این عمل برگشت‌پذیر نیست!",
+        "en": "🗑 Bulk Delete\n\nDelete {n} pending resource(s) in filter \"{filter}\"?\n⚠️ This cannot be undone!",
+    },
+    "bulk_deleted":             {"fa": "✅ {n} منبع حذف شد.",             "en": "✅ {n} resource(s) deleted."},
+    "bulk_del_nothing":         {"fa": "ℹ️ هیچ منبعی برای حذف وجود ندارد.", "en": "ℹ️ No resources to delete."},
+    "btn_bulk_del_yes":         {"fa": "🗑 بله، همه حذف شوند",           "en": "🗑 Yes, delete all"},
+
     "pending_list_header":      {"fa": "🗂️ منابع در انتظار ({filter}) — صفحه {page}/{total_pages}:\n",
                                   "en": "🗂️ Pending Resources ({filter}) — page {page}/{total_pages}:\n"},
-    "pending_filter_all":       {"fa": "همه",       "en": "All"},
-    "pending_filter_nofile":    {"fa": "بدون فایل", "en": "No File"},
-    "pending_filter_ready":     {"fa": "آماده",     "en": "Ready"},
+    "pending_filter_all":       {"fa": "همه",                           "en": "All"},
+    "pending_filter_nofile":    {"fa": "بدون فایل",                     "en": "No File"},
+    "pending_filter_ready":     {"fa": "آماده",                         "en": "Ready"},
+    # ── NEW filter labels ────────────────────────────────────────────────────
+    "pending_filter_book":          {"fa": "کتاب‌ها",                   "en": "Books"},
+    "pending_filter_article":       {"fa": "مقالات",                    "en": "Articles"},
+    "pending_filter_book_nofile":   {"fa": "کتاب·بدون فایل",           "en": "Book·No File"},
+    "pending_filter_article_nofile":{"fa": "مقاله·بدون فایل",          "en": "Article·No File"},
+    "pending_filter_book_ready":    {"fa": "کتاب·آماده",               "en": "Book·Ready"},
+    "pending_filter_article_ready": {"fa": "مقاله·آماده",              "en": "Article·Ready"},
 
     "pending_ask_id":           {"fa": "🔢 شناسه داخلی (P-ID) منبع در انتظار رو وارد کن:\n"
                                        "مثلاً: P27 یا فقط عدد 27",
@@ -575,11 +620,6 @@ def skip_cancel_keyboard(lang: str) -> types.ReplyKeyboardMarkup:
 
 
 def lang_keyboard() -> types.InlineKeyboardMarkup:
-    """Keyboard for selecting the resource language.
-
-    Shows fa and en as quick buttons (the most common cases) while the admin
-    can also type any other valid ISO 639-1 code as free text.
-    """
     markup = types.InlineKeyboardMarkup()
     markup.row(
         types.InlineKeyboardButton("فارسی (fa)", callback_data="adm_lang:fa"),
@@ -627,23 +667,75 @@ def csv_import_confirm_keyboard(lang: str) -> types.InlineKeyboardMarkup:
     return markup
 
 
-def pending_overview_keyboard(lang: str, no_file: int = 0) -> types.InlineKeyboardMarkup:
-    """Inline keyboard shown on the Pending Resources overview screen."""
+def pending_overview_keyboard(lang: str, stats: dict | None = None) -> types.InlineKeyboardMarkup:
+    """
+    Redesigned overview keyboard — split by type.
+
+    Layout:
+      Row 1: [Quick Books(N)]   [Quick Articles(N)]   (shown only when N > 0)
+      Row 2: [📘 Books]         [📄 Articles]
+      Row 3: [📋 All]           [✅ Ready to Publish]
+      Row 4: [🔎 Search]        [🔢 Enter ID]
+      Row 5: [📤 Export CSV]    [🗑 Bulk Delete ▾]
+    """
+    if stats is None:
+        stats = _pending_overview_stats()
+
     markup = types.InlineKeyboardMarkup()
-    if no_file:
+
+    # Row 1: type-aware quick-add (only shown when there's something to do)
+    quick_row = []
+    if stats.get("books_nofile", 0):
+        quick_row.append(types.InlineKeyboardButton(
+            tr("btn_quick_books", lang, n=stats["books_nofile"]),
+            callback_data="adm_pnd:q_start:book",
+        ))
+    if stats.get("articles_nofile", 0):
+        quick_row.append(types.InlineKeyboardButton(
+            tr("btn_quick_articles", lang, n=stats["articles_nofile"]),
+            callback_data="adm_pnd:q_start:article",
+        ))
+    if quick_row:
+        markup.row(*quick_row)
+    # Also offer "quick all" if both types have items
+    if stats.get("books_nofile", 0) and stats.get("articles_nofile", 0):
         markup.row(types.InlineKeyboardButton(
-            tr("btn_quick", lang, n=no_file), callback_data="adm_pnd:q_start"))
+            tr("btn_quick", lang, n=stats["no_file"]),
+            callback_data="adm_pnd:q_start:all",
+        ))
+
+    # Row 2: type-based list buttons
     markup.row(
-        types.InlineKeyboardButton(tr("btn_pending_list_all",    lang), callback_data="adm_pnd:list:all:0"),
-        types.InlineKeyboardButton(tr("btn_pending_list_nofile", lang), callback_data="adm_pnd:list:nofile:0"),
+        types.InlineKeyboardButton(
+            tr("btn_pending_books", lang)
+            + (f" ({stats['books']})" if stats.get("books") else ""),
+            callback_data="adm_pnd:list:book:0",
+        ),
+        types.InlineKeyboardButton(
+            tr("btn_pending_articles", lang)
+            + (f" ({stats['articles']})" if stats.get("articles") else ""),
+            callback_data="adm_pnd:list:article:0",
+        ),
     )
+
+    # Row 3: global filters
     markup.row(
-        types.InlineKeyboardButton(tr("btn_pending_list_ready",  lang), callback_data="adm_pnd:list:ready:0"),
-        types.InlineKeyboardButton(tr("btn_search",              lang), callback_data="adm_pnd:search"),
+        types.InlineKeyboardButton(tr("btn_pending_list_all",   lang), callback_data="adm_pnd:list:all:0"),
+        types.InlineKeyboardButton(tr("btn_pending_list_ready", lang), callback_data="adm_pnd:list:ready:0"),
     )
+
+    # Row 4: search & enter ID
     markup.row(
-        types.InlineKeyboardButton(tr("btn_pending_enter_id",    lang), callback_data="adm_pnd:enter_id"),
+        types.InlineKeyboardButton(tr("btn_search",          lang), callback_data="adm_pnd:search"),
+        types.InlineKeyboardButton(tr("btn_pending_enter_id",lang), callback_data="adm_pnd:enter_id"),
     )
+
+    # Row 5: export & bulk delete (utility)
+    markup.row(
+        types.InlineKeyboardButton(tr("btn_export_pending", lang), callback_data="adm_pnd:export"),
+        types.InlineKeyboardButton(tr("btn_bulk_delete",    lang), callback_data="adm_pnd:bulk_del_menu"),
+    )
+
     return markup
 
 
@@ -777,6 +869,39 @@ def publish_dup_keyboard(lang: str, pending_id: int, dup_id: int) -> types.Inlin
     return markup
 
 
+def bulk_delete_menu_keyboard(lang: str, stats: dict) -> types.InlineKeyboardMarkup:
+    """
+    Show a menu of filters the admin can bulk-delete.
+    Only shows options that have at least one row.
+    """
+    markup = types.InlineKeyboardMarkup()
+    opts = [
+        ("all",             "pending_filter_all",             stats.get("total", 0)),
+        ("book",            "pending_filter_book",            stats.get("books", 0)),
+        ("article",         "pending_filter_article",         stats.get("articles", 0)),
+        ("nofile",          "pending_filter_nofile",          stats.get("no_file", 0)),
+        ("book_nofile",     "pending_filter_book_nofile",     stats.get("books_nofile", 0)),
+        ("article_nofile",  "pending_filter_article_nofile",  stats.get("articles_nofile", 0)),
+    ]
+    for fk, label_key, count in opts:
+        if count:
+            markup.row(types.InlineKeyboardButton(
+                f"🗑 {tr(label_key, lang)} ({count})",
+                callback_data=f"adm_pnd:bulk_del_ask:{fk}",
+            ))
+    markup.row(types.InlineKeyboardButton(tr("btn_pending_back", lang), callback_data="adm_pnd:overview"))
+    return markup
+
+
+def bulk_delete_confirm_keyboard(lang: str, filter_key: str, count: int) -> types.InlineKeyboardMarkup:
+    markup = types.InlineKeyboardMarkup()
+    markup.row(
+        types.InlineKeyboardButton(tr("btn_bulk_del_yes", lang), callback_data=f"adm_pnd:bulk_del_do:{filter_key}"),
+        types.InlineKeyboardButton(tr("btn_no_keep", lang),      callback_data="adm_pnd:bulk_del_menu"),
+    )
+    return markup
+
+
 _PENDING_PAGE_SIZE = 8   # items per page in the pending list
 
 
@@ -790,9 +915,7 @@ def resource_type_keyboard(lang: str) -> types.InlineKeyboardMarkup:
 
 
 def edit_field_keyboard(lang: str, resource_type: str = "book") -> types.InlineKeyboardMarkup:
-    """کیبورد انتخاب فیلد ویرایش — بر اساس resource_type فیلدهای مناسب نمایش داده می‌شود."""
     markup = types.InlineKeyboardMarkup()
-    # فیلدهای مشترک بین کتاب و مقاله
     markup.row(
         types.InlineKeyboardButton(tr("edit_field_title", lang),   callback_data="adm_editfield:title"),
         types.InlineKeyboardButton(tr("edit_field_author", lang),  callback_data="adm_editfield:author"),
@@ -801,9 +924,11 @@ def edit_field_keyboard(lang: str, resource_type: str = "book") -> types.InlineK
         types.InlineKeyboardButton(tr("edit_field_desc", lang),    callback_data="adm_editfield:description"),
         types.InlineKeyboardButton(tr("edit_field_physics", lang), callback_data="adm_editfield:physics_field"),
     )
+    markup.row(
+        types.InlineKeyboardButton(tr("edit_field_language", lang), callback_data="adm_editfield:language"),
+    )
 
     if resource_type == "article":
-        # فیلدهای اختصاصی مقاله
         markup.row(
             types.InlineKeyboardButton(tr("edit_field_journal", lang), callback_data="adm_editfield:journal"),
             types.InlineKeyboardButton(tr("edit_field_doi", lang),     callback_data="adm_editfield:doi"),
@@ -823,7 +948,6 @@ def edit_field_keyboard(lang: str, resource_type: str = "book") -> types.InlineK
             types.InlineKeyboardButton(tr("edit_field_year", lang),    callback_data="adm_editfield:year"),
         )
     else:
-        # فیلدهای اختصاصی کتاب
         markup.row(
             types.InlineKeyboardButton(tr("edit_field_year", lang),    callback_data="adm_editfield:year"),
             types.InlineKeyboardButton(tr("edit_field_edition", lang), callback_data="adm_editfield:edition"),
@@ -850,7 +974,7 @@ def summary_text(data: dict, lang: str) -> str:
     elif _res_lang == "en":
         lang_label = tr("lang_en", lang)
     else:
-        lang_label = _res_lang.upper() if _res_lang else "-"
+        lang_label = database.lang_native(_res_lang) if _res_lang else "-"
     rtype = data.get("resource_type", "book")
     rtype_label = tr("btn_type_article", lang) if rtype == "article" else tr("btn_type_book", lang)
 
@@ -978,7 +1102,7 @@ def _make_backup_file(suffix: str = "") -> str:
         src = sqlite3.connect(db_path)
         dst = sqlite3.connect(tmp_path)
         with dst:
-            src.backup(dst)          # WAL-safe Online Backup API
+            src.backup(dst)
         src.close()
         dst.close()
     except Exception:
@@ -1040,7 +1164,6 @@ def handle_backup_command(bot, message: types.Message):
         return
     try:
         bot.send_message(message.chat.id, tr("backup_sending", lang))
-        # Send to all Admins
         time_str = datetime.now().strftime("%Y-%m-%d %H:%M")
         tmp_path = broadcast_backup_to_admins(bot, "backup_caption", time=time_str)
         if tmp_path:
@@ -1066,8 +1189,6 @@ def _validate_restore_db(path: str) -> bool:
     except Exception:
         return False
     finally:
-        # Previously conn.close() only ran on the success path, so a bad/
-        # corrupt upload (which raises inside the try) leaked the connection.
         if conn is not None:
             conn.close()
 
@@ -1082,7 +1203,6 @@ def _do_restore(bot, initiator_uid: int, tmp_db_path: str, emergency_path: str):
             src.backup(dst)
         src.close()
         dst.close()
-        # اجرای migration تا جداول جدید (مثل pending_resources) ساخته بشن
         database._migrate_db()
         database._load_field_caches()
         bot.send_message(initiator_uid, tr("restore_ok", lang))
@@ -1097,7 +1217,6 @@ def _do_restore(bot, initiator_uid: int, tmp_db_path: str, emergency_path: str):
     except Exception as e:
         logging.error("_do_restore: restore failed: %s", e)
         bot.send_message(initiator_uid, tr("restore_failed", lang, err=e))
-        # rollback با emergency backup
         try:
             src = sqlite3.connect(emergency_path)
             dst = sqlite3.connect(db_path)
@@ -1108,7 +1227,6 @@ def _do_restore(bot, initiator_uid: int, tmp_db_path: str, emergency_path: str):
         except Exception as rb_err:
             logging.error("_do_restore: rollback failed: %s", rb_err)
             bot.send_message(initiator_uid, tr("restore_rollback_failed", lang, err=rb_err))
-            # emergency_path
             return
         try:
             os.unlink(tmp_db_path)
@@ -1117,14 +1235,9 @@ def _do_restore(bot, initiator_uid: int, tmp_db_path: str, emergency_path: str):
 
 
 def _expire_restore_session(bot, uid: int) -> None:
-    """Auto-release a restore session that timed out without the admin ever
-    sending another message (previously the RESTORE_TIMEOUT check only ran
-    *inside* handle_restore_document/handle_restore_confirm_text, so an
-    admin who ran /restore and then walked away left the lock held forever,
-    locking every admin out of /backup and /restore indefinitely)."""
     sess = _restore_sessions.pop(uid, None)
     if sess is None:
-        return  # already completed/cancelled by the time the timer fired
+        return
     for key in ("emergency_path", "tmp_db_path"):
         p = sess.get(key)
         if p:
@@ -1182,7 +1295,6 @@ def handle_cancel_command(bot, message: types.Message):
     timer = sess.get("timer")
     if timer:
         timer.cancel()
-    # Delete Temporary files
     for key in ("emergency_path", "tmp_db_path"):
         p = sess.get(key)
         if p:
@@ -1202,7 +1314,6 @@ def handle_restore_document(bot, message: types.Message) -> bool:
     if sess.get("step") != "wait_file":
         return False
 
-    # Check Time-out
     if datetime.now().timestamp() > sess["expire"]:
         _restore_sessions.pop(uid)
         timer = sess.get("timer")
@@ -1218,7 +1329,6 @@ def handle_restore_document(bot, message: types.Message) -> bool:
         bot.send_message(message.chat.id, tr("restore_bad_file", lang))
         return True
 
-    # download file to temp
     try:
         file_info = bot.get_file(doc.file_id)
         downloaded = bot.download_file(file_info.file_path)
@@ -1229,7 +1339,6 @@ def handle_restore_document(bot, message: types.Message) -> bool:
         bot.send_message(message.chat.id, tr("backup_error", lang, err=e))
         return True
 
-    # اعتبارسنجی schema
     if not _validate_restore_db(tmp_path):
         try:
             os.unlink(tmp_path)
@@ -1238,12 +1347,10 @@ def handle_restore_document(bot, message: types.Message) -> bool:
         bot.send_message(message.chat.id, tr("restore_invalid", lang))
         return True
 
-    # Emergency Backup
     time_str = datetime.now().strftime("%Y-%m-%d %H:%M")
     emergency_tmp = broadcast_backup_to_admins(
         bot, "emergency_caption", time=time_str
     )
-    # نگه‌داشتن emergency برای rollback — یک نسخه محلی جداگانه
     try:
         em_fd, em_path = tempfile.mkstemp(suffix=".db", prefix="tgbot_emergency_")
         os.close(em_fd)
@@ -1278,7 +1385,6 @@ def handle_restore_confirm_text(bot, message: types.Message) -> bool:
     if sess.get("step") != "wait_confirm":
         return False
 
-    
     if datetime.now().timestamp() > sess["expire"]:
         _restore_sessions.pop(uid)
         timer = sess.get("timer")
@@ -1293,7 +1399,6 @@ def handle_restore_confirm_text(bot, message: types.Message) -> bool:
     timer = sess.get("timer")
 
     if text != "CONFIRM RESTORE":
-        # Cancel all except CONFIRM RESTORE
         _restore_sessions.pop(uid)
         if timer:
             timer.cancel()
@@ -1308,7 +1413,6 @@ def handle_restore_confirm_text(bot, message: types.Message) -> bool:
         bot.send_message(message.chat.id, tr("restore_cancelled", lang))
         return True
 
-    # Run Restore
     tmp_db_path = sess.pop("tmp_db_path", None)
     emergency_path = sess.pop("emergency_path", None)
     _restore_sessions.pop(uid)
@@ -1327,13 +1431,11 @@ def handle_admin_text(bot, message: types.Message) -> bool:
     if not is_admin(uid):
         return False
 
-    
     if handle_restore_confirm_text(bot, message):
         return True
 
     lang = get_lang(uid)
 
-    
     if text in (T["btn_cancel"]["fa"], T["btn_cancel"]["en"]):
         admin_sessions.pop(uid, None)
         bot.send_message(message.chat.id, tr("cancelled", lang), reply_markup=admin_keyboard(lang))
@@ -1401,18 +1503,16 @@ def handle_admin_text(bot, message: types.Message) -> bool:
 
     if text in (T["btn_exit"]["fa"], T["btn_exit"]["en"]):
         admin_sessions.pop(uid, None)
-        return False   
+        return False
 
     if uid not in admin_sessions:
         return False
 
     step = admin_sessions[uid].get("step", "")
 
-    # Article: allow skipping PDF upload
     if _handle_article_skip_file(bot, message, uid, lang):
         return True
 
-    # Language (free-text ISO 639-1 entry — from "other" button)
     if step == "wait_language_text":
         code = text.strip().lower()
         if code not in database.VALID_ISO_639_1:
@@ -1427,14 +1527,12 @@ def handle_admin_text(bot, message: types.Message) -> bool:
         bot.send_message(message.chat.id, "👇", reply_markup=field_keyboard(lang))
         return True
 
-    # Title
     if step == "wait_title":
         admin_sessions[uid]["data"]["title"] = text
         admin_sessions[uid]["step"] = "wait_author"
         bot.send_message(message.chat.id, tr("ask_author", lang), reply_markup=cancel_keyboard(lang))
         return True
 
-    # Author
     if step == "wait_author":
         admin_sessions[uid]["data"]["author"] = text
         admin_sessions[uid]["step"] = "wait_language"
@@ -1442,7 +1540,6 @@ def handle_admin_text(bot, message: types.Message) -> bool:
         bot.send_message(message.chat.id, "👇", reply_markup=lang_keyboard())
         return True
 
-    # Callback
     if step == "wait_year":
         if text == tr("btn_skip", lang):
             admin_sessions[uid]["data"]["year"] = None
@@ -1454,7 +1551,6 @@ def handle_admin_text(bot, message: types.Message) -> bool:
                 return True
         rtype = admin_sessions[uid]["data"].get("resource_type", "book")
         if rtype == "article":
-            # Articles don't have an "edition" — skip straight to journal info.
             admin_sessions[uid]["step"] = "wait_journal"
             bot.send_message(message.chat.id, tr("ask_journal", lang), reply_markup=skip_cancel_keyboard(lang))
         else:
@@ -1466,7 +1562,6 @@ def handle_admin_text(bot, message: types.Message) -> bool:
             )
         return True
 
-    # Edition (books only)
     if step == "wait_edition":
         admin_sessions[uid]["data"]["edition"] = "" if text == tr("btn_skip", lang) else text
         admin_sessions[uid]["step"] = "wait_desc"
@@ -1477,7 +1572,6 @@ def handle_admin_text(bot, message: types.Message) -> bool:
         )
         return True
 
-    # Description / Comment — last field before confirmation, for both books and articles
     if step == "wait_desc":
         admin_sessions[uid]["data"]["description"] = "" if text == tr("btn_skip", lang) else text
         admin_sessions[uid]["step"] = "confirm"
@@ -1485,8 +1579,6 @@ def handle_admin_text(bot, message: types.Message) -> bool:
         bot.send_message(message.chat.id, summary_text(data, lang), reply_markup=admin_keyboard(lang))
         bot.send_message(message.chat.id, tr("confirm_question", lang), reply_markup=confirm_keyboard(lang))
         return True
-
-    # Article-specific steps
 
     if step == "wait_journal":
         admin_sessions[uid]["data"]["journal"] = "" if text == tr("btn_skip", lang) else text
@@ -1534,7 +1626,6 @@ def handle_admin_text(bot, message: types.Message) -> bool:
         )
         return True
 
-    # Delete Book or Article
     if step == "wait_delete_id":
         resource = _resolve_resource(text)
         if not resource:
@@ -1574,7 +1665,6 @@ def handle_admin_text(bot, message: types.Message) -> bool:
         book_id = admin_sessions[uid]["book_id"]
         value: object = text
 
-        # فیلدهایی که قابل Skip هستند
         skippable = {
             "year", "doi", "journal", "volume", "issue",
             "pages", "publication_date", "url", "edition", "description",
@@ -1587,6 +1677,15 @@ def handle_admin_text(bot, message: types.Message) -> bool:
             except ValueError:
                 bot.send_message(message.chat.id, tr("year_not_number", lang))
                 return True
+        elif field == "language":
+            code = text.strip().lower()
+            if code not in database.VALID_ISO_639_1:
+                err_msg = (f"❗️ کد '{code}' معتبر نیست. یک کد دو‌حرفی ISO 639-1 وارد کن (مثلاً: fr, de, nl, ru):"
+                           if lang == "fa" else
+                           f"❗️ '{code}' is not a valid ISO 639-1 code. Enter a two-letter code (e.g. fr, de, nl, ru):")
+                bot.send_message(message.chat.id, err_msg)
+                return True
+            value = code
 
         database.update_book(book_id, **{field: value})
         resource = database.get_resource(book_id)
@@ -1599,7 +1698,6 @@ def handle_admin_text(bot, message: types.Message) -> bool:
         )
         return True
 
-    # new admin
     if step == "wait_new_admin_id":
         if not text.isdigit():
             bot.send_message(message.chat.id, tr("not_a_number", lang))
@@ -1609,7 +1707,6 @@ def handle_admin_text(bot, message: types.Message) -> bool:
         bot.send_message(message.chat.id, tr("admins_menu_title", lang), reply_markup=admins_menu_keyboard(lang))
         return True
 
-    # delete admin
     if step == "wait_remove_admin_id":
         if not text.isdigit():
             bot.send_message(message.chat.id, tr("not_a_number", lang))
@@ -1624,14 +1721,12 @@ def handle_admin_text(bot, message: types.Message) -> bool:
         bot.send_message(message.chat.id, tr("admins_menu_title", lang), reply_markup=admins_menu_keyboard(lang))
         return True
 
-    # ── Pending: search ────────────────────────────────────────────────────────
     if step == "wait_pending_search":
         admin_sessions.pop(uid, None)
         bot.send_message(message.chat.id, "🔎", reply_markup=admin_keyboard(lang))
         _pending_search(bot, message.chat.id, lang, text)
         return True
 
-    # ── Pending: new value for a metadata field ────────────────────────────────
     if step == "wait_pending_edit_value":
         sess  = admin_sessions[uid]
         pid   = sess.get("pending_id")
@@ -1668,9 +1763,7 @@ def handle_admin_text(bot, message: types.Message) -> bool:
         _after_pending_edit(bot, message.chat.id, uid, lang, pid)
         return True
 
-    # ── Phase 3: Pending ID entry ──────────────────────────────────────────────
     if step == "wait_pending_id":
-        # Accept "P27", "p027", or bare "27"
         raw = text.strip().upper().lstrip("P")
         if not raw.isdigit():
             bot.send_message(message.chat.id, tr("not_a_number", lang))
@@ -1680,10 +1773,7 @@ def handle_admin_text(bot, message: types.Message) -> bool:
         _show_pending_detail(bot, message.chat.id, lang, pid)
         return True
 
-    # ── Phase 3: Pending file upload ───────────────────────────────────────────
-    # Text while in wait_pending_file → only Cancel is valid (handled above)
     if step == "wait_pending_file":
-        # Any non-cancel text is ignored with a gentle reminder
         bot.send_message(message.chat.id, tr("pending_ask_file", lang), reply_markup=cancel_keyboard(lang))
         return True
 
@@ -1697,7 +1787,7 @@ def handle_admin_forward(bot, message: types.Message) -> bool:
     if uid not in admin_sessions or admin_sessions[uid].get("step") != "wait_new_admin_id":
         return False
     if not message.forward_from:
-        return False  
+        return False
 
     lang = get_lang(uid)
     target_id = message.forward_from.id
@@ -1713,18 +1803,15 @@ def handle_admin_document(bot, message: types.Message) -> bool:
     uid = message.from_user.id
     if not is_admin(uid):
         return False
-    # ابتدا restore session را بررسی می‌کنیم
     if handle_restore_document(bot, message):
         return True
     if uid not in admin_sessions:
         return False
 
-    # ── CSV import document handler (Phase 2)
     if admin_sessions[uid].get("step") == "wait_csv_file":
         _handle_csv_upload(bot, message, uid)
         return True
 
-    # ── Phase 3: Pending resource file upload
     if admin_sessions[uid].get("step") == "wait_pending_file":
         _handle_pending_file_upload(bot, message, uid)
         return True
@@ -1753,7 +1840,6 @@ def handle_admin_document(bot, message: types.Message) -> bool:
 
 
 def _handle_article_skip_file(bot, message: types.Message, uid: int, lang: str) -> bool:
-    """Called when user sends skip-text while in wait_file step for an article."""
     if uid not in admin_sessions:
         return False
     sess = admin_sessions[uid]
@@ -1786,18 +1872,16 @@ def handle_admin_callback(bot, callback: types.CallbackQuery) -> bool:
 
     lang = get_lang(uid)
 
-    
     if data == "adm_open_panel":
         bot.answer_callback_query(callback.id)
         open_panel(bot, callback.message.chat.id, uid)
         return True
 
-    # Resource type selection (first step of add flow)
     if data.startswith("adm_rtype:"):
         if uid not in admin_sessions or admin_sessions[uid].get("step") != "wait_resource_type":
             bot.answer_callback_query(callback.id, tr("wrong_step", lang))
             return True
-        rtype = data.split(":")[1]  # "book" or "article"
+        rtype = data.split(":")[1]
         admin_sessions[uid]["data"]["resource_type"] = rtype
         bot.answer_callback_query(callback.id, "✅")
         if rtype == "article":
@@ -1810,13 +1894,41 @@ def handle_admin_callback(bot, callback: types.CallbackQuery) -> bool:
                              reply_markup=cancel_keyboard(lang))
         return True
 
-    
     if data.startswith("adm_lang:"):
-        if uid not in admin_sessions or admin_sessions[uid].get("step") != "wait_language":
+        step = admin_sessions[uid].get("step") if uid in admin_sessions else None
+        if step not in ("wait_language", "wait_edit_new_lang"):
             bot.answer_callback_query(callback.id, tr("wrong_step", lang))
             return True
         book_lang = data.split(":")[1]
-        # دکمه «دیگر» → از ادمین کد ISO را به‌صورت متن می‌خواهیم
+
+        # ── editing a published resource's language ───────────────────────────
+        if step == "wait_edit_new_lang":
+            if book_lang == "__type__":
+                bot.answer_callback_query(callback.id)
+                admin_sessions[uid]["step"] = "wait_edit_value"
+                admin_sessions[uid]["edit_field"] = "language"
+                hint = ("🌐 کد ISO 639-1 زبان منبع را تایپ کن (مثلاً: fr، de، nl، zh، ru، …):"
+                        if lang == "fa" else
+                        "🌐 Type the ISO 639-1 language code (e.g. fr, de, nl, zh, ru, …):")
+                bot.send_message(callback.message.chat.id, hint, reply_markup=cancel_keyboard(lang))
+                return True
+            if book_lang not in database.VALID_ISO_639_1:
+                bot.answer_callback_query(callback.id, "❌ کد زبان نامعتبر")
+                return True
+            book_id = admin_sessions[uid]["book_id"]
+            database.update_book(book_id, language=book_lang)
+            resource = database.get_resource(book_id)
+            bot.answer_callback_query(callback.id, "✅")
+            admin_sessions.pop(uid, None)
+            bot.send_message(
+                callback.message.chat.id,
+                tr("edit_saved", lang, disp=_disp(resource)),
+                reply_markup=admin_keyboard(lang),
+                parse_mode="HTML",
+            )
+            return True
+
+        # ── adding a new resource (original flow) ────────────────────────────
         if book_lang == "__type__":
             bot.answer_callback_query(callback.id)
             admin_sessions[uid]["step"] = "wait_language_text"
@@ -1835,7 +1947,6 @@ def handle_admin_callback(bot, callback: types.CallbackQuery) -> bool:
         bot.send_message(callback.message.chat.id, "👇", reply_markup=field_keyboard(lang))
         return True
 
-    
     if data.startswith("adm_field:"):
         if uid not in admin_sessions or admin_sessions[uid].get("step") != "wait_field":
             bot.answer_callback_query(callback.id, tr("wrong_step", lang))
@@ -1850,7 +1961,6 @@ def handle_admin_callback(bot, callback: types.CallbackQuery) -> bool:
             reply_markup=skip_cancel_keyboard(lang)
         )
         return True
-
 
     if data.startswith("adm_confirm:"):
         if uid not in admin_sessions or admin_sessions[uid].get("step") != "confirm":
@@ -1868,7 +1978,6 @@ def handle_admin_callback(bot, callback: types.CallbackQuery) -> bool:
         d = admin_sessions[uid]["data"]
         rtype = d.get("resource_type", "book")
 
-        # For articles, file_id is optional; for books it is required
         if rtype == "book":
             required = ["file_id", "title", "author", "language", "physics_field"]
         else:
@@ -1946,7 +2055,6 @@ def handle_admin_callback(bot, callback: types.CallbackQuery) -> bool:
             admin_sessions.pop(uid, None)
         return True
 
-    
     if data.startswith("adm_editfield:"):
         if uid not in admin_sessions or admin_sessions[uid].get("step") != "edit_choose_field":
             bot.answer_callback_query(callback.id, tr("wrong_step", lang))
@@ -1960,9 +2068,14 @@ def handle_admin_callback(bot, callback: types.CallbackQuery) -> bool:
             bot.send_message(callback.message.chat.id, "👇", reply_markup=field_keyboard(lang, prefix="adm_editfieldval"))
             return True
 
+        if field == "language":
+            admin_sessions[uid]["step"] = "wait_edit_new_lang"
+            bot.send_message(callback.message.chat.id, tr("ask_lang", lang), reply_markup=cancel_keyboard(lang))
+            bot.send_message(callback.message.chat.id, "👇", reply_markup=lang_keyboard())
+            return True
+
         admin_sessions[uid]["step"] = "wait_edit_value"
         admin_sessions[uid]["edit_field"] = field
-        # فیلدهایی که می‌توان رد کرد (Skip)
         skippable = {
             "year", "edition", "description",
             "doi", "journal", "volume", "issue", "pages", "publication_date", "url",
@@ -1971,7 +2084,6 @@ def handle_admin_callback(bot, callback: types.CallbackQuery) -> bool:
         bot.send_message(callback.message.chat.id, tr("ask_new_value", lang), reply_markup=kb)
         return True
 
-    
     if data.startswith("adm_editfieldval:"):
         if uid not in admin_sessions or admin_sessions[uid].get("step") != "wait_edit_new_field":
             bot.answer_callback_query(callback.id, tr("wrong_step", lang))
@@ -1990,7 +2102,7 @@ def handle_admin_callback(bot, callback: types.CallbackQuery) -> bool:
         )
         return True
 
-    # ── Phase 3: Pending Resources callbacks ──────────────────────────────────
+    # ── Phase 3 & 4: Pending Resources callbacks ──────────────────────────────
     if data.startswith("adm_pnd:"):
         try:
             bot.answer_callback_query(callback.id)
@@ -1998,14 +2110,14 @@ def handle_admin_callback(bot, callback: types.CallbackQuery) -> bool:
             pass
 
         try:
-            parts = data.split(":")   # ["adm_pnd", action, ...]
+            parts   = data.split(":")
             chat_id = callback.message.chat.id
-            action = parts[1] if len(parts) > 1 else ""
+            action  = parts[1] if len(parts) > 1 else ""
 
-            # Overview screen
+            # Overview
             if action == "overview":
                 admin_sessions.pop(uid, None)
-                _show_pending_overview(bot, callback.message.chat.id, lang)
+                _show_pending_overview(bot, chat_id, lang)
                 return True
 
             # Paginated list: adm_pnd:list:<filter>:<page>
@@ -2013,121 +2125,84 @@ def handle_admin_callback(bot, callback: types.CallbackQuery) -> bool:
                 filter_key = parts[2] if len(parts) > 2 else "all"
                 page       = int(parts[3]) if len(parts) > 3 and parts[3].isdigit() else 0
                 _pending_list_page(
-                    bot, callback.message.chat.id, lang, filter_key, page,
+                    bot, chat_id, lang, filter_key, page,
                     edit_message_id=callback.message.message_id,
                 )
                 return True
 
-            # Show detail for a specific pending resource: adm_pnd:detail:<pid>
+            # Detail card: adm_pnd:detail:<pid>
             if action == "detail":
                 if len(parts) > 2 and parts[2].isdigit():
                     admin_sessions.pop(uid, None)
-                    _show_pending_detail(bot, callback.message.chat.id, lang, int(parts[2]))
-                else:
-                    bot.send_message(
-                        callback.message.chat.id,
-                        tr("pending_not_found", lang, pid="?"),
-                    )
+                    _show_pending_detail(bot, chat_id, lang, int(parts[2]))
                 return True
 
-            # Enter ID manually
+            # Manual ID entry
             if action == "enter_id":
                 admin_sessions[uid] = {"step": "wait_pending_id"}
-                bot.send_message(
-                    callback.message.chat.id,
-                    tr("pending_ask_id", lang),
-                    reply_markup=cancel_keyboard(lang),
-                )
+                bot.send_message(chat_id, tr("pending_ask_id", lang), reply_markup=cancel_keyboard(lang))
                 return True
 
-            # Initiate file send for a pending resource: adm_pnd:send_file:<pid>
+            # Send file: adm_pnd:send_file:<pid>
             if action == "send_file":
                 if len(parts) > 2 and parts[2].isdigit():
                     pid = int(parts[2])
                     row = database.get_pending_resource(pid)
                     if not row or row["status"] in ("published", "rejected"):
-                        bot.send_message(
-                            callback.message.chat.id,
-                            tr("pending_stale", lang, pid=pid),
-                            reply_markup=admin_keyboard(lang),
-                        )
+                        bot.send_message(chat_id, tr("pending_stale", lang, pid=pid), reply_markup=admin_keyboard(lang))
                         return True
                     admin_sessions[uid] = {"step": "wait_pending_file", "pending_id": pid}
-                    bot.send_message(
-                        callback.message.chat.id,
-                        tr("pending_ask_file", lang),
-                        reply_markup=cancel_keyboard(lang),
-                    )
+                    bot.send_message(chat_id, tr("pending_ask_file", lang), reply_markup=cancel_keyboard(lang))
                 return True
 
-            # Replace file after successful upload (same resource, re-enter wait state)
+            # Replace same resource file
             if action == "replace_same":
                 sess = admin_sessions.get(uid, {})
                 pid  = sess.get("last_pid")
                 if not pid:
-                    _show_pending_overview(bot, callback.message.chat.id, lang)
+                    _show_pending_overview(bot, chat_id, lang)
                     return True
                 row = database.get_pending_resource(pid)
                 if not row or row["status"] in ("published", "rejected"):
                     admin_sessions.pop(uid, None)
-                    bot.send_message(
-                        callback.message.chat.id,
-                        tr("pending_stale", lang, pid=pid),
-                        reply_markup=admin_keyboard(lang),
-                    )
+                    bot.send_message(chat_id, tr("pending_stale", lang, pid=pid), reply_markup=admin_keyboard(lang))
                     return True
                 admin_sessions[uid] = {"step": "wait_pending_file", "pending_id": pid}
-                bot.send_message(
-                    callback.message.chat.id,
-                    tr("pending_ask_file", lang),
-                    reply_markup=cancel_keyboard(lang),
-                )
+                bot.send_message(chat_id, tr("pending_ask_file", lang), reply_markup=cancel_keyboard(lang))
                 return True
 
-            # ── Phase 4: Show publish confirmation ────────────────────────────────
-            # adm_pnd:publish:<pid>
+            # ── Publish confirmation ──────────────────────────────────────────
             if action == "publish":
                 if len(parts) > 2 and parts[2].isdigit():
-                    pid = int(parts[2])
-                    _show_publish_confirm(bot, callback.message.chat.id, lang, pid)
+                    _show_publish_confirm(bot, chat_id, lang, int(parts[2]))
                 return True
 
-            # ── Phase 4: Execute publish (optionally forced past dup warning) ─────
-            # adm_pnd:do_publish:<pid>        — normal publish
-            # adm_pnd:do_publish:<pid>:force  — publish despite duplicate warning
+            # ── Execute publish ───────────────────────────────────────────────
             if action == "do_publish":
                 if len(parts) > 2 and parts[2].isdigit():
                     pid   = int(parts[2])
                     force = len(parts) > 3 and parts[3] == "force"
-                    _do_publish(bot, callback.message.chat.id, lang, pid, uid, force=force)
+                    _do_publish(bot, chat_id, lang, pid, uid, force=force)
                 return True
 
-            # ── Phase 4: View an existing library resource (from dup warning) ─────
-            # adm_pnd:view_lib:<lib_id>
+            # ── View existing library resource (dup warning) ──────────────────
             if action == "view_lib":
                 if len(parts) > 2 and parts[2].isdigit():
                     lib_id = int(parts[2])
                     resource = database.get_resource(lib_id)
                     if resource:
-                        bot.send_message(
-                            callback.message.chat.id,
-                            _book_summary_text(resource, lang),
-                            parse_mode="HTML",
-                        )
+                        bot.send_message(chat_id, _book_summary_text(resource, lang), parse_mode="HTML")
                     else:
-                        bot.send_message(
-                            callback.message.chat.id,
-                            tr("resource_not_found", lang, id=lib_id),
-                        )
+                        bot.send_message(chat_id, tr("resource_not_found", lang, id=lib_id))
                 return True
 
-            # ── Back to the list the admin was browsing ───────────────────────────
+            # ── Back to list ──────────────────────────────────────────────────
             if action == "back":
                 admin_sessions.pop(uid, None)
                 _pending_back_to_list(bot, chat_id, lang)
                 return True
 
-            # ── Next resource: adm_pnd:next:<pid>[:<filter>] ──────────────────────
+            # ── Next: adm_pnd:next:<pid>[:<filter>] ──────────────────────────
             if action == "next":
                 pid = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
                 fk  = parts[3] if len(parts) > 3 else _pending_ctx.get(chat_id, {}).get("filter", "all")
@@ -2140,18 +2215,120 @@ def handle_admin_callback(bot, callback: types.CallbackQuery) -> bool:
                     _pending_back_to_list(bot, chat_id, lang)
                 return True
 
-            # ── Search ────────────────────────────────────────────────────────────
+            # ── Search ────────────────────────────────────────────────────────
             if action == "search":
                 admin_sessions[uid] = {"step": "wait_pending_search"}
                 bot.send_message(chat_id, tr("pending_search_ask", lang), reply_markup=cancel_keyboard(lang))
                 return True
 
-            # ── Quick (queue) mode ────────────────────────────────────────────────
+            # ── Export pending to CSV ─────────────────────────────────────────
+            if action == "export":
+                _export_pending_csv(bot, chat_id, lang)
+                return True
+
+            # ── Bulk delete menu ──────────────────────────────────────────────
+            if action == "bulk_del_menu":
+                stats = _pending_overview_stats()
+                if stats["total"] == 0:
+                    bot.send_message(chat_id, tr("bulk_del_nothing", lang))
+                    return True
+                title_fa = "🗑 حذف دسته‌جمعی — کدام گروه؟"
+                title_en = "🗑 Bulk Delete — Which group?"
+                bot.send_message(
+                    chat_id,
+                    title_fa if lang == "fa" else title_en,
+                    reply_markup=bulk_delete_menu_keyboard(lang, stats),
+                )
+                return True
+
+            # adm_pnd:bulk_del_ask:<filter>  → show confirmation
+            if action == "bulk_del_ask":
+                filter_key = parts[2] if len(parts) > 2 else "all"
+                rows       = _pending_rows(filter_key)
+                n          = len(rows)
+                if n == 0:
+                    bot.send_message(chat_id, tr("bulk_del_nothing", lang))
+                    return True
+                filter_label = tr(f"pending_filter_{filter_key}", lang)
+                bot.send_message(
+                    chat_id,
+                    tr("bulk_del_confirm", lang, n=n, filter=filter_label),
+                    reply_markup=bulk_delete_confirm_keyboard(lang, filter_key, n),
+                )
+                return True
+
+            # adm_pnd:bulk_del_do:<filter>  → execute
+            if action == "bulk_del_do":
+                filter_key = parts[2] if len(parts) > 2 else "all"
+                rows       = _pending_rows(filter_key)
+                deleted    = 0
+                for r in rows:
+                    if _pending_delete(r["id"]):
+                        deleted += 1
+                bot.send_message(
+                    chat_id,
+                    tr("bulk_deleted", lang, n=deleted),
+                    reply_markup=admin_keyboard(lang),
+                )
+                _show_pending_overview(bot, chat_id, lang)
+                return True
+
+            # ── Quick (queue) mode ────────────────────────────────────────────
+            # adm_pnd:q_start          → show type-selection screen
+            # adm_pnd:q_start:all      → start queue for all no-file resources
+            # adm_pnd:q_start:book     → books only
+            # adm_pnd:q_start:article  → articles only
             if action == "q_start":
-                admin_sessions[uid] = {"step": "wait_pending_file", "pending_id": None,
-                                       "queue": True, "skipped": [], "done": 0}
-                bot.send_message(chat_id, tr("queue_start", lang), reply_markup=cancel_keyboard(lang))
-                _queue_show(bot, chat_id, uid, lang)
+                sub = parts[2] if len(parts) > 2 else None
+                if sub in ("all", "book", "article"):
+                    # Determine the matching nofile filter
+                    nofile_fk = {
+                        "all":     "nofile",
+                        "book":    "book_nofile",
+                        "article": "article_nofile",
+                    }[sub]
+                    n = len(_pending_rows(nofile_fk))
+                    if n == 0:
+                        bot.send_message(chat_id, tr("pending_no_more", lang))
+                        _show_pending_overview(bot, chat_id, lang)
+                        return True
+                    admin_sessions[uid] = {
+                        "step":       "wait_pending_file",
+                        "pending_id": None,
+                        "queue":      True,
+                        "queue_type": sub,          # "all" | "book" | "article"
+                        "skipped":    [],
+                        "done":       0,
+                    }
+                    bot.send_message(chat_id, tr("queue_start", lang), reply_markup=cancel_keyboard(lang))
+                    _queue_show(bot, chat_id, uid, lang)
+                else:
+                    # Show type-selection screen
+                    all_no  = len(_pending_rows("nofile"))
+                    book_no = len(_pending_rows("book_nofile"))
+                    art_no  = len(_pending_rows("article_nofile"))
+                    if all_no == 0:
+                        bot.send_message(chat_id, tr("pending_no_more", lang))
+                        return True
+                    mkp = types.InlineKeyboardMarkup()
+                    mkp.row(types.InlineKeyboardButton(
+                        tr("btn_q_all", lang, n=all_no), callback_data="adm_pnd:q_start:all"
+                    ))
+                    row2 = []
+                    if book_no:
+                        row2.append(types.InlineKeyboardButton(
+                            tr("btn_q_books", lang, n=book_no), callback_data="adm_pnd:q_start:book"
+                        ))
+                    if art_no:
+                        row2.append(types.InlineKeyboardButton(
+                            tr("btn_q_articles", lang, n=art_no), callback_data="adm_pnd:q_start:article"
+                        ))
+                    if row2:
+                        mkp.row(*row2)
+                    mkp.row(types.InlineKeyboardButton(
+                        tr("btn_pending_back", lang), callback_data="adm_pnd:overview"
+                    ))
+                    bot.send_message(chat_id, tr("queue_choose_type", lang), reply_markup=mkp)
                 return True
 
             if action == "q_skip":
@@ -2159,8 +2336,15 @@ def handle_admin_callback(bot, callback: types.CallbackQuery) -> bool:
                 skipped, done = _queue_state(uid)
                 if pid and pid not in skipped:
                     skipped.append(pid)
-                admin_sessions[uid] = {"step": "wait_pending_file", "pending_id": pid,
-                                       "queue": True, "skipped": skipped, "done": done}
+                sess = admin_sessions.get(uid, {})
+                admin_sessions[uid] = {
+                    "step":       "wait_pending_file",
+                    "pending_id": pid,
+                    "queue":      True,
+                    "queue_type": sess.get("queue_type", "all"),
+                    "skipped":    skipped,
+                    "done":       done,
+                }
                 _queue_show(bot, chat_id, uid, lang, after_pid=pid)
                 return True
 
@@ -2176,7 +2360,7 @@ def handle_admin_callback(bot, callback: types.CallbackQuery) -> bool:
                 _show_pending_overview(bot, chat_id, lang)
                 return True
 
-            # ── Delete: adm_pnd:del:<pid>[:q]  →  adm_pnd:do_del:<pid>[:q] ────────
+            # ── Delete: adm_pnd:del:<pid>[:q]  →  adm_pnd:do_del:<pid>[:q] ──
             if action == "del":
                 pid   = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
                 queue = len(parts) > 3 and parts[3] == "q"
@@ -2204,8 +2388,7 @@ def handle_admin_callback(bot, callback: types.CallbackQuery) -> bool:
                     _pending_back_to_list(bot, chat_id, lang)
                 return True
 
-            # ── Edit metadata ─────────────────────────────────────────────────────
-            # adm_pnd:edit:<pid>[:q] → pick field → adm_pnd:ef:<pid>:<field>
+            # ── Edit metadata ─────────────────────────────────────────────────
             if action == "edit":
                 pid   = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
                 queue = len(parts) > 3 and parts[3] == "q"
@@ -2214,8 +2397,13 @@ def handle_admin_callback(bot, callback: types.CallbackQuery) -> bool:
                     bot.send_message(chat_id, tr("pending_stale", lang, pid=pid))
                     return True
                 skipped, done = _queue_state(uid) if queue else ([], 0)
-                admin_sessions[uid] = {"step": "edit_pending_choose", "pending_id": pid,
-                                       **({"queue": True, "skipped": skipped, "done": done} if queue else {})}
+                sess = admin_sessions.get(uid, {})
+                admin_sessions[uid] = {
+                    "step":       "edit_pending_choose",
+                    "pending_id": pid,
+                    **({"queue": True, "queue_type": sess.get("queue_type", "all"),
+                        "skipped": skipped, "done": done} if queue else {}),
+                }
                 bot.send_message(
                     chat_id,
                     tr("pending_edit_pick", lang, pid=pid, title=row["title"]),
@@ -2235,7 +2423,6 @@ def handle_admin_callback(bot, callback: types.CallbackQuery) -> bool:
                 elif field == "language":
                     bot.send_message(chat_id, tr("ask_lang", lang), reply_markup=pending_lang_keyboard(pid))
                 elif field == "language_text":
-                    # Free-text ISO 639-1 entry for pending resources
                     sess.update({"step": "wait_pending_edit_value", "pending_id": pid, "edit_field": "language"})
                     admin_sessions[uid] = sess
                     hint = ("🌐 کد ISO 639-1 زبان منبع را تایپ کن (مثلاً: fr، de، nl، zh، ru، …):"
@@ -2252,7 +2439,7 @@ def handle_admin_callback(bot, callback: types.CallbackQuery) -> bool:
                     bot.send_message(chat_id, tr("ask_new_value", lang), reply_markup=kb)
                 return True
 
-            # adm_pnd:efv:<pid>:<field>:<value>   (inline choices)
+            # adm_pnd:efv:<pid>:<field>:<value>
             if action == "efv":
                 p = data.split(":", 4)
                 if len(p) < 5 or not p[2].isdigit():
@@ -2271,7 +2458,7 @@ def handle_admin_callback(bot, callback: types.CallbackQuery) -> bool:
                 _after_pending_edit(bot, chat_id, uid, lang, pid)
                 return True
 
-            return True   # unknown adm_pnd sub-action — swallow gracefully
+            return True
 
         except Exception as _pnd_exc:
             import logging
@@ -2298,7 +2485,6 @@ def handle_admin_callback(bot, callback: types.CallbackQuery) -> bool:
             bot.send_message(callback.message.chat.id, tr("csv_import_cancelled", lang),
                              reply_markup=admin_keyboard(lang))
             return True
-        # Confirm — insert valid rows
         valid_rows = admin_sessions[uid].get("csv_valid_rows", [])
         admin_sessions.pop(uid, None)
         if not valid_rows:
@@ -2321,7 +2507,6 @@ def handle_admin_callback(bot, callback: types.CallbackQuery) -> bool:
 # ── Phase 3: Pending file upload handler ───────────────────────────────────────
 
 def _handle_pending_file_upload(bot, message, uid: int) -> None:
-    """Called when a document arrives while the admin is in wait_pending_file."""
     lang    = get_lang(uid)
     sess    = admin_sessions.get(uid, {})
     pid     = sess.get("pending_id")
@@ -2332,7 +2517,6 @@ def _handle_pending_file_upload(bot, message, uid: int) -> None:
         bot.send_message(message.chat.id, tr("pending_no_active", lang), reply_markup=admin_keyboard(lang))
         return
 
-    # Re-fetch the pending row to guard against stale state
     row = database.get_pending_resource(pid)
     if not row or row["status"] in ("published", "rejected"):
         bot.send_message(message.chat.id, tr("pending_stale", lang, pid=pid), reply_markup=admin_keyboard(lang))
@@ -2346,7 +2530,7 @@ def _handle_pending_file_upload(bot, message, uid: int) -> None:
     ALLOWED_EXTENSIONS = {".pdf", ".zip", ".djvu"}
     if not any((doc.file_name or "").lower().endswith(ext) for ext in ALLOWED_EXTENSIONS):
         bot.send_message(message.chat.id, tr("pending_file_only", lang))
-        return  # stay in wait_pending_file
+        return
 
     try:
         ok = database.attach_pending_file(
@@ -2369,14 +2553,12 @@ def _handle_pending_file_upload(bot, message, uid: int) -> None:
 
     fname = doc.file_name or doc.file_id
 
-    # ── Quick mode: confirm in one line and jump straight to the next resource
     if queue:
         admin_sessions[uid] = {**sess, "done": int(sess.get("done", 0)) + 1}
         bot.send_message(message.chat.id, tr("queue_saved", lang, pid=pid, title=row["title"], fname=fname))
         _queue_show(bot, message.chat.id, uid, lang, after_pid=pid)
         return
 
-    # ── Normal mode
     admin_sessions[uid] = {"step": "pending_file_done", "last_pid": pid}
     bot.send_message(
         message.chat.id,
@@ -2387,13 +2569,8 @@ def _handle_pending_file_upload(bot, message, uid: int) -> None:
 
 # ── CSV Import helpers (Phase 2) ───────────────────────────────────────────────
 
-# Maximum CSV file size accepted (bytes).
-_CSV_MAX_BYTES = 5 * 1024 * 1024  # 5 MB
-
-# Columns that MUST be present in every CSV (case-insensitive header match).
+_CSV_MAX_BYTES = 5 * 1024 * 1024
 _CSV_REQUIRED_COLS = {"resource_type", "title", "author", "language", "physics_field"}
-
-# All columns the importer recognises (optional ones are silently defaulted).
 _CSV_ALL_COLS = _CSV_REQUIRED_COLS | {
     "description", "edition", "year",
     "doi", "journal", "volume", "issue", "pages", "url", "publication_date",
@@ -2401,16 +2578,10 @@ _CSV_ALL_COLS = _CSV_REQUIRED_COLS | {
 
 
 def _normalise_csv_headers(raw_headers: list[str]) -> dict[str, str]:
-    """Return {normalised_lower: original} mapping for each header."""
     return {h.strip().lower(): h for h in raw_headers}
 
 
 def _validate_csv_row(row_num: int, raw: dict, norm_map: dict[str, str]) -> tuple[dict | None, str | None]:
-    """Validate a single CSV row dict (keys already lower-cased).
-
-    Returns (cleaned_kwargs, None) on success or (None, error_message) on failure.
-    cleaned_kwargs can be passed directly to database.create_pending_resource().
-    """
     def get(col: str) -> str:
         return raw.get(col, "").strip()
 
@@ -2440,7 +2611,6 @@ def _validate_csv_row(row_num: int, raw: dict, norm_map: dict[str, str]) -> tupl
             f"مقادیر مجاز: {', '.join(sorted(database.PHYSICS_FIELDS))}"
         )
 
-    # year: optional integer
     year_raw = get("year")
     year: int | None = None
     if year_raw:
@@ -2472,11 +2642,6 @@ def _validate_csv_row(row_num: int, raw: dict, norm_map: dict[str, str]) -> tupl
 
 
 def _parse_csv_bytes(raw_bytes: bytes) -> tuple[list[dict], list[str]]:
-    """Decode and parse CSV bytes; return (list_of_row_dicts_lower_keys, errors).
-
-    Tries UTF-8-with-BOM first, then UTF-8, then Windows-1256 (Persian).
-    Row dicts use lower-cased, stripped column names as keys.
-    """
     for encoding in ("utf-8-sig", "utf-8", "windows-1256", "latin-1"):
         try:
             text = raw_bytes.decode(encoding)
@@ -2493,7 +2658,6 @@ def _parse_csv_bytes(raw_bytes: bytes) -> tuple[list[dict], list[str]]:
         return [], [f"خطا در خواندن هدر CSV: {e}"]
 
     norm_map = _normalise_csv_headers(list(raw_headers))
-    # Check required columns
     missing = _CSV_REQUIRED_COLS - set(norm_map.keys())
     if missing:
         found_str  = ", ".join(sorted(norm_map.keys())) or "(هیچ‌کدام)"
@@ -2503,7 +2667,6 @@ def _parse_csv_bytes(raw_bytes: bytes) -> tuple[list[dict], list[str]]:
     rows = []
     try:
         for raw_row in reader:
-            # Normalise keys to lower-case stripped versions
             normalised = {k.strip().lower(): (v or "").strip() for k, v in raw_row.items() if k}
             rows.append(normalised)
     except Exception as e:
@@ -2513,21 +2676,17 @@ def _parse_csv_bytes(raw_bytes: bytes) -> tuple[list[dict], list[str]]:
 
 
 def _handle_csv_upload(bot, message: types.Message, uid: int) -> None:
-    """Process a document sent while the admin is in wait_csv_file step."""
     lang = get_lang(uid)
     doc  = message.document
 
-    # Extension check
     if not (doc.file_name or "").lower().endswith(".csv"):
         bot.send_message(message.chat.id, tr("csv_not_csv", lang))
         return
 
-    # Size check
     if doc.file_size and doc.file_size > _CSV_MAX_BYTES:
         bot.send_message(message.chat.id, tr("csv_too_large", lang))
         return
 
-    # Download
     try:
         file_info    = bot.get_file(doc.file_id)
         raw_bytes    = bot.download_file(file_info.file_path)
@@ -2535,7 +2694,6 @@ def _handle_csv_upload(bot, message: types.Message, uid: int) -> None:
         bot.send_message(message.chat.id, tr("csv_parse_error", lang, err=e))
         return
 
-    # Parse
     rows, parse_errors = _parse_csv_bytes(raw_bytes)
     if parse_errors:
         bot.send_message(message.chat.id, tr("csv_parse_error", lang, err="\n".join(parse_errors)))
@@ -2548,18 +2706,16 @@ def _handle_csv_upload(bot, message: types.Message, uid: int) -> None:
         admin_sessions.pop(uid, None)
         return
 
-    # Validate each row
     valid_rows:   list[dict] = []
     row_errors:   list[str]  = []
-    seen_keys:    set[tuple] = set()   # dedup within this import by (resource_type, title, author)
+    seen_keys:    set[tuple] = set()
 
-    for i, raw_row in enumerate(rows, start=2):   # row 1 is header
+    for i, raw_row in enumerate(rows, start=2):
         cleaned, err = _validate_csv_row(i, raw_row, {})
         if err:
             row_errors.append(err)
             continue
 
-        # Within-import duplicate detection
         dedup_key = (cleaned["resource_type"], cleaned["title"].lower(), cleaned["author"].lower())
         if dedup_key in seen_keys:
             row_errors.append(f"row {i}: تکراری در همین CSV (عنوان+نویسنده+نوع تکراری است)")
@@ -2571,7 +2727,6 @@ def _handle_csv_upload(bot, message: types.Message, uid: int) -> None:
     n_valid = len(valid_rows)
     n_bad   = len(row_errors)
 
-    # Preview message
     preview = tr("csv_preview", lang,
                  filename=doc.file_name or "?",
                  total=total,
@@ -2579,7 +2734,6 @@ def _handle_csv_upload(bot, message: types.Message, uid: int) -> None:
                  invalid=n_bad)
     bot.send_message(message.chat.id, preview)
 
-    # Show row errors (cap at 20 to avoid Telegram message length limits)
     if row_errors:
         error_lines = [tr("csv_errors_header", lang)]
         for e in row_errors[:20]:
@@ -2590,12 +2744,10 @@ def _handle_csv_upload(bot, message: types.Message, uid: int) -> None:
         bot.send_message(message.chat.id, "\n".join(error_lines))
 
     if not valid_rows:
-        bot.send_message(message.chat.id, tr("csv_no_valid_rows", lang),
-                         reply_markup=admin_keyboard(lang))
+        bot.send_message(message.chat.id, tr("csv_no_valid_rows", lang), reply_markup=admin_keyboard(lang))
         admin_sessions.pop(uid, None)
         return
 
-    # Store valid rows in session and ask for confirmation
     admin_sessions[uid] = {
         "step":           "wait_csv_confirm",
         "csv_valid_rows": valid_rows,
@@ -2617,22 +2769,29 @@ def _pending_status_label(status: str, lang: str) -> str:
 
 
 def _pending_overview_stats() -> dict:
-    """Return aggregate counts needed for the overview screen.
-
-    Only counts resources with status 'pending' or 'file_received'.
-    Published and rejected rows are excluded so the counter stays meaningful.
+    """
+    Aggregate counts for the overview screen, broken down by type.
+    Only active rows (pending / file_received) are counted.
     """
     pending_rows   = database.list_pending_resources(status="pending",       limit=100_000, offset=0)
     file_recv_rows = database.list_pending_resources(status="file_received", limit=100_000, offset=0)
     all_rows       = pending_rows + file_recv_rows
-    books_cnt  = sum(1 for r in all_rows if r["resource_type"] == "book")
-    arts_cnt   = sum(1 for r in all_rows if r["resource_type"] == "article")
+
+    books_all   = [r for r in all_rows if r["resource_type"] == "book"]
+    arts_all    = [r for r in all_rows if r["resource_type"] == "article"]
+
     return {
-        "total":    len(all_rows),
-        "books":    books_cnt,
-        "articles": arts_cnt,
-        "no_file":  len(pending_rows),
-        "has_file": len(file_recv_rows),
+        "total":            len(all_rows),
+        "no_file":          len(pending_rows),
+        "has_file":         len(file_recv_rows),
+        "books":            len(books_all),
+        "articles":         len(arts_all),
+        # per-type nofile counts
+        "books_nofile":     sum(1 for r in books_all if not r["file_id"]),
+        "articles_nofile":  sum(1 for r in arts_all  if not r["file_id"]),
+        # per-type ready counts
+        "books_ready":      sum(1 for r in books_all if r["status"] == "file_received"),
+        "articles_ready":   sum(1 for r in arts_all  if r["status"] == "file_received"),
     }
 
 
@@ -2642,17 +2801,21 @@ def _show_pending_overview(bot, chat_id: int, lang: str):
         bot.send_message(chat_id, tr("pending_empty", lang), reply_markup=admin_keyboard(lang))
         return
     text = tr(
-        "pending_overview", lang,
-        total=stats["total"],
-        no_file=stats["no_file"],
-        has_file=stats["has_file"],
-        books=stats["books"],
-        articles=stats["articles"],
+        "pending_overview_detail", lang,
+        total            = stats["total"],
+        no_file          = stats["no_file"],
+        has_file         = stats["has_file"],
+        books            = stats["books"],
+        articles         = stats["articles"],
+        books_nofile     = stats["books_nofile"],
+        articles_nofile  = stats["articles_nofile"],
+        books_ready      = stats["books_ready"],
+        articles_ready   = stats["articles_ready"],
     )
-    bot.send_message(chat_id, text, reply_markup=pending_overview_keyboard(lang, stats["no_file"]))
+    bot.send_message(chat_id, text, reply_markup=pending_overview_keyboard(lang, stats))
 
 
-# Remembers which list/page the admin was browsing so "back" returns there.
+# Remembers the list context (filter + page) so "back" returns there.
 _pending_ctx: dict[int, dict] = {}
 
 _PENDING_SKIPPABLE = {"year", "edition", "description", "doi", "journal",
@@ -2662,18 +2825,44 @@ _PENDING_EDITABLE = _PENDING_TEXT_FIELDS | {"physics_field", "resource_type"}
 
 
 def _pending_rows(filter_key: str = "all") -> list:
-    """Active (not published / rejected) pending rows, ordered by id."""
+    """Active (not published / rejected) pending rows, ordered by id.
+
+    Supported filter_key values:
+      all             – every active row
+      nofile          – no file attached yet (status == 'pending')
+      ready           – file received, ready to publish
+      book            – all books
+      article         – all articles
+      book_nofile     – books without a file
+      article_nofile  – articles without a file
+      book_ready      – books ready to publish
+      article_ready   – articles ready to publish
+    """
     rows = database.list_pending_resources(limit=100_000, offset=0)
     rows = [r for r in rows if r["status"] not in ("published", "rejected")]
+
     if filter_key == "nofile":
         rows = [r for r in rows if not r["file_id"]]
     elif filter_key == "ready":
         rows = [r for r in rows if r["status"] == "file_received"]
+    elif filter_key == "book":
+        rows = [r for r in rows if r["resource_type"] == "book"]
+    elif filter_key == "article":
+        rows = [r for r in rows if r["resource_type"] == "article"]
+    elif filter_key == "book_nofile":
+        rows = [r for r in rows if r["resource_type"] == "book" and not r["file_id"]]
+    elif filter_key == "article_nofile":
+        rows = [r for r in rows if r["resource_type"] == "article" and not r["file_id"]]
+    elif filter_key == "book_ready":
+        rows = [r for r in rows if r["resource_type"] == "book" and r["status"] == "file_received"]
+    elif filter_key == "article_ready":
+        rows = [r for r in rows if r["resource_type"] == "article" and r["status"] == "file_received"]
+
     return sorted(rows, key=lambda r: r["id"])
 
 
 def _pending_next(pid: int, filter_key: str = "all"):
-    rows = _pending_rows(filter_key)
+    rows  = _pending_rows(filter_key)
     after = [r for r in rows if r["id"] > pid]
     if after:
         return after[0]
@@ -2683,7 +2872,6 @@ def _pending_next(pid: int, filter_key: str = "all"):
 
 
 def _pending_update(pid: int, fields: dict) -> bool:
-    """UPDATE a pending row (whitelisted columns only). False if not found / already published."""
     fields = {k: v for k, v in fields.items() if k in _PENDING_EDITABLE}
     if not fields:
         return False
@@ -2717,7 +2905,7 @@ def _pending_delete(pid: int) -> bool:
 
 def _pending_list_page(bot, chat_id: int, lang: str, filter_key: str, page: int,
                        edit_message_id: int | None = None):
-    """Paginated list of pending resources with select buttons."""
+    """Paginated list of pending resources with inline select buttons."""
     rows_all = _pending_rows(filter_key)
 
     total       = len(rows_all)
@@ -2726,8 +2914,14 @@ def _pending_list_page(bot, chat_id: int, lang: str, filter_key: str, page: int,
     page_rows   = rows_all[page * _PENDING_PAGE_SIZE:(page + 1) * _PENDING_PAGE_SIZE]
     _pending_ctx[chat_id] = {"filter": filter_key, "page": page}
 
-    filter_label = tr(f"pending_filter_{filter_key}", lang)
-    lines = [tr("pending_list_header", lang, filter=filter_label, page=page + 1, total_pages=total_pages)]
+    # Resolve the filter label (supports all new keys)
+    _filter_label_key = f"pending_filter_{filter_key}"
+    if _filter_label_key in T:
+        filter_label = tr(_filter_label_key, lang)
+    else:
+        filter_label = filter_key
+
+    lines  = [tr("pending_list_header", lang, filter=filter_label, page=page + 1, total_pages=total_pages)]
     markup = types.InlineKeyboardMarkup()
 
     if not page_rows:
@@ -2749,8 +2943,31 @@ def _pending_list_page(bot, chat_id: int, lang: str, filter_key: str, page: int,
         nav.append(types.InlineKeyboardButton("▶️", callback_data=f"adm_pnd:list:{filter_key}:{page + 1}"))
     if nav:
         markup.row(*nav)
+
+    # Quick-add button for nofile filters
+    nofile_fk = None
     if filter_key == "nofile" and total:
-        markup.row(types.InlineKeyboardButton(tr("btn_quick", lang, n=total), callback_data="adm_pnd:q_start"))
+        nofile_fk = "nofile"
+    elif filter_key in ("book", "book_nofile") and any(not r["file_id"] for r in rows_all):
+        nofile_fk = "book_nofile"
+    elif filter_key in ("article", "article_nofile") and any(not r["file_id"] for r in rows_all):
+        nofile_fk = "article_nofile"
+
+    if nofile_fk:
+        n_nofile = len(_pending_rows(nofile_fk))
+        if n_nofile:
+            markup.row(types.InlineKeyboardButton(
+                tr("btn_quick", lang, n=n_nofile),
+                callback_data=f"adm_pnd:q_start:{nofile_fk.replace('_nofile', '') or 'all'}",
+            ))
+
+    # Bulk delete for this filter
+    if total:
+        markup.row(types.InlineKeyboardButton(
+            tr("btn_bulk_delete", lang),
+            callback_data=f"adm_pnd:bulk_del_ask:{filter_key}",
+        ))
+
     markup.row(types.InlineKeyboardButton(tr("btn_pending_back", lang), callback_data="adm_pnd:overview"))
 
     text = "\n".join(lines)
@@ -2791,7 +3008,6 @@ def _pending_search(bot, chat_id: int, lang: str, query: str):
 
 
 def _pending_detail_text(r, lang: str) -> str:
-    """Build the detail text block for a single pending resource row."""
     pid   = r["id"]
     rtype = "📘 کتاب" if lang == "fa" else "📕 Book"
     if r["resource_type"] == "article":
@@ -2808,13 +3024,12 @@ def _pending_detail_text(r, lang: str) -> str:
     elif _rlang == "en":
         lang_label = "انگلیسی" if lang == "fa" else "English"
     else:
-        lang_label = _rlang.upper() if _rlang else "-"
+        lang_label = database.lang_native(_rlang) if _rlang else "-"
 
     year    = str(r["year"]) if r["year"] else ("-")
     edition = r["edition"] or ""
     edition_line = (f"🔖 {'ویرایش' if lang == 'fa' else 'Edition'}: {edition}\n") if edition else ""
 
-    # Article metadata
     def _rget(key):
         try:
             v = r[key]
@@ -2848,23 +3063,14 @@ def _pending_detail_text(r, lang: str) -> str:
 
     return tr(
         "pending_detail", lang,
-        pid=pid,
-        rtype=rtype,
-        title=r["title"],
-        author=r["author"],
-        year=year,
-        edition_line=edition_line,
-        field=field,
-        book_lang=lang_label,
-        article_meta=article_meta,
-        desc_line=desc_line,
-        file_status=file_status,
-        status=status_label,
+        pid=pid, rtype=rtype, title=r["title"], author=r["author"],
+        year=year, edition_line=edition_line, field=field, book_lang=lang_label,
+        article_meta=article_meta, desc_line=desc_line,
+        file_status=file_status, status=status_label,
     )
 
 
 def _show_pending_detail(bot, chat_id: int, lang: str, pending_id: int):
-    """Fetch a pending resource and show its detail card with action buttons."""
     row = database.get_pending_resource(pending_id)
     if not row:
         bot.send_message(chat_id, tr("pending_not_found", lang, pid=pending_id))
@@ -2884,6 +3090,49 @@ def _show_pending_detail(bot, chat_id: int, lang: str, pending_id: int):
     bot.send_message(chat_id, text, reply_markup=pending_detail_keyboard(lang, pending_id, has_file))
 
 
+# ── Export pending resources to CSV ────────────────────────────────────────────
+
+def _export_pending_csv(bot, chat_id: int, lang: str) -> None:
+    """Build and send a CSV of all active pending resources (books + articles)."""
+    rows = _pending_rows("all")
+    if not rows:
+        bot.send_message(chat_id, tr("pending_empty", lang))
+        return
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    # Header matches the import format so the file can be re-imported after edits
+    writer.writerow([
+        "resource_type", "title", "author", "language", "physics_field",
+        "description", "edition", "year",
+        "doi", "journal", "volume", "issue", "pages", "url", "publication_date",
+        "pending_id", "status", "file",
+    ])
+
+    for r in rows:
+        def _g(k):
+            try:
+                v = r[k]
+                return v if v is not None else ""
+            except (KeyError, IndexError):
+                return ""
+
+        writer.writerow([
+            _g("resource_type"), _g("title"), _g("author"), _g("language"), _g("physics_field"),
+            _g("description"), _g("edition"), _g("year") or "",
+            _g("doi"), _g("journal"), _g("volume"), _g("issue"), _g("pages"), _g("url"), _g("publication_date"),
+            f"P{r['id']}", r["status"], _g("file_name"),
+        ])
+
+    output.seek(0)
+    buf = io.BytesIO(output.read().encode("utf-8-sig"))
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+    fname   = f"pending_resources_{timestamp}.csv"
+    caption = tr("export_pending_caption", lang, time=datetime.now().strftime("%Y-%m-%d %H:%M"))
+    bot.send_document(chat_id, buf, caption=caption, visible_file_name=fname)
+
+
 # ── Quick (queue) mode ─────────────────────────────────────────────────────────
 
 def _queue_state(uid: int) -> tuple[list, int]:
@@ -2897,7 +3146,16 @@ def _queue_show(bot, chat_id: int, uid: int, lang: str,
                 after_pid: int | None = None, pid_override: int | None = None):
     """Show the next card in quick mode and wait for its file."""
     skipped, done = _queue_state(uid)
-    rows = [r for r in _pending_rows("nofile") if r["id"] not in skipped]
+    sess = admin_sessions.get(uid, {})
+    # Respect the type filter chosen at queue-start time
+    qtype = sess.get("queue_type", "all")
+    nofile_fk = {
+        "all":     "nofile",
+        "book":    "book_nofile",
+        "article": "article_nofile",
+    }.get(qtype, "nofile")
+
+    rows = [r for r in _pending_rows(nofile_fk) if r["id"] not in skipped]
 
     row = None
     if pid_override:
@@ -2916,15 +3174,21 @@ def _queue_show(bot, chat_id: int, uid: int, lang: str,
         _show_pending_overview(bot, chat_id, lang)
         return
 
-    admin_sessions[uid] = {"step": "wait_pending_file", "pending_id": row["id"],
-                           "queue": True, "skipped": skipped, "done": done}
+    admin_sessions[uid] = {
+        "step":       "wait_pending_file",
+        "pending_id": row["id"],
+        "queue":      True,
+        "queue_type": qtype,
+        "skipped":    skipped,
+        "done":       done,
+    }
     text = (tr("queue_header", lang, left=len(rows) or 1) + "\n\n"
             + _pending_detail_text(row, lang) + "\n\n" + tr("queue_hint", lang))
     bot.send_message(chat_id, text, reply_markup=pending_queue_keyboard(lang, row["id"]))
 
 
 def _after_pending_edit(bot, chat_id: int, uid: int, lang: str, pid: int):
-    sess = admin_sessions.get(uid, {})
+    sess  = admin_sessions.get(uid, {})
     queue = bool(sess.get("queue"))
     if queue:
         bot.send_message(chat_id, tr("pending_edit_saved", lang, pid=pid), reply_markup=cancel_keyboard(lang))
@@ -2938,7 +3202,6 @@ def _after_pending_edit(bot, chat_id: int, uid: int, lang: str, pid: int):
 # ── Phase 4: Publish helpers ───────────────────────────────────────────────────
 
 def _publish_confirm_text(r, lang: str) -> str:
-    """Build the publish-confirmation message text for a pending resource."""
     rtype_label = ("📘 کتاب" if lang == "fa" else "📕 Book") if r["resource_type"] == "book" \
                   else ("📄 مقاله" if lang == "fa" else "📄 Article")
 
@@ -2952,7 +3215,7 @@ def _publish_confirm_text(r, lang: str) -> str:
     elif _rlang2 == "en":
         lang_label = "انگلیسی" if lang == "fa" else "English"
     else:
-        lang_label = _rlang2.upper() if _rlang2 else "-"
+        lang_label = database.lang_native(_rlang2) if _rlang2 else "-"
 
     def _pg(key):
         try:
@@ -2978,100 +3241,63 @@ def _publish_confirm_text(r, lang: str) -> str:
 
     return tr(
         "publish_confirm", lang,
-        pid=r["id"],
-        rtype=rtype_label,
-        title=r["title"],
-        author=r["author"],
-        field=field,
-        book_lang=lang_label,
-        year_line=year_line,
-        edition_line=edition_line,
-        article_meta=article_meta,
-        fname=fname,
+        pid=r["id"], rtype=rtype_label, title=r["title"], author=r["author"],
+        field=field, book_lang=lang_label,
+        year_line=year_line, edition_line=edition_line, article_meta=article_meta, fname=fname,
     )
 
 
 def _show_publish_confirm(bot, chat_id: int, lang: str, pending_id: int):
-    """Show the publish confirmation screen for a pending resource."""
     row = database.get_pending_resource(pending_id)
     if not row:
         bot.send_message(chat_id, tr("pending_not_found", lang, pid=pending_id))
         return
-
     if row["status"] == "published":
         bot.send_message(chat_id, tr("publish_already", lang))
         return
-
     if row["status"] != "file_received":
-        bot.send_message(
-            chat_id,
-            tr("publish_not_ready", lang, status=_pending_status_label(row["status"], lang))
-        )
+        bot.send_message(chat_id, tr("publish_not_ready", lang, status=_pending_status_label(row["status"], lang)))
         return
-
     if not row["file_id"]:
-        bot.send_message(
-            chat_id,
-            tr("publish_not_ready", lang, status=_pending_status_label(row["status"], lang))
-        )
+        bot.send_message(chat_id, tr("publish_not_ready", lang, status=_pending_status_label(row["status"], lang)))
         return
 
-    # Duplicate detection before showing the confirmation
     _doi = ""
     try:
         _doi = row["doi"] or ""
     except (KeyError, IndexError):
         pass
     dups = database.find_library_duplicates(
-        resource_type=row["resource_type"],
-        title=row["title"],
-        author=row["author"],
-        doi=_doi,
+        resource_type=row["resource_type"], title=row["title"], author=row["author"], doi=_doi,
     )
-
     if dups:
         dup = dups[0]
         bot.send_message(
             chat_id,
-            tr(
-                "publish_dup_warning", lang,
-                dup_title=dup["title"],
-                dup_author=dup["author"] or "-",
-                dup_disp=_disp(dup),
-            ),
+            tr("publish_dup_warning", lang,
+               dup_title=dup["title"], dup_author=dup["author"] or "-", dup_disp=_disp(dup)),
             reply_markup=publish_dup_keyboard(lang, pending_id, dup["id"]),
             parse_mode="HTML",
         )
         return
 
-    text = _publish_confirm_text(row, lang)
-    bot.send_message(
-        chat_id,
-        text,
-        reply_markup=publish_confirm_keyboard(lang, pending_id),
-    )
+    bot.send_message(chat_id, _publish_confirm_text(row, lang),
+                     reply_markup=publish_confirm_keyboard(lang, pending_id))
 
 
 def _do_publish(bot, chat_id: int, lang: str, pending_id: int, added_by: int, force: bool = False):
-    """Execute the actual publish: insert into Library, mark pending as published."""
-    # Final safety checks before publishing
     row = database.get_pending_resource(pending_id)
     if not row:
         bot.send_message(chat_id, tr("pending_not_found", lang, pid=pending_id))
         return
-
     if row["status"] == "published":
         bot.send_message(chat_id, tr("publish_already", lang))
         return
-
     if row["status"] != "file_received" or not row["file_id"]:
-        bot.send_message(
-            chat_id,
-            tr("publish_not_ready", lang, status=_pending_status_label(row["status"], lang))
-        )
+        bot.send_message(chat_id, tr("publish_not_ready", lang,
+                                     status=_pending_status_label(row["status"], lang)))
         return
 
-    # Duplicate check (skip if force=True, i.e. admin clicked "Publish Anyway")
     if not force:
         _doi2 = ""
         try:
@@ -3079,37 +3305,25 @@ def _do_publish(bot, chat_id: int, lang: str, pending_id: int, added_by: int, fo
         except (KeyError, IndexError):
             pass
         dups = database.find_library_duplicates(
-            resource_type=row["resource_type"],
-            title=row["title"],
-            author=row["author"],
-            doi=_doi2,
+            resource_type=row["resource_type"], title=row["title"], author=row["author"], doi=_doi2,
         )
         if dups:
             dup = dups[0]
             bot.send_message(
                 chat_id,
-                tr(
-                    "publish_dup_warning", lang,
-                    dup_title=dup["title"],
-                    dup_author=dup["author"] or "-",
-                    dup_disp=_disp(dup),
-                ),
+                tr("publish_dup_warning", lang,
+                   dup_title=dup["title"], dup_author=dup["author"] or "-", dup_disp=_disp(dup)),
                 reply_markup=publish_dup_keyboard(lang, pending_id, dup["id"]),
                 parse_mode="HTML",
             )
             return
 
-    # Atomically publish
     try:
         new_id = database.publish_pending_resource(pending_id, added_by=added_by)
-    except ValueError as e:
-        bot.send_message(chat_id, tr("publish_error", lang, err=e), reply_markup=admin_keyboard(lang))
-        return
-    except Exception as e:
+    except (ValueError, Exception) as e:
         bot.send_message(chat_id, tr("publish_error", lang, err=e), reply_markup=admin_keyboard(lang))
         return
 
-    # Fetch the newly created library resource to get its display ID
     new_resource = database.get_resource(new_id)
     disp = _disp(new_resource) if new_resource else f"#{new_id}"
 
@@ -3120,12 +3334,11 @@ def _do_publish(bot, chat_id: int, lang: str, pending_id: int, added_by: int, fo
         parse_mode="HTML",
     )
 
-    # Notify subscribers — same as the direct-add flow
     if _notify_callback:
         _notify_callback(bot, row["physics_field"], row["title"], new_id, row["resource_type"])
 
 
-# more functions
+# ── Shared helpers ─────────────────────────────────────────────────────────────
 
 def _start_add(bot, message: types.Message, lang: str):
     uid = message.from_user.id
@@ -3135,50 +3348,31 @@ def _start_add(bot, message: types.Message, lang: str):
 
 
 def _build_csv(books: list, articles: list) -> io.BytesIO:
-    """یک فایل CSV شامل همه کتاب‌ها و مقالات می‌سازد."""
     output = io.StringIO()
     writer = csv.writer(output)
 
-    # کتاب‌ها
     writer.writerow(["--- BOOKS ---"])
     writer.writerow(["ID", "Title", "Author", "Edition", "Year", "Field", "Language", "Downloads", "File"])
     for b in books:
         field_fa, field_en = database.PHYSICS_FIELDS.get(b["physics_field"], ("", b["physics_field"]))
         writer.writerow([
-            _disp(b),
-            b["title"],
-            b["author"] or "",
-            b["edition"] or "",
-            b["year"] or "",
-            field_en,
-            b["language"],
-            b["download_count"],
-            b["file_name"] or "",
+            _disp(b), b["title"], b["author"] or "", b["edition"] or "", b["year"] or "",
+            field_en, b["language"], b["download_count"], b["file_name"] or "",
         ])
 
     writer.writerow([])
-
-    # مقالات
     writer.writerow(["--- ARTICLES ---"])
     writer.writerow(["ID", "Title", "Author", "Journal", "Volume", "Issue", "Pages", "DOI", "Field", "Language", "Downloads"])
     for a in articles:
         field_fa, field_en = database.PHYSICS_FIELDS.get(a["physics_field"], ("", a["physics_field"]))
         writer.writerow([
-            _disp(a),
-            a["title"],
-            a["author"] or "",
-            a["journal"] or "",
-            a["volume"] or "",
-            a["issue"] or "",
-            a["pages"] or "",
-            a["doi"] or "",
-            field_en,
-            a["language"],
-            a["download_count"],
+            _disp(a), a["title"], a["author"] or "", a["journal"] or "",
+            a["volume"] or "", a["issue"] or "", a["pages"] or "", a["doi"] or "",
+            field_en, a["language"], a["download_count"],
         ])
 
     output.seek(0)
-    return io.BytesIO(output.read().encode("utf-8-sig"))  # utf-8-sig برای باز شدن درست در Excel
+    return io.BytesIO(output.read().encode("utf-8-sig"))
 
 
 def _show_list(bot, message: types.Message, lang: str):
@@ -3189,10 +3383,8 @@ def _show_list(bot, message: types.Message, lang: str):
         bot.send_message(message.chat.id, tr("no_resources", lang), reply_markup=admin_keyboard(lang))
         return
 
-    PREVIEW = 10   # تعداد آیتم‌هایی که در متن نمایش داده می‌شود
-
-    # ── خلاصه متنی ────────────────────────────────────────────────────────
-    lines = []
+    PREVIEW = 10
+    lines   = []
 
     if books:
         lines.append(f"📕 {'کتاب‌ها' if lang == 'fa' else 'Books'} ({len(books)}):")
@@ -3202,7 +3394,7 @@ def _show_list(bot, message: types.Message, lang: str):
             lines.append(f"  {_disp(b)} — {b['title']}{edition_part}{year_part} | ✍ {b['author']} | ⬇️{b['download_count']}")
         if len(books) > PREVIEW:
             remaining = len(books) - PREVIEW
-            lines.append(f"  … و {'و ' if lang == 'fa' else ''}{remaining} {'عنوان دیگر' if lang == 'fa' else 'more'} (در فایل CSV 👇)")
+            lines.append(f"  … و {remaining} {'عنوان دیگر' if lang == 'fa' else 'more'} (در فایل CSV 👇)")
 
     if articles:
         if lines:
@@ -3217,8 +3409,7 @@ def _show_list(bot, message: types.Message, lang: str):
 
     bot.send_message(message.chat.id, "\n".join(lines))
 
-    # ── send CSV
-    csv_buf = _build_csv(books, articles)
+    csv_buf   = _build_csv(books, articles)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M")
     filename  = f"library_{timestamp}.csv"
     caption = (
@@ -3229,11 +3420,8 @@ def _show_list(bot, message: types.Message, lang: str):
         f"Open with Excel or Google Sheets"
     )
     bot.send_document(
-        message.chat.id,
-        csv_buf,
-        caption=caption,
-        visible_file_name=filename,
-        reply_markup=admin_keyboard(lang),
+        message.chat.id, csv_buf, caption=caption,
+        visible_file_name=filename, reply_markup=admin_keyboard(lang),
     )
 
 
@@ -3243,15 +3431,15 @@ def _show_stats(bot, message: types.Message, lang: str):
     if lang == "fa":
         pending_line = (
             f"\n⏳ در انتظار انتشار: <b>{s['pending_total']}</b>"
-            + (f"\n  • منتظر فایل: {s['pending_awaiting_file']}" if s['pending_awaiting_file'] else "")
-            + (f"\n  • فایل دریافت شده: {s['pending_file_received']}" if s['pending_file_received'] else "")
-            if s['pending_total'] else "\n✅ هیچ منبع در انتظاری وجود ندارد"
+            + (f"\n  • منتظر فایل: {s['pending_awaiting_file']}" if s.get('pending_awaiting_file') else "")
+            + (f"\n  • فایل دریافت شده: {s['pending_file_received']}" if s.get('pending_file_received') else "")
+            if s.get('pending_total') else "\n✅ هیچ منبع در انتظاری وجود ندارد"
         )
         text = (
             f"<b>{header}</b>\n\n"
             f"📚 کتاب‌ها: <b>{s['total_books']}</b>\n"
             f"📄 مقالات: <b>{s['total_articles']}</b>\n"
-            f"<i>🌐 فارسی: {s['fa_books']} | انگلیسی: {s['en_books']}</i>\n"
+            f"<i>🌐 فارسی: {s['fa_books']} | انگلیسی: {s['en_books']} | دیگران: {s.get('other_books', 0)}</i>\n"
             f"⬇️ کل دانلودها: <b>{s['total_downloads']}</b>\n"
             f"🌌 فیلدهای فعال: <b>{s['unique_fields']}</b>\n"
             f"👥 کل کاربران: <b>{s['total_users']}</b>"
@@ -3260,15 +3448,15 @@ def _show_stats(bot, message: types.Message, lang: str):
     else:
         pending_line = (
             f"\n⏳ Pending: <b>{s['pending_total']}</b>"
-            + (f"\n  • Awaiting file: {s['pending_awaiting_file']}" if s['pending_awaiting_file'] else "")
-            + (f"\n  • File received: {s['pending_file_received']}" if s['pending_file_received'] else "")
-            if s['pending_total'] else "\n✅ No pending resources"
+            + (f"\n  • Awaiting file: {s['pending_awaiting_file']}" if s.get('pending_awaiting_file') else "")
+            + (f"\n  • File received: {s['pending_file_received']}" if s.get('pending_file_received') else "")
+            if s.get('pending_total') else "\n✅ No pending resources"
         )
         text = (
             f"<b>{header}</b>\n\n"
             f"📚 Books: <b>{s['total_books']}</b>\n"
             f"📄 Articles: <b>{s['total_articles']}</b>\n"
-            f"<i>🌐 Persian: {s['fa_books']} | English: {s['en_books']}</i>\n"
+            f"<i>🌐 Persian: {s['fa_books']} | English: {s['en_books']} | Others: {s.get('other_books', 0)}</i>\n"
             f"⬇️ Total Downloads: <b>{s['total_downloads']}</b>\n"
             f"🌌 Active Fields: <b>{s['unique_fields']}</b>\n"
             f"👥 Total Users: <b>{s['total_users']}</b>"

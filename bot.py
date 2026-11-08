@@ -126,11 +126,48 @@ user_menu_state: dict[int, str] = {}
 # Pagination 
 PAGE_SIZE = 10
 
+# ── Pagination context store ──────────────────────────────────────────────────
+# Telegram limits callback_data to 64 bytes.  A full searchf context string
+# (query + lang + field + rtype + hdr) can easily exceed that limit.
+# Solution: store the full context string in memory and put only a short
+# numeric ID in callback_data.  Format in callback_data: "page:p<id>:<page>"
+#
+# The store is an LRU-capped dict (max 500 entries).  Old entries are evicted
+# when the cap is reached.  This is fine because pagination sessions are
+# short-lived and the bot process is persistent.
+_pg_store: dict[int, str] = {}   # id → full context string
+_pg_next_id: list[int] = [0]     # mutable counter (list trick avoids nonlocal)
+_PG_STORE_MAX = 500
+
+
+def _ctx_save(full_context: str) -> str:
+    """Store *full_context* and return a short token like 'p42'.
+
+    If the context fits in the inline budget already, it is stored anyway
+    so that page_callback always goes through the same lookup path.
+    """
+    # Evict oldest entry when cap is reached
+    if len(_pg_store) >= _PG_STORE_MAX:
+        oldest = next(iter(_pg_store))
+        del _pg_store[oldest]
+    cid = _pg_next_id[0]
+    _pg_next_id[0] += 1
+    _pg_store[cid] = full_context
+    return f"p{cid}"
+
+
+def _ctx_load(token: str) -> str | None:
+    """Retrieve the full context for a token like 'p42'.  Returns None if expired."""
+    if token.startswith("p") and token[1:].isdigit():
+        return _pg_store.get(int(token[1:]))
+    return None  # legacy plain context (should not appear in practice)
+
 
 def _pagination_keyboard(context: str, page: int, has_next: bool) -> types.InlineKeyboardMarkup | None:
     """Return an InlineKeyboardMarkup with ◀️ / ▶️ buttons, or None when not needed.
 
-    context  – opaque string that encodes the query (stored in callback_data).
+    context  – full context string (stored in _pg_store; only a short token
+               appears in callback_data so we never exceed 64 bytes).
     page     – 0-based current page index.
     has_next – whether there is at least one item on the next page.
     """
@@ -138,11 +175,12 @@ def _pagination_keyboard(context: str, page: int, has_next: bool) -> types.Inlin
     show_next = has_next
     if not show_prev and not show_next:
         return None
+    token = _ctx_save(context)   # store full context, get short token
     row = []
     if show_prev:
-        row.append(types.InlineKeyboardButton("◀️", callback_data=f"page:{context}:{page - 1}"))
+        row.append(types.InlineKeyboardButton("◀️", callback_data=f"page:{token}:{page - 1}"))
     if show_next:
-        row.append(types.InlineKeyboardButton("▶️", callback_data=f"page:{context}:{page + 1}"))
+        row.append(types.InlineKeyboardButton("▶️", callback_data=f"page:{token}:{page + 1}"))
     mk = types.InlineKeyboardMarkup()
     mk.row(*row)
     return mk
@@ -364,6 +402,10 @@ TEXTS = {
     "book_missing": {
         "fa": "❌ منبع پیدا نشد.",
         "en": "❌ Resource not found."
+    },
+    "download_error": {
+        "fa": "❌ ارسال فایل با خطا مواجه شد. لطفاً دوباره تلاش کنید.",
+        "en": "❌ Failed to send the file. Please try again."
     },
     "rate_prompt":  {"fa": "امتیاز خود را انتخاب کن:", "en": "Choose your rating:"},
     "rate_saved":   {"fa": "✅ امتیاز ثبت شد.",         "en": "✅ Rating saved."},
@@ -1506,23 +1548,40 @@ def text_handler(message: types.Message):
 
     elif text in (BTN["ra_stats"]["fa"], BTN["ra_stats"]["en"]):
         s = database.get_library_stats()
+        is_adm = admin.is_admin(uid)
         if lang == "fa":
+            pending_line = ""
+            if is_adm and s.get('pending_total'):
+                pending_line = (
+                    f"\n⏳ در انتظار انتشار: <b>{s['pending_total']}</b>"
+                    + (f"\n  • منتظر فایل: {s['pending_awaiting_file']}" if s.get('pending_awaiting_file') else "")
+                    + (f"\n  • فایل دریافت شده: {s['pending_file_received']}" if s.get('pending_file_received') else "")
+                )
             stats_text = (
                 f"<b>📊 آمار کتابخانه</b>\n\n"
                 f"📘 کتاب‌ها: <b>{s['total_books']}</b>\n"
                 f"📄 مقالات: <b>{s.get('total_articles', 0)}</b>\n"
-                f"<i>🌐 فارسی: {s['fa_books']}  |  انگلیسی: {s['en_books']}</i>\n"
+                f"<i>🌐 فارسی: {s['fa_books']}  |  انگلیسی: {s['en_books']}  |  دیگران: {s.get('other_books', 0)}</i>\n"
                 f"⬇️ کل دانلودها: <b>{s['total_downloads']}</b>\n"
                 f"🌌 فیلدهای فعال: <b>{s['unique_fields']}</b>"
+                f"{pending_line}"
             )
         else:
+            pending_line = ""
+            if is_adm and s.get('pending_total'):
+                pending_line = (
+                    f"\n⏳ Pending: <b>{s['pending_total']}</b>"
+                    + (f"\n  • Awaiting file: {s['pending_awaiting_file']}" if s.get('pending_awaiting_file') else "")
+                    + (f"\n  • File received: {s['pending_file_received']}" if s.get('pending_file_received') else "")
+                )
             stats_text = (
                 f"<b>📊 Library Stats</b>\n\n"
                 f"📕 Books: <b>{s['total_books']}</b>\n"
                 f"📄 Articles: <b>{s.get('total_articles', 0)}</b>\n"
-                f"<i>🌐 Persian: {s['fa_books']}  |  English: {s['en_books']}</i>\n"
+                f"<i>🌐 Persian: {s['fa_books']}  |  English: {s['en_books']}  |  Others: {s.get('other_books', 0)}</i>\n"
                 f"⬇️ Total Downloads: <b>{s['total_downloads']}</b>\n"
                 f"🌌 Active Fields: <b>{s['unique_fields']}</b>"
+                f"{pending_line}"
             )
         bot.send_message(message.chat.id, stats_text, reply_markup=about_reply_keyboard(user), parse_mode="HTML")
 
@@ -1570,6 +1629,18 @@ def _send_search_filter_panel(chat_id: int, user: types.User, edit_message_id: i
     header = TEXTS["search_filter_header"][lang]
     full_text = f"{header}\n\n{'فیلترهای فعال' if lang=='fa' else 'Active filters'}: {active_str}"
 
+    # Append total resource count so user knows the size of what they're searching
+    try:
+        stats = database.get_library_stats()
+        total = stats.get("total_resources", 0)
+        if total:
+            count_line = (f"\n📚 جمعاً {total} منبع در کتابخانه"
+                          if lang == "fa" else
+                          f"\n📚 {total} resources in the library")
+            full_text += count_line
+    except Exception:
+        pass
+
     mk = search_filter_keyboard(user)
     if edit_message_id:
         try:
@@ -1607,14 +1678,54 @@ def handle_search_query(message: types.Message, query: str):
         offset=0,
     )
     if not probe:
-        # Try to suggest a similar result (ignoring filters for broader match)
-        suggestions = database.suggest_similar(query)
+        lang = get_lang(user)
+        active_filters = bool(lang_f or field_f or rtype_f)
+
+        # Try to suggest similar results (broader match, ignoring active filters)
+        suggestions = database.suggest_similar(query, limit=3)
+
+        _nf_mk = types.InlineKeyboardMarkup()
+
         if suggestions:
-            sug = suggestions[0]["title"]
-            msg = TEXTS["not_found_suggest"][get_lang(user)].format(suggestion=sug)
+            if len(suggestions) == 1:
+                sug_title = suggestions[0]["title"]
+                msg = TEXTS["not_found_suggest"][lang].format(suggestion=sug_title)
+                # Make the suggestion tappable
+                _nf_mk.add(types.InlineKeyboardButton(
+                    f"📘 {sug_title[:45]}",
+                    callback_data=f"resinfo:{suggestions[0]['id']}"
+                ))
+            else:
+                if lang == "fa":
+                    lines = ["🔍 نتیجه‌ای پیدا نشد. شاید منظورتان یکی از اینها بوده:"]
+                else:
+                    lines = ["🔍 No results found. Did you mean one of these?"]
+                for s in suggestions:
+                    rtype = s["resource_type"] if "resource_type" in s.keys() else "book"
+                    icon = "📄" if rtype == "article" else "📘"
+                    lines.append(f"  {icon} {s['title'][:50]}")
+                    _nf_mk.add(types.InlineKeyboardButton(
+                        f"{icon} {s['title'][:45]}",
+                        callback_data=f"resinfo:{s['id']}"
+                    ))
+                msg = "\n".join(lines)
         else:
             msg = t(user, "not_found")
-        bot.send_message(message.chat.id, msg, reply_markup=main_keyboard(user))
+
+        # If filters are active, offer a one-tap retry without them
+        if active_filters:
+            # Store the bare query for the retry callback
+            search_filters[uid] = {"_retry_query": query}
+            _nf_mk.add(types.InlineKeyboardButton(
+                "🔍 بدون فیلتر جستجو کن" if lang == "fa" else "🔍 Search without filters",
+                callback_data=f"search_no_filter:{query[:40]}"
+            ))
+
+        _nf_mk.add(types.InlineKeyboardButton(
+            "🔍 جستجوی مجدد" if lang == "fa" else "🔍 Try Again",
+            callback_data="search_again"
+        ))
+        bot.send_message(message.chat.id, msg, reply_markup=_nf_mk)
         return
 
     # Build a context string that encodes all active filters so pagination works
@@ -1630,7 +1741,15 @@ def handle_search_query(message: types.Message, query: str):
         message.chat.id, user, probe, header_key="resources_list_header",
         pg_context=pg_ctx,
     )
-    bot.send_message(message.chat.id, "─" * 10, reply_markup=main_keyboard(user))
+    # Offer a quick "Search again" shortcut below the results
+    _search_again_mk = types.InlineKeyboardMarkup()
+    _search_again_mk.add(
+        types.InlineKeyboardButton(
+            "🔍 جستجوی مجدد" if get_lang(user) == "fa" else "🔍 Search Again",
+            callback_data="search_again"
+        )
+    )
+    bot.send_message(message.chat.id, "─" * 10, reply_markup=_search_again_mk)
 
 
 def handle_fields(message: types.Message, user_override: types.User = None,
@@ -1662,24 +1781,41 @@ def handle_stats(message: types.Message, user_override: types.User = None,
     user = user_override or message.from_user
     s = database.get_library_stats()
     lang = get_lang(user)
+    is_adm = admin.is_admin(user.id)
 
     if lang == "fa":
+        pending_line = ""
+        if is_adm and s.get('pending_total'):
+            pending_line = (
+                f"\n⏳ در انتظار انتشار: <b>{s['pending_total']}</b>"
+                + (f"\n  • منتظر فایل: {s['pending_awaiting_file']}" if s.get('pending_awaiting_file') else "")
+                + (f"\n  • فایل دریافت شده: {s['pending_file_received']}" if s.get('pending_file_received') else "")
+            )
         text = (
             f"<b>📊 آمار کتابخانه</b>\n\n"
             f"📘 کتاب‌ها: <b>{s['total_books']}</b>\n"
             f"📄 مقالات: <b>{s.get('total_articles', 0)}</b>\n"
-            f"<i>🌐 فارسی: {s['fa_books']}  |  انگلیسی: {s['en_books']}</i>\n"
+            f"<i>🌐 فارسی: {s['fa_books']}  |  انگلیسی: {s['en_books']}  |  دیگران: {s.get('other_books', 0)}</i>\n"
             f"⬇️ کل دانلودها: <b>{s['total_downloads']}</b>\n"
             f"🌌 فیلدهای فعال: <b>{s['unique_fields']}</b>"
+            f"{pending_line}"
         )
     else:
+        pending_line = ""
+        if is_adm and s.get('pending_total'):
+            pending_line = (
+                f"\n⏳ Pending: <b>{s['pending_total']}</b>"
+                + (f"\n  • Awaiting file: {s['pending_awaiting_file']}" if s.get('pending_awaiting_file') else "")
+                + (f"\n  • File received: {s['pending_file_received']}" if s.get('pending_file_received') else "")
+            )
         text = (
             f"<b>📊 Library Stats</b>\n\n"
             f"📕 Books: <b>{s['total_books']}</b>\n"
             f"📄 Articles: <b>{s.get('total_articles', 0)}</b>\n"
-            f"<i>🌐 Persian: {s['fa_books']}  |  English: {s['en_books']}</i>\n"
+            f"<i>🌐 Persian: {s['fa_books']}  |  English: {s['en_books']}  |  Others: {s.get('other_books', 0)}</i>\n"
             f"⬇️ Total Downloads: <b>{s['total_downloads']}</b>\n"
             f"🌌 Active Fields: <b>{s['unique_fields']}</b>"
+            f"{pending_line}"
         )
 
     markup = reply_markup_override if reply_markup_override is not None else main_keyboard(user)
@@ -1776,30 +1912,13 @@ def _h(s) -> str:
 
 
 # نام بومی زبان‌ها برای نمایش در رابط کاربری (بر اساس کد ISO 639-1)
-_LANG_NATIVE: dict[str, str] = {
-    "fa": "فارسی",
-    "en": "English",
-    "de": "Deutsch",
-    "fr": "Français",
-    "nl": "Nederlands",
-    "ru": "Русский",
-    "ar": "العربية",
-    "zh": "中文",
-    "es": "Español",
-    "it": "Italiano",
-    "pt": "Português",
-    "tr": "Türkçe",
-    "ja": "日本語",
-    "ko": "한국어",
-}
-
-
 def _lang_native(code: str) -> str:
     """Return the native name of a language given its ISO 639-1 code.
 
-    Falls back to the upper-cased code for codes not in the lookup table.
+    Delegates to database.lang_native() so admin.py and bot.py share a
+    single source of truth (database.LANG_NATIVE).
     """
-    return _LANG_NATIVE.get(code, code.upper() if code else code)
+    return database.lang_native(code)
 
 
 def _fmt_book_card(book, lang: str, field: str, lang_label: str, disp: str,
@@ -2133,37 +2252,44 @@ def download(callback: types.CallbackQuery):
     disp = database.get_display_id(res)
     rtype = res["resource_type"] if "resource_type" in res.keys() else "book"
 
-    if rtype == "article":
-        # --- Article download ---
-        # _fmt_article_caption() guarantees len(caption) <= 1024 via adaptive
-        # description truncation — no follow-up message needed.
-        caption = _fmt_article_caption(res, field, lang_label, disp)
+    try:
+        if rtype == "article":
+            # --- Article download ---
+            # _fmt_article_caption() guarantees len(caption) <= 1024 via adaptive
+            # description truncation — no follow-up message needed.
+            caption = _fmt_article_caption(res, field, lang_label, disp)
 
-        if _row_get(res, "file_id"):
+            if _row_get(res, "file_id"):
+                bot.send_document(
+                    callback.message.chat.id,
+                    res["file_id"],
+                    caption=caption,
+                    parse_mode="HTML",
+                )
+            else:
+                # Link-only article — HTML message (4096-char limit, chunked)
+                for i in range(0, len(caption), 4096):
+                    bot.send_message(callback.message.chat.id, caption[i:i + 4096],
+                                     parse_mode="HTML")
+
+        else:
+            # --- Book download ---
+            # _fmt_book_caption() guarantees len(caption) <= 1024 via adaptive
+            # description truncation — no follow-up message needed.
+            caption = _fmt_book_caption(res, field, lang_label, disp)
             bot.send_document(
                 callback.message.chat.id,
                 res["file_id"],
                 caption=caption,
                 parse_mode="HTML",
             )
-        else:
-            # Link-only article — HTML message (4096-char limit, chunked)
-            for i in range(0, len(caption), 4096):
-                bot.send_message(callback.message.chat.id, caption[i:i + 4096],
-                                 parse_mode="HTML")
 
-    else:
-        # --- Book download ---
-        # _fmt_book_caption() guarantees len(caption) <= 1024 via adaptive
-        # description truncation — no follow-up message needed.
-        caption = _fmt_book_caption(res, field, lang_label, disp)
-        bot.send_document(
-            callback.message.chat.id,
-            res["file_id"],
-            caption=caption,
-            parse_mode="HTML",
-        )
+    except Exception as exc:
+        logging.warning("download: failed to send resource id=%s to uid=%s: %s", res_id, user.id, exc)
+        bot.answer_callback_query(callback.id, TEXTS["download_error"][lang], show_alert=True)
+        return
 
+    # Record only after a confirmed successful delivery
     database.record_download(res_id, user.id)
     bot.answer_callback_query(callback.id, TEXTS["downloaded"][lang])
 
@@ -2282,7 +2408,7 @@ def sf_lang_callback(callback: types.CallbackQuery):
 
     search_filters.setdefault(uid, {})["language"] = val
     bot.answer_callback_query(callback.id, "✅")
-    _send_search_filter_panel(callback.message.chat.id, user, edit_message_id=None)
+    _send_search_filter_panel(callback.message.chat.id, user, edit_message_id=callback.message.message_id)
 
 
 @bot.callback_query_handler(func=lambda c: c.data.startswith("sf_field:"))
@@ -2292,7 +2418,7 @@ def sf_field_callback(callback: types.CallbackQuery):
     search_filters.setdefault(uid, {})["physics_field"] = val
     bot.answer_callback_query(callback.id, "✅")
     _send_search_filter_panel(callback.message.chat.id, callback.from_user,
-                              edit_message_id=None)
+                              edit_message_id=callback.message.message_id)
 
 
 @bot.callback_query_handler(func=lambda c: c.data.startswith("sf_type:"))
@@ -2302,7 +2428,7 @@ def sf_type_callback(callback: types.CallbackQuery):
     search_filters.setdefault(uid, {})["resource_type"] = val
     bot.answer_callback_query(callback.id, "✅")
     _send_search_filter_panel(callback.message.chat.id, callback.from_user,
-                              edit_message_id=None)
+                              edit_message_id=callback.message.message_id)
 
 
 # callback: resinfo (unified resource card)
@@ -2524,16 +2650,28 @@ def field_resources(callback: types.CallbackQuery):
 @bot.callback_query_handler(func=lambda c: c.data.startswith("page:"))
 def page_callback(callback: types.CallbackQuery):
     user = callback.from_user
-    # format: page:<context>:<page_number>
-    # context itself may contain colons, so split from the right for page number
+    # format: page:<token>:<page_number>
+    # token is a short "p<id>" string produced by _ctx_save(); page number is last.
     _, rest = callback.data.split(":", 1)
     page_str = rest.rsplit(":", 1)[1]
-    context  = rest.rsplit(":", 1)[0]
+    token    = rest.rsplit(":", 1)[0]
     try:
         page = int(page_str)
     except ValueError:
         bot.answer_callback_query(callback.id)
         return
+
+    # Resolve the short token back to the full context string
+    context = _ctx_load(token)
+    if context is None:
+        # Session expired (e.g. bot restarted) — inform user gracefully
+        bot.answer_callback_query(
+            callback.id,
+            "⚠️ Session expired. Please search again.",
+            show_alert=True,
+        )
+        return
+
     bot.answer_callback_query(callback.id)
     _send_paginated_list(
         chat_id=callback.message.chat.id,
@@ -2709,6 +2847,30 @@ def handle_my_history(message: types.Message):
     header = f"{TEXTS['history_header'][lang]} ({len(rows)})"
     bot.send_message(message.chat.id, header, reply_markup=markup)
 
+
+
+
+# callback: retry search without filters
+@bot.callback_query_handler(func=lambda c: c.data.startswith("search_no_filter:"))
+def search_no_filter_callback(callback: types.CallbackQuery):
+    user = callback.from_user
+    uid  = user.id
+    bot.answer_callback_query(callback.id)
+    query = callback.data.split(":", 1)[1]
+    # Clear all filters and re-run the search
+    search_filters.pop(uid, None)
+    # Synthesise a fake message so handle_search_query works unchanged
+    callback.message.from_user = user
+    handle_search_query(callback.message, query)
+
+# callback: search again shortcut
+@bot.callback_query_handler(func=lambda c: c.data == "search_again")
+def search_again_callback(callback: types.CallbackQuery):
+    user = callback.from_user
+    uid  = user.id
+    bot.answer_callback_query(callback.id)
+    search_filters.pop(uid, None)
+    _send_search_filter_panel(callback.message.chat.id, user)
 
 print("Bot is running...")
 bot.infinity_polling()

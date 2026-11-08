@@ -40,6 +40,34 @@ VALID_ISO_639_1: frozenset = frozenset({
     "za", "zh", "zu",
 })
 
+# نام بومی زبان‌های پرکاربرد؛ هم admin و هم bot از این dict استفاده می‌کنن
+# تا زبان‌های جدید در هر دو ماژول به درستی نمایش داده بشن.
+LANG_NATIVE: dict[str, str] = {
+    "fa": "فارسی",
+    "en": "English",
+    "de": "Deutsch",
+    "fr": "Français",
+    "nl": "Nederlands",
+    "ru": "Русский",
+    "ar": "العربية",
+    "zh": "中文",
+    "es": "Español",
+    "it": "Italiano",
+    "pt": "Português",
+    "tr": "Türkçe",
+    "ja": "日本語",
+    "ko": "한국어",
+}
+
+
+def lang_native(code: str) -> str:
+    """Return the native name of a language given its ISO 639-1 code.
+
+    Falls back to the upper-cased code for codes not in the lookup table.
+    """
+    return LANG_NATIVE.get(code, code.upper() if code else code)
+
+
 _PHYSICS_FIELDS_SEED = {
     "classical_mechanics":        ("مکانیک کلاسیک", "Classical Mechanics",                                              "CM"),
     "electromagnetism":           ("الکترومغناطیس", "Electromagnetism",                                                "EM"),
@@ -202,7 +230,9 @@ def init_db() -> None:
                 added_by        INTEGER,     -- telegram user_id ادمین
                 download_count  INTEGER NOT NULL DEFAULT 0,
                 created_at      TEXT    NOT NULL DEFAULT (datetime('now')),
-                updated_at      TEXT    NOT NULL DEFAULT (datetime('now'))
+                updated_at      TEXT    NOT NULL DEFAULT (datetime('now')),
+                keywords        TEXT    NOT NULL DEFAULT '',
+                publisher       TEXT    NOT NULL DEFAULT ''
             )
         """)
 
@@ -251,6 +281,7 @@ def init_db() -> None:
             ("pages",            "TEXT"),
             ("url",              "TEXT"),
             ("publication_date", "TEXT"),
+            ("publisher",        "TEXT NOT NULL DEFAULT ''"),
         ]
         for col_name, col_def in _new_book_cols:
             if col_name not in book_cols:
@@ -357,6 +388,64 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_pending_field
             ON pending_resources(physics_field)
         """)
+
+
+        # ── FTS5 virtual table for fast full-text search ─────────────────────
+        # Mirrors title, author, description, keywords from books.
+        # Rebuilt incrementally via triggers so it stays in sync automatically.
+        conn.execute("""
+            CREATE VIRTUAL TABLE IF NOT EXISTS books_fts USING fts5(
+                title, author, description, keywords, publisher,
+                content='books', content_rowid='id',
+                tokenize='unicode61 remove_diacritics 2'
+            )
+        """)
+
+        # ── Triggers to keep FTS in sync ──────────────────────────────────────
+        conn.execute("""
+            CREATE TRIGGER IF NOT EXISTS books_fts_ai
+            AFTER INSERT ON books BEGIN
+                INSERT INTO books_fts(rowid, title, author, description, keywords, publisher)
+                VALUES (new.id, new.title, new.author,
+                        COALESCE(new.description,''), COALESCE(new.keywords,''),
+                        COALESCE(new.publisher,''));
+            END
+        """)
+        conn.execute("""
+            CREATE TRIGGER IF NOT EXISTS books_fts_ad
+            AFTER DELETE ON books BEGIN
+                INSERT INTO books_fts(books_fts, rowid, title, author, description, keywords, publisher)
+                VALUES ('delete', old.id, old.title, old.author,
+                        COALESCE(old.description,''), COALESCE(old.keywords,''),
+                        COALESCE(old.publisher,''));
+            END
+        """)
+        conn.execute("""
+            CREATE TRIGGER IF NOT EXISTS books_fts_au
+            AFTER UPDATE ON books BEGIN
+                INSERT INTO books_fts(books_fts, rowid, title, author, description, keywords, publisher)
+                VALUES ('delete', old.id, old.title, old.author,
+                        COALESCE(old.description,''), COALESCE(old.keywords,''),
+                        COALESCE(old.publisher,''));
+                INSERT INTO books_fts(rowid, title, author, description, keywords, publisher)
+                VALUES (new.id, new.title, new.author,
+                        COALESCE(new.description,''), COALESCE(new.keywords,''),
+                        COALESCE(new.publisher,''));
+            END
+        """)
+
+        # ── Backfill FTS for existing rows (idempotent) ───────────────────────
+        fts_count = conn.execute("SELECT COUNT(*) FROM books_fts").fetchone()[0]
+        books_count = conn.execute("SELECT COUNT(*) FROM books").fetchone()[0]
+        if fts_count < books_count:
+            conn.execute("DELETE FROM books_fts")
+            conn.execute("""
+                INSERT INTO books_fts(rowid, title, author, description, keywords, publisher)
+                SELECT id, title, author,
+                       COALESCE(description,''), COALESCE(keywords,''),
+                       COALESCE(publisher,'')
+                FROM books
+            """)
 
         conn.commit()
         _load_field_caches(conn)
@@ -489,12 +578,61 @@ def _migrate_db() -> None:
             conn.commit()
             print("[DB] Migration applied: pending_resources language CHECK constraint removed.")
 
+
+        # ── Migration 4: publisher column on books ────────────────────────────
+        book_cols_m2 = {r["name"] for r in conn.execute("PRAGMA table_info(books)")}
+        if "publisher" not in book_cols_m2:
+            conn.execute("ALTER TABLE books ADD COLUMN publisher TEXT NOT NULL DEFAULT ''")
+            conn.commit()
+            print("[DB] Migration applied: books.publisher column added.")
+
+        # ── Migration 5: backfill FTS for existing rows ───────────────────────
+        # (safe to run every time; only rebuilds when counts differ)
+        try:
+            fts_cnt  = conn.execute("SELECT COUNT(*) FROM books_fts").fetchone()[0]
+            book_cnt = conn.execute("SELECT COUNT(*) FROM books").fetchone()[0]
+            if fts_cnt < book_cnt:
+                conn.execute("DELETE FROM books_fts")
+                conn.execute("""
+                    INSERT INTO books_fts(rowid, title, author, description, keywords, publisher)
+                    SELECT id, title, author,
+                           COALESCE(description,''), COALESCE(keywords,''),
+                           COALESCE(publisher,'')
+                    FROM books
+                """)
+                conn.commit()
+                print(f"[DB] Migration applied: FTS backfilled ({book_cnt} rows).")
+        except Exception:
+            pass  # FTS table may not exist yet on first migration run
+
         # ── Future migrations go here ──────────────────────────────────────────
         # Example pattern:
         #   pending_cols = {r["name"] for r in conn.execute("PRAGMA table_info(pending_resources)")}
         #   if "new_column" not in pending_cols:
         #       conn.execute("ALTER TABLE pending_resources ADD COLUMN new_column TEXT NOT NULL DEFAULT ''")
         #       conn.commit()
+
+
+def _auto_migrate_if_needed() -> None:
+    """در هنگام import ماژول، اگه دیتابیس موجود باشه migration رو اجرا کن.
+    این کار باعث میشه حتی اگه init_db() صدا زده نشه،
+    constraint قدیمی language IN ('fa','en') از pending_resources حذف بشه.
+    """
+    try:
+        if not os.path.exists(DB_PATH):
+            return
+        with get_connection() as conn:
+            tables = {r[0] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()}
+            if "pending_resources" not in tables:
+                return  # init_db بعداً همه چیز رو می‌سازه
+        _migrate_db()
+    except Exception:
+        pass
+
+
+_auto_migrate_if_needed()
 
 
 # ── Generic resource functions 
@@ -594,6 +732,7 @@ _DOI_RE = re.compile(r"10\.\d{4,9}/\S+")
 # Retrieval-only aliases: they expand the *query* and are never stored or shown.
 # Keys are normalised (lower-case, single spaces).
 _SEARCH_ALIASES = {
+    # English abbreviations
     "qm":             "quantum mechanics",
     "qft":            "quantum field theory",
     "em":             "electromagnetism",
@@ -602,6 +741,24 @@ _SEARCH_ALIASES = {
     "stat mech":      "statistical mechanics",
     "classical mech": "classical mechanics",
     "thermo":         "thermodynamics",
+    "cm":             "classical mechanics",
+    "cmp":            "condensed matter",
+    "amo":            "atomic molecular optical",
+    "hep":            "particle physics",
+    "astro":          "astrophysics",
+    # Persian abbreviations / common short forms
+    "مک کوانتوم":     "مکانیک کوانتومی",
+    "مکانیک کوانتوم": "مکانیک کوانتومی",
+    "نسبیت عام":      "general relativity",
+    "نسبیت خاص":      "special relativity",
+    "الکترو":         "الکترومغناطیس",
+    "ترمو":           "ترمودینامیک",
+    "مکانیک آماری":   "statistical mechanics",
+    "فیزیک ریاضی":    "mathematical physics",
+    "ماده چگال":      "condensed matter",
+    "فیزیک هسته":     "nuclear physics",
+    "فیزیک ذره":      "particle physics",
+    "اخترفیزیک":      "astrophysics",
 }
 _ALIAS_RE = re.compile(
     r"(?<!\S)(" + "|".join(re.escape(k) for k in sorted(_SEARCH_ALIASES, key=len, reverse=True)) + r")(?!\S)"
@@ -900,19 +1057,45 @@ _TERM_KW: dict[str, list[str]] = {
 _TERM_KW_SORTED = sorted(_TERM_KW.keys(), key=len, reverse=True)
 
 
+def _expand_query_cross_lang(q_info: dict) -> list[str]:
+    """Return extra English tokens derived from a Persian query (and vice versa).
+
+    When the user types in Persian ("مکانیک کوانتومی"), _ALIAS_RE may not fire
+    because the alias map stores English abbreviations.  This function:
+      1. Checks each normalised token against _FA_TO_EN.
+      2. Returns any matched English terms so they can be injected into the
+         FTS OR expression and the Python scorer's known-words set.
+
+    Similarly, when typing English, the keywords column already holds Persian
+    equivalents, so the reverse direction (EN→FA) is handled implicitly by FTS
+    matching the keywords column.  No extra work needed.
+    """
+    extras: list[str] = []
+    for tok in (q_info.get("tokens") or []):
+        for en in _FA_TO_EN.get(tok, []):
+            extras.extend(_norm(en).split())
+    # Deduplicate, skip tokens already in the query
+    existing = set(q_info.get("tokens") or [])
+    return [t for t in dict.fromkeys(extras) if t not in existing and len(t) >= 2]
+
+
+
+
 def generate_keywords(
     physics_field: str,
     title: str,
     description: str,
     language: str = "en",
 ) -> str:
-    """Generate Persian search keywords for an English resource.
+    """Generate Persian search keywords for a non-Persian resource.
 
     Returns a space-joined string of Persian keyword tokens, deduplicated,
     ready to store in books.keywords.  For Persian resources returns '' since
     the title/description are already searchable in Persian.
+    For all other languages (en, de, fr, ru, …) Persian keywords are generated
+    so they appear in Farsi search results.
     """
-    if language != "en":
+    if language == "fa":
         return ""
 
     collected: list[str] = []
@@ -959,14 +1142,18 @@ def update_keywords(resource_id: int) -> str:
 
 
 def backfill_keywords(verbose: bool = False) -> int:
-    """One-shot: generate keywords for every English resource that has none.
+    """One-shot: generate keywords for every non-Farsi resource that has none.
+
+    Covers all languages for which generate_keywords() produces output
+    (en, de, fr, ru, …).  Farsi resources are intentionally excluded because
+    keyword generation is not supported for that language.
 
     Returns the number of rows updated.
     """
     with get_connection() as conn:
         rows = conn.execute(
             "SELECT id, physics_field, title, description, language "
-            "FROM books WHERE language = 'en' AND (keywords IS NULL OR keywords = '')"
+            "FROM books WHERE language != 'fa' AND (keywords IS NULL OR keywords = '')"
         ).fetchall()
         updated = 0
         for row in rows:
@@ -989,7 +1176,7 @@ _KIND_F = {4: 1.0, 3: 0.8, 2: 0.5, 1: 0.4}
 _FUZZY_F = 0.3      # typo matches weigh less; they are also always listed after exact ones
 
 
-@lru_cache(maxsize=50_000)
+@lru_cache(maxsize=4_096)
 def _norm(text) -> str:
     if not text:
         return ""
@@ -998,6 +1185,26 @@ def _norm(text) -> str:
     s = s.translate(_CHAR_MAP).translate(_DIGIT_MAP).casefold()
     return _NON_WORD_RE.sub(" ", s).strip()
 
+
+# ── Cross-language reverse index ─────────────────────────────────────────────
+# Maps normalised Persian keywords back to their English source terms.
+# Used in _expand_query_cross_lang() so a Persian query ("مکانیک کوانتومی")
+# also searches the English title/author fields, and an English query finds
+# Persian-titled resources via their keyword column.
+#
+# Built lazily from _TERM_KW at module load (no maintenance burden).
+_FA_TO_EN: dict[str, list[str]] = {}
+
+def _build_fa_to_en() -> None:
+    global _FA_TO_EN
+    mapping: dict[str, list[str]] = {}
+    for en_term, fa_list in _TERM_KW.items():
+        for fa_kw in fa_list:
+            key = _norm(fa_kw)
+            mapping.setdefault(key, []).append(en_term)
+    _FA_TO_EN = mapping
+
+_build_fa_to_en()
 
 def _prep(text) -> tuple:
     t = _norm(text)
@@ -1035,7 +1242,7 @@ def _tokenize(norm: str) -> list:
     return [t for t in tokens if t not in _STOPWORDS] or tokens
 
 
-@lru_cache(maxsize=20_000)
+@lru_cache(maxsize=8_192)
 def _typo_dist(a: str, b: str) -> int:
     """Damerau-Levenshtein (adjacent transposition counts as one edit)."""
     prev2, prev = None, list(range(len(b) + 1))
@@ -1096,7 +1303,7 @@ def _default_cover(n: int) -> int:
 def _score_row(row, q: dict, min_cover: Optional[int]) -> Optional[tuple]:
     """Best (tier, score, fuzzy) over the original query and its alias variant."""
     best = None
-    for v in (q, q.get("alt")):
+    for v in (q, q.get("alt"), q.get("cross")):
         if not v:
             continue
         if min_cover is not None:
@@ -1161,7 +1368,7 @@ def _score_variant(row, q: dict, min_cover: int) -> Optional[tuple]:
     fa, en = PHYSICS_FIELDS.get(g("physics_field"), ("", ""))
     meta = [p for p in (_prep(x) for x in (
         g("journal"), g("doi"), g("edition"), g("year"), g("publication_date"),
-        g("file_name"), fa, en, g("physics_field"), disp)) if p[0]]
+        g("publisher"), fa, en, g("physics_field"), disp)) if p[0]]
     if kw[0]:
         meta.append(kw)   # keywords get meta-level weight (25) — higher than description (10)
     groups = ([title], [author], meta, [desc])
@@ -1200,10 +1407,16 @@ def _score_variant(row, q: dict, min_cover: int) -> Optional[tuple]:
     t_pad = f" {title[0]} "
     if (f" {qn}" if len(qsq) >= 2 else f" {qn} ") in t_pad:
         tier = 6
-        total += 40 if title[0].startswith(qn) else 0
+        # Stronger bonus when the title *begins* with the query
+        total += 60 if title[0].startswith(qn) else 0
         total += 10 if f" {qn} " in t_pad else 0
-    if len(qsq) >= 2 and f" {qn}" in f" {author[0]}":
-        total += 30
+    # Author phrase bonus: full query appearing as a contiguous phrase in author
+    a_pad = f" {author[0]} "
+    if len(qsq) >= 2 and f" {qn}" in a_pad:
+        total += 35
+        # Extra if author starts with the query (e.g. searching "Griffiths")
+        if author[0].startswith(qn):
+            total += 20
     if title_hit:                       # prefer titles that are mostly the query
         total += 20 * min(1.0, len(tokens) / max(1, len(title[1])))
     return (tier, int(total), fuzzy)
@@ -1231,6 +1444,66 @@ def _rank_rows(rows, q: dict, order_by: str = "default", min_cover: Optional[int
     return [s[2] for s in scored]
 
 
+def _fts_query(q_info: dict) -> str:
+    """Build an FTS5 MATCH expression from a prepared query dict.
+
+    Strategy:
+    - Single-token or alias-expanded queries: prefix OR across all tokens.
+    - Multi-token queries from the *original* query (before alias expansion):
+        Primary:  AND of all original tokens (all must appear somewhere).
+        Fallback: OR of all tokens (used when AND returns nothing — see
+                  search_resources which runs both and merges).
+
+    Returns a tuple (and_expr, or_expr).  Either may be empty string.
+    When called from code that only wants one expression, use or_expr.
+    """
+    token_sets: list[list[str]] = []
+    for v in (q_info, q_info.get("alt")):
+        if v and v.get("tokens"):
+            token_sets.append(v["tokens"])
+    if not token_sets:
+        return ""
+    all_toks = list(dict.fromkeys(t for ts in token_sets for t in ts))
+    parts = [f'"{tok}"*' for tok in all_toks if len(tok) >= 2]
+    if not parts:
+        return ""
+    return " OR ".join(parts)
+
+
+def _fts_query_pair(q_info: dict) -> tuple[str, str]:
+    """Return (and_expr, or_expr) for use in search_resources.
+
+    and_expr: all original tokens must be present (tighter, used first).
+    or_expr:  any token suffices (broader, used as fallback).
+    Both use prefix matching (*) so partial words match.
+    """
+    orig_toks = [t for t in (q_info.get("tokens") or []) if len(t) >= 2]
+    # Gather alias tokens too (alias expansions go into or_expr only)
+    alt = q_info.get("alt")
+    alt_toks = [t for t in ((alt or {}).get("tokens") or []) if len(t) >= 2]
+
+    all_toks = list(dict.fromkeys(orig_toks + alt_toks))
+
+    if not all_toks:
+        return "", ""
+
+    # Cross-language expansion: Persian tokens → English equivalents (and reverse)
+    cross_toks = _expand_query_cross_lang({"tokens": orig_toks})
+    all_toks_expanded = list(dict.fromkeys(all_toks + cross_toks))
+
+    or_parts  = [f'"{t}"*' for t in all_toks_expanded]
+    or_expr   = " OR ".join(or_parts)
+
+    # AND expression: only original tokens (alias + cross-lang go into OR only)
+    if len(orig_toks) > 1:
+        and_parts = [f'"{t}"*' for t in orig_toks]
+        and_expr  = " AND ".join(and_parts)
+    else:
+        and_expr = ""   # single token: AND == OR, skip redundant query
+
+    return and_expr, or_expr
+
+
 def search_resources(
     query: str = "",
     physics_field: str = "",
@@ -1240,66 +1513,139 @@ def search_resources(
     offset: int = 0,
     order_by: str = "default",   # "default" | "recent" | "popular"
 ) -> list[sqlite3.Row]:
+    """Search resources with FTS pre-filtering + Python relevance ranking.
+
+    Flow (with query):
+      1. Normalise and prepare the query (aliases, tokens, DOI detection).
+      2. Try FTS5 MATCH for a fast candidate set restricted to the caller's
+         filters (field, language, type).  FTS limits the scan to rows that
+         contain at least one query token, drastically reducing the Python
+         ranking work.
+      3. Fall back to a full SQL scan of the filtered subset when FTS is
+         unavailable or returns nothing (conservative: never miss a result).
+      4. Rank the candidate rows with the full Python scorer (_score_row).
+
+    Flow (without query):
+      Simple SQL with ORDER BY and LIMIT/OFFSET — no ranking needed.
+    """
     conditions: list[str] = []
     params: list = []
 
-    # Text search: the filters below are applied in SQL, then rows are matched
-    # and ranked in Python (see _score_row) so normalisation is consistent for
-    # query and stored text.  Without a query the original SQL path is used.
     q_info: Optional[dict] = None
     if query:
         q_info = _prepare_query(query)
         if q_info is None:
-            return []        # nothing searchable (only punctuation/whitespace)
+            return []
 
     if physics_field:
         conditions.append("physics_field = ?")
         params.append(physics_field)
-
     if language:
         conditions.append("language = ?")
         params.append(language)
-
     if resource_type:
         conditions.append("resource_type = ?")
         params.append(resource_type)
 
-    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+    where_parts = conditions[:]
 
     if order_by == "recent":
         order_clause = "ORDER BY created_at DESC, id DESC"
     elif order_by == "popular":
         order_clause = "ORDER BY download_count DESC, created_at DESC"
     else:
-        # default: alphabetical — also the tie-break for relevance ranking
         order_clause = "ORDER BY title ASC, id ASC"
 
-    if q_info is not None:
+    if q_info is None:
+        # ── No query: plain browse ────────────────────────────────────────────
+        where = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
+        sql = f"SELECT * FROM books {where} {order_clause} LIMIT ? OFFSET ?"
         with get_connection() as conn:
-            rows = conn.execute(f"SELECT * FROM books {where} {order_clause}", params).fetchall()
-            # Build the "known" word set from the full library so that narrow filters
-            # don't prevent real words from suppressing spurious fuzzy matches.
-            if any(len(t) >= 6 and t.isalpha()
-                   for v in (q_info, q_info.get("alt")) if v
-                   for t in v["tokens"]):
-                known: set[str] = set()
-                for r in conn.execute("SELECT title, author FROM books").fetchall():
-                    known.update(_prep(r["title"])[1])
-                    known.update(_prep(r["author"])[1])
-                q_info["known"] = known
-                if q_info.get("alt"):
-                    q_info["alt"]["known"] = known
-        return _rank_rows(rows, q_info, order_by)[offset:offset + limit]
+            return conn.execute(sql, params + [limit, offset]).fetchall()
 
-    sql = f"""
-        SELECT * FROM books
-        {where}
-        {order_clause}
-        LIMIT ? OFFSET ?
-    """
-
+    # ── Text search ───────────────────────────────────────────────────────────
     with get_connection() as conn:
-        return conn.execute(sql, params + [limit, offset]).fetchall()
+        # ── Step 1: try FTS5 fast path ────────────────────────────────────────
+        fts_expr = _fts_query(q_info)
+        candidate_rows: list[sqlite3.Row] = []
+        fts_tried = False
+
+        and_expr, or_expr = _fts_query_pair(q_info)
+
+        def _fts_fetch(match_expr: str) -> list:
+            """Run one FTS MATCH query inside the open connection."""
+            fts_where_parts = ["books_fts MATCH ?"] + where_parts
+            fts_where = "WHERE " + " AND ".join(fts_where_parts)
+            sql = f"""
+                SELECT b.* FROM books b
+                JOIN books_fts ON books_fts.rowid = b.id
+                {fts_where}
+                {order_clause}
+            """
+            return conn.execute(sql, [match_expr] + params).fetchall()
+
+        if not q_info.get("doi") and (and_expr or or_expr):
+            try:
+                # ── Pass 1: strict AND — all tokens must appear ───────────────
+                and_rows: list = []
+                if and_expr:
+                    and_rows = _fts_fetch(and_expr)
+
+                # ── Pass 2: broad OR — any token suffices ─────────────────────
+                or_rows: list = []
+                if or_expr:
+                    or_rows = _fts_fetch(or_expr)
+
+                # Merge: AND results first (tighter match), then OR-only extras
+                seen_ids = {r["id"] for r in and_rows}
+                extra = [r for r in or_rows if r["id"] not in seen_ids]
+                candidate_rows = list(and_rows) + extra
+                fts_tried = True
+            except Exception:
+                candidate_rows = []
+                fts_tried = False
+
+        # ── Step 2: fall back to full SQL scan when FTS misses ────────────────
+        # Always fall back for DOI queries; also fall back when FTS returns
+        # nothing (stale index, very short token, etc.).
+        if not fts_tried or (not candidate_rows and not q_info.get("doi")):
+            full_where = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
+            fallback_rows = conn.execute(
+                f"SELECT * FROM books {full_where} {order_clause}", params
+            ).fetchall()
+            if fts_tried and candidate_rows:
+                seen_ids = {r["id"] for r in candidate_rows}
+                extra = [r for r in fallback_rows if r["id"] not in seen_ids]
+                candidate_rows = list(candidate_rows) + extra
+            else:
+                candidate_rows = fallback_rows
+
+        # ── Step 3: cross-language expansion + known-word set ───────────────
+        # Inject English equivalents of Persian tokens (and vice versa) so the
+        # Python scorer can also match titles/authors in the other language.
+        cross_extras = _expand_query_cross_lang(q_info)
+        if cross_extras:
+            # Add as a synthetic "cross" variant so the scorer tries them
+            cross_norm = " ".join(cross_extras)
+            q_info["cross"] = {
+                "norm": cross_norm,
+                "sq":   cross_norm.replace(" ", ""),
+                "tokens": cross_extras,
+                "hash_id": False, "doi": None, "alt": None,
+            }
+
+        if any(len(t) >= 6 and t.isalpha()
+               for v in (q_info, q_info.get("alt"), q_info.get("cross")) if v
+               for t in (v.get("tokens") or [])):
+            known: set[str] = set()
+            for r in conn.execute("SELECT title, author FROM books").fetchall():
+                known.update(_prep(r["title"])[1])
+                known.update(_prep(r["author"])[1])
+            for v in (q_info, q_info.get("alt"), q_info.get("cross")):
+                if v:
+                    v["known"] = known
+
+    return _rank_rows(candidate_rows, q_info, order_by)[offset:offset + limit]
 
 
 def find_resource_by_display_id(text: str) -> Optional[sqlite3.Row]:
@@ -1403,7 +1749,7 @@ def update_book(book_id: int, **kwargs) -> bool:
         "description", "year",
         "file_id", "file_name", "file_size", "cover_file_id",
         # book-specific
-        "edition",
+        "edition", "publisher",
         # article-specific
         "doi", "journal", "volume", "issue", "pages",
         "publication_date", "url",
@@ -1436,7 +1782,12 @@ def update_book(book_id: int, **kwargs) -> bool:
             f"UPDATE books SET {set_clause} WHERE id = ?", values
         )
         conn.commit()
-        return cur.rowcount > 0
+        changed = cur.rowcount > 0
+    # Regenerate keywords whenever searchable text fields change
+    _kw_trigger_fields = {"title", "description", "physics_field", "language"}
+    if changed and (_kw_trigger_fields & set(kwargs)):
+        update_keywords(book_id)
+    return changed
 
 
 def delete_book(book_id: int) -> bool:
@@ -1468,12 +1819,33 @@ def search_books(
     )
 
 
-def suggest_similar(query: str, limit: int = 3) -> list[sqlite3.Row]:
+def suggest_similar(query: str, limit: int = 5) -> list[sqlite3.Row]:
+    """Return up to *limit* resources loosely matching *query*.
+
+    Uses a relaxed min_cover=1 so at least one token must match, then ranks
+    normally.  Results are used to power "Did you mean…?" suggestions.
+    FTS pre-filters the candidates for speed on large libraries.
+    """
     q_info = _prepare_query(query)
     if not q_info:
         return []
     with get_connection() as conn:
-        rows = conn.execute("SELECT * FROM books ORDER BY title ASC, id ASC").fetchall()
+        # Try FTS first for a fast candidate pool
+        rows: list[sqlite3.Row] = []
+        fts_expr = _fts_query(q_info)
+        if fts_expr:
+            try:
+                rows = conn.execute(
+                    "SELECT b.* FROM books b "
+                    "JOIN books_fts ON books_fts.rowid = b.id "
+                    "WHERE books_fts MATCH ? "
+                    "ORDER BY title ASC, id ASC",
+                    [fts_expr]
+                ).fetchall()
+            except Exception:
+                rows = []
+        if not rows:
+            rows = conn.execute("SELECT * FROM books ORDER BY title ASC, id ASC").fetchall()
     # Relaxed matching: a single matching token is enough, best matches first.
     return _rank_rows(rows, q_info, min_cover=1)[:limit]
 
@@ -1736,6 +2108,10 @@ def get_library_stats() -> dict:
         total_resources = conn.execute("SELECT COUNT(*) FROM books").fetchone()[0]
         total_fa       = conn.execute("SELECT COUNT(*) FROM books WHERE language='fa'").fetchone()[0]
         total_en       = conn.execute("SELECT COUNT(*) FROM books WHERE language='en'").fetchone()[0]
+        # تعداد کل منابع غیر از فارسی و انگلیسی
+        total_other    = conn.execute(
+            "SELECT COUNT(*) FROM books WHERE language NOT IN ('fa', 'en')"
+        ).fetchone()[0]
         total_dl       = conn.execute("SELECT COALESCE(SUM(download_count),0) FROM books").fetchone()[0]
         unique_fields  = conn.execute("SELECT COUNT(DISTINCT physics_field) FROM books").fetchone()[0]
         total_users    = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
@@ -1760,6 +2136,7 @@ def get_library_stats() -> dict:
         "total_resources":        total_resources,
         "fa_books":               total_fa,
         "en_books":               total_en,
+        "other_books":            total_other,
         "total_downloads":        total_dl,
         "unique_fields":          unique_fields,
         "total_users":            total_users,
