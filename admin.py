@@ -575,19 +575,19 @@ def admin_keyboard(lang: str) -> types.ReplyKeyboardMarkup:
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     kb.add(
         types.KeyboardButton(tr("btn_add", lang)),
-        types.KeyboardButton(tr("btn_edit", lang)),
+        types.KeyboardButton(tr("btn_pending", lang)),
     )
     kb.add(
-        types.KeyboardButton(tr("btn_list", lang)),
+        types.KeyboardButton(tr("btn_edit", lang)),
         types.KeyboardButton(tr("btn_delete", lang)),
     )
     kb.add(
+        types.KeyboardButton(tr("btn_csv_import", lang)),
         types.KeyboardButton(tr("btn_stats", lang)),
-        types.KeyboardButton(tr("btn_admins", lang)),
     )
     kb.add(
-        types.KeyboardButton(tr("btn_csv_import", lang)),
-        types.KeyboardButton(tr("btn_pending", lang)),
+        types.KeyboardButton(tr("btn_list", lang)),
+        types.KeyboardButton(tr("btn_admins", lang)),
     )
     kb.add(types.KeyboardButton(tr("btn_exit", lang)))
     return kb
