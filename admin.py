@@ -541,6 +541,52 @@ T.update({
     "queue_saved":  _t("✅ P{pid} — {title}\n📁 {fname}", "✅ P{pid} — {title}\n📁 {fname}"),
     "queue_done":   _t("🎉 همه‌ی منابع بدون فایل تموم شد!\n✅ ثبت‌شده در این نوبت: {done}\n📤 آماده انتشار: {ready}",
                        "🎉 No more resources without a file!\n✅ Saved this round: {done}\n📤 Ready to publish: {ready}"),
+    # ── publish-queue strings ──────────────────────────────────────────────────
+    "pq_btn_publish": _t("📤 انتشار",              "📤 Publish"),
+    "pq_btn_skip":    _t("⏭ رد کردن",              "⏭ Skip"),
+    "pq_btn_edit":    _t("✏️ ویرایش متادیتا",       "✏️ Edit Metadata"),
+    "pq_btn_stop":    _t("⏹ توقف",                 "⏹ Stop"),
+    "pq_choose_type": _t(
+        "📤 حالت انتشار سریع\n\nکدام گروه رو منتشر کنم؟",
+        "📤 Batch Publish Mode\n\nWhich group should I publish?",
+    ),
+    "pq_start": _t(
+        "📤 حالت انتشار سریع شروع شد.\n"
+        "دکمه‌های پایین رو برای کنترل هر منبع استفاده کن.\n"
+        "• 📤 انتشار  — منتشر و برو سراغ بعدی\n"
+        "• ✏️ ویرایش  — قبل از انتشار متادیتا رو درست کن\n"
+        "• ⏭ رد کردن — این منبع رو رد کن، برو بعدی\n"
+        "• ⏹ توقف    — از حالت انتشار خارج شو",
+        "📤 Batch Publish Mode started.\n"
+        "Use the bottom buttons to handle each resource.\n"
+        "• 📤 Publish  — publish and move to next\n"
+        "• ✏️ Edit      — fix metadata before publishing\n"
+        "• ⏭ Skip      — skip this one, go to next\n"
+        "• ⏹ Stop      — exit batch publish mode",
+    ),
+    "pq_header": _t(
+        "📤 انتشار سریع — {left} منبع آماده باقی مونده  |  ✅ منتشرشده: {done}",
+        "📤 Batch Publish — {left} ready remaining  |  ✅ Published: {done}",
+    ),
+    "pq_published": _t(
+        "✅ P{pid} — {title}\n{disp} به کتابخونه اضافه شد.",
+        "✅ P{pid} — {title}\n{disp} added to library.",
+    ),
+    "pq_done": _t(
+        "🎉 تموم شد!\n✅ منتشرشده در این نوبت: {done}\n📋 باقیمانده بدون فایل: {nofile}",
+        "🎉 All done!\n✅ Published this round: {done}\n📋 Remaining without file: {nofile}",
+    ),
+    "pq_stopped": _t(
+        "⏹ حالت انتشار سریع متوقف شد.\n✅ منتشرشده: {done}",
+        "⏹ Batch publish stopped.\n✅ Published: {done}",
+    ),
+    "pq_btn_publish_all": _t(
+        "📤 انتشار سریع ({n})",
+        "📤 Batch Publish ({n})",
+    ),
+    "pq_btn_publish_books":    _t("📤 انتشار کتاب‌ها ({n})",  "📤 Publish Books ({n})"),
+    "pq_btn_publish_articles": _t("📤 انتشار مقالات ({n})",   "📤 Publish Articles ({n})"),
+    # ── end publish-queue strings ──────────────────────────────────────────────
     "queue_stopped": _t("⏹ حالت سریع متوقف شد. ✅ ثبت‌شده: {done}",
                         "⏹ Quick mode stopped. ✅ Saved: {done}"),
 })
@@ -683,6 +729,27 @@ def pending_overview_keyboard(lang: str, stats: dict | None = None) -> types.Inl
 
     markup = types.InlineKeyboardMarkup()
 
+    # Row 0: batch-publish (only shown when there are ready resources)
+    pq_row = []
+    if stats.get("books_ready", 0):
+        pq_row.append(types.InlineKeyboardButton(
+            tr("pq_btn_publish_books", lang, n=stats["books_ready"]),
+            callback_data="adm_pnd:pq_start:book",
+        ))
+    if stats.get("articles_ready", 0):
+        pq_row.append(types.InlineKeyboardButton(
+            tr("pq_btn_publish_articles", lang, n=stats["articles_ready"]),
+            callback_data="adm_pnd:pq_start:article",
+        ))
+    if pq_row:
+        markup.row(*pq_row)
+    # "publish all" button when both types have ready items
+    if stats.get("books_ready", 0) and stats.get("articles_ready", 0):
+        markup.row(types.InlineKeyboardButton(
+            tr("pq_btn_publish_all", lang, n=stats["has_file"]),
+            callback_data="adm_pnd:pq_start:all",
+        ))
+
     # Row 1: type-aware quick-add (only shown when there's something to do)
     quick_row = []
     if stats.get("books_nofile", 0):
@@ -771,6 +838,25 @@ def pending_queue_keyboard(lang: str, pending_id: int) -> types.InlineKeyboardMa
         types.InlineKeyboardButton(tr("btn_q_stop", lang), callback_data="adm_pnd:q_stop"),
     )
     return markup
+
+
+def publish_queue_keyboard(lang: str) -> types.ReplyKeyboardMarkup:
+    """Bottom Reply Keyboard shown during batch-publish mode.
+
+    One tap = action — no inline confirm round-trip needed.
+    Layout:  [📤 Publish]  [✏️ Edit Metadata]
+             [⏭ Skip]      [⏹ Stop]
+    """
+    kb = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    kb.add(
+        types.KeyboardButton(tr("pq_btn_publish", lang)),
+        types.KeyboardButton(tr("pq_btn_edit",    lang)),
+    )
+    kb.add(
+        types.KeyboardButton(tr("pq_btn_skip",  lang)),
+        types.KeyboardButton(tr("pq_btn_stop",  lang)),
+    )
+    return kb
 
 
 def pending_file_received_keyboard(lang: str, pending_id: int = 0) -> types.InlineKeyboardMarkup:
@@ -1509,6 +1595,116 @@ def handle_admin_text(bot, message: types.Message) -> bool:
         return False
 
     step = admin_sessions[uid].get("step", "")
+
+    # ── Publish-queue bottom-keyboard handlers ────────────────────────────────
+    if step == "pq_wait":
+        sess = admin_sessions[uid]
+        pid  = sess.get("pq_pid")
+
+        # ⏹ Stop
+        if text == tr("pq_btn_stop", lang):
+            _, done = _pq_state(uid)
+            admin_sessions.pop(uid, None)
+            bot.send_message(message.chat.id, tr("pq_stopped", lang, done=done),
+                             reply_markup=admin_keyboard(lang))
+            _show_pending_overview(bot, message.chat.id, lang)
+            return True
+
+        # ⏭ Skip
+        if text == tr("pq_btn_skip", lang):
+            skipped, done = _pq_state(uid)
+            if pid and pid not in skipped:
+                skipped.append(pid)
+            admin_sessions[uid] = {**sess, "pq_skipped": skipped}
+            _pq_show(bot, message.chat.id, uid, lang, after_pid=pid)
+            return True
+
+        # ✏️ Edit Metadata
+        if text == tr("pq_btn_edit", lang):
+            if not pid:
+                return True
+            row = database.get_pending_resource(pid)
+            if not row or row["status"] in ("published", "rejected"):
+                bot.send_message(message.chat.id, tr("pending_stale", lang, pid=pid))
+                _pq_show(bot, message.chat.id, uid, lang)
+                return True
+            admin_sessions[uid] = {
+                **sess,
+                "step":       "edit_pending_choose",
+                "pending_id": pid,
+            }
+            bot.send_message(
+                message.chat.id,
+                tr("pending_edit_pick", lang, pid=pid, title=row["title"]),
+                reply_markup=pending_edit_keyboard(lang, pid, row["resource_type"]),
+            )
+            return True
+
+        # 📤 Publish
+        if text == tr("pq_btn_publish", lang):
+            if not pid:
+                return True
+            row = database.get_pending_resource(pid)
+            if not row:
+                bot.send_message(message.chat.id, tr("pending_stale", lang, pid=pid))
+                _pq_show(bot, message.chat.id, uid, lang)
+                return True
+            if row["status"] == "published":
+                bot.send_message(message.chat.id, tr("publish_already", lang))
+                _pq_show(bot, message.chat.id, uid, lang, after_pid=pid)
+                return True
+            if row["status"] != "file_received" or not row["file_id"]:
+                bot.send_message(message.chat.id,
+                                 tr("publish_not_ready", lang,
+                                    status=_pending_status_label(row["status"], lang)))
+                _pq_show(bot, message.chat.id, uid, lang)
+                return True
+            # Duplicate check
+            _doi_val = ""
+            try:
+                _doi_val = row["doi"] or ""
+            except (KeyError, IndexError):
+                pass
+            dups = database.find_library_duplicates(
+                resource_type=row["resource_type"],
+                title=row["title"],
+                author=row["author"],
+                doi=_doi_val,
+            )
+            if dups:
+                dup = dups[0]
+                bot.send_message(
+                    message.chat.id,
+                    tr("publish_dup_warning", lang,
+                       dup_title=dup["title"], dup_author=dup["author"] or "-",
+                       dup_disp=_disp(dup)),
+                    reply_markup=publish_dup_keyboard(lang, pid, dup["id"]),
+                    parse_mode="HTML",
+                )
+                # Stay in pq_wait — after the inline confirm resolves,
+                # _do_publish_pq will continue the queue.
+                return True
+            # Publish
+            try:
+                new_id = database.publish_pending_resource(pid, added_by=uid)
+            except Exception as e:
+                bot.send_message(message.chat.id, tr("publish_error", lang, err=e))
+                _pq_show(bot, message.chat.id, uid, lang)
+                return True
+            new_res = database.get_resource(new_id)
+            disp    = _disp(new_res) if new_res else f"#{new_id}"
+            skipped, done = _pq_state(uid)
+            admin_sessions[uid] = {**sess, "pq_done": done + 1}
+            bot.send_message(message.chat.id,
+                             tr("pq_published", lang, pid=pid, title=row["title"], disp=disp))
+            if _notify_callback:
+                _notify_callback(bot, row["physics_field"], row["title"], new_id, row["resource_type"])
+            _pq_show(bot, message.chat.id, uid, lang, after_pid=pid)
+            return True
+
+        # Any other text while in pq_wait → ignore (don't fall through to other steps)
+        return True
+    # ── end publish-queue handlers ─────────────────────────────────────────────
 
     if _handle_article_skip_file(bot, message, uid, lang):
         return True
@@ -2271,6 +2467,63 @@ def handle_admin_callback(bot, callback: types.CallbackQuery) -> bool:
                     reply_markup=admin_keyboard(lang),
                 )
                 _show_pending_overview(bot, chat_id, lang)
+                return True
+
+            # ── Batch publish mode ────────────────────────────────────────────
+            # adm_pnd:pq_start          → show type-selection screen
+            # adm_pnd:pq_start:all      → publish all ready resources
+            # adm_pnd:pq_start:book     → books only
+            # adm_pnd:pq_start:article  → articles only
+            if action == "pq_start":
+                sub = parts[2] if len(parts) > 2 else None
+                if sub in ("all", "book", "article"):
+                    fk = {"all": "ready", "book": "book_ready", "article": "article_ready"}[sub]
+                    n = len(_pending_rows(fk))
+                    if n == 0:
+                        bot.send_message(chat_id, tr("pending_no_more", lang))
+                        _show_pending_overview(bot, chat_id, lang)
+                        return True
+                    admin_sessions[uid] = {
+                        "step":       "pq_wait",
+                        "pq":         True,
+                        "pq_type":    sub,
+                        "pq_pid":     None,
+                        "pq_skipped": [],
+                        "pq_done":    0,
+                    }
+                    bot.send_message(chat_id, tr("pq_start", lang),
+                                     reply_markup=publish_queue_keyboard(lang))
+                    _pq_show(bot, chat_id, uid, lang)
+                else:
+                    # show type-selection inline keyboard
+                    all_r  = len(_pending_rows("ready"))
+                    book_r = len(_pending_rows("book_ready"))
+                    art_r  = len(_pending_rows("article_ready"))
+                    if all_r == 0:
+                        bot.send_message(chat_id, tr("pending_no_more", lang))
+                        return True
+                    mkp = types.InlineKeyboardMarkup()
+                    mkp.row(types.InlineKeyboardButton(
+                        tr("pq_btn_publish_all", lang, n=all_r),
+                        callback_data="adm_pnd:pq_start:all",
+                    ))
+                    row2 = []
+                    if book_r:
+                        row2.append(types.InlineKeyboardButton(
+                            tr("pq_btn_publish_books", lang, n=book_r),
+                            callback_data="adm_pnd:pq_start:book",
+                        ))
+                    if art_r:
+                        row2.append(types.InlineKeyboardButton(
+                            tr("pq_btn_publish_articles", lang, n=art_r),
+                            callback_data="adm_pnd:pq_start:article",
+                        ))
+                    if row2:
+                        mkp.row(*row2)
+                    mkp.row(types.InlineKeyboardButton(
+                        tr("btn_pending_back", lang), callback_data="adm_pnd:overview",
+                    ))
+                    bot.send_message(chat_id, tr("pq_choose_type", lang), reply_markup=mkp)
                 return True
 
             # ── Quick (queue) mode ────────────────────────────────────────────
@@ -3181,10 +3434,76 @@ def _queue_show(bot, chat_id: int, uid: int, lang: str,
     bot.send_message(chat_id, text, reply_markup=pending_queue_keyboard(lang, row["id"]))
 
 
+def _pq_state(uid: int) -> tuple[list, int]:
+    """Return (skipped_ids, done_count) for the current publish-queue session."""
+    sess = admin_sessions.get(uid, {})
+    if sess.get("pq"):
+        return list(sess.get("pq_skipped", [])), int(sess.get("pq_done", 0))
+    return [], 0
+
+
+def _pq_show(bot, chat_id: int, uid: int, lang: str,
+             after_pid: int | None = None, pid_override: int | None = None):
+    """Show the next ready-to-publish card in batch-publish mode."""
+    skipped, done = _pq_state(uid)
+    sess = admin_sessions.get(uid, {})
+    pq_type = sess.get("pq_type", "all")
+
+    fk = {
+        "all":     "ready",
+        "book":    "book_ready",
+        "article": "article_ready",
+    }.get(pq_type, "ready")
+
+    rows = [r for r in _pending_rows(fk) if r["id"] not in skipped]
+
+    row = None
+    if pid_override:
+        cand = database.get_pending_resource(pid_override)
+        if cand and cand["status"] == "file_received":
+            row = cand
+    if row is None and rows:
+        after = [r for r in rows if after_pid is None or r["id"] > after_pid]
+        row = (after or rows)[0]
+
+    if row is None:
+        # All done
+        admin_sessions.pop(uid, None)
+        nofile = len(_pending_rows("nofile"))
+        bot.send_message(
+            chat_id,
+            tr("pq_done", lang, done=done, nofile=nofile),
+            reply_markup=admin_keyboard(lang),
+        )
+        _show_pending_overview(bot, chat_id, lang)
+        return
+
+    admin_sessions[uid] = {
+        **sess,
+        "step":        "pq_wait",
+        "pq":          True,
+        "pq_type":     pq_type,
+        "pq_pid":      row["id"],
+        "pq_skipped":  skipped,
+        "pq_done":     done,
+    }
+
+    left = len(rows)
+    text = (
+        tr("pq_header", lang, left=left, done=done) + "\n\n"
+        + _pending_detail_text(row, lang)
+    )
+    bot.send_message(chat_id, text,
+                     reply_markup=publish_queue_keyboard(lang),
+                     parse_mode="HTML")
+
+
 def _after_pending_edit(bot, chat_id: int, uid: int, lang: str, pid: int):
     sess  = admin_sessions.get(uid, {})
-    queue = bool(sess.get("queue"))
-    if queue:
+    if sess.get("pq"):
+        bot.send_message(chat_id, tr("pending_edit_saved", lang, pid=pid))
+        _pq_show(bot, chat_id, uid, lang, pid_override=pid)
+    elif sess.get("queue"):
         bot.send_message(chat_id, tr("pending_edit_saved", lang, pid=pid), reply_markup=cancel_keyboard(lang))
         _queue_show(bot, chat_id, uid, lang, pid_override=pid)
     else:
@@ -3321,15 +3640,25 @@ def _do_publish(bot, chat_id: int, lang: str, pending_id: int, added_by: int, fo
     new_resource = database.get_resource(new_id)
     disp = _disp(new_resource) if new_resource else f"#{new_id}"
 
+    if _notify_callback:
+        _notify_callback(bot, row["physics_field"], row["title"], new_id, row["resource_type"])
+
+    # If a publish-queue session is active, continue it instead of going back to main menu
+    sess = admin_sessions.get(added_by, {})
+    if sess.get("pq") and sess.get("pq_pid") == pending_id:
+        _, done = _pq_state(added_by)
+        admin_sessions[added_by] = {**sess, "pq_done": done + 1}
+        bot.send_message(chat_id, tr("pq_published", lang, pid=pending_id,
+                                     title=row["title"], disp=disp))
+        _pq_show(bot, chat_id, added_by, lang, after_pid=pending_id)
+        return
+
     bot.send_message(
         chat_id,
         tr("publish_success", lang, title=row["title"], disp=disp, pid=pending_id),
         reply_markup=admin_keyboard(lang),
         parse_mode="HTML",
     )
-
-    if _notify_callback:
-        _notify_callback(bot, row["physics_field"], row["title"], new_id, row["resource_type"])
 
 
 # ── Shared helpers ─────────────────────────────────────────────────────────────
