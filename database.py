@@ -527,14 +527,27 @@ def _migrate_db() -> None:
         # ── Migration 3: remove old language CHECK constraint from pending_resources
         # قدیمی‌ترین نسخه جدول با CHECK(language IN ('fa','en')) ساخته شده بود.
         # SQLite اجازه حذف مستقیم constraint نمیده؛ راه‌حل: rebuild جدول.
-        ddl_row = conn.execute(
-            "SELECT sql FROM sqlite_master WHERE type='table' AND name='pending_resources'"
-        ).fetchone()
+        #
+        # روش تشخیص: به‌جای string-matching روی DDL (که با فرمت‌بندی SQLite
+        # ناپایدار بود)، مستقیماً یک INSERT تست می‌زنیم. اگر constraint
+        # language IN ('fa','en') هنوز وجود داشته باشه، با IntegrityError
+        # خطا می‌دیم و می‌دونیم باید rebuild بشه.
         _needs_lang_fix = False
-        if ddl_row:
-            _ddl = ddl_row[0].replace(" ", "").lower()
-            _needs_lang_fix = ("language" in _ddl and "check" in _ddl
-                               and ("'fa'" in _ddl or '"fa"' in _ddl))
+        try:
+            conn.execute(
+                "INSERT INTO pending_resources "
+                "(resource_type, title, author, language, physics_field) "
+                "VALUES ('book', '__lang_probe__', '__probe__', 'de', 'general_physics')"
+            )
+            # اگر موفق شد یعنی constraint وجود نداره؛ row آزمایشی رو پاک می‌کنیم
+            conn.execute(
+                "DELETE FROM pending_resources WHERE title = '__lang_probe__'"
+            )
+        except Exception as _probe_err:
+            err_msg = str(_probe_err).lower()
+            if "check constraint" in err_msg or "constraint failed" in err_msg:
+                _needs_lang_fix = True
+            # هر خطای دیگری (مثلاً NOT NULL) نشانه‌ی مشکل دیگریه، نه language
         if _needs_lang_fix:
             conn.execute("ALTER TABLE pending_resources RENAME TO _pending_resources_old")
             conn.execute("""
@@ -675,6 +688,82 @@ def _migrate_db() -> None:
                 _rebuild_fts(conn)
             except Exception as _rb_err:
                 print(f"[DB] FTS rebuild failed: {_rb_err}")
+
+        # ── Migration 6: اطمینان از عدم وجود language CHECK در جدول books ────
+        # اگر جدول books هم به هر دلیلی constraint قدیمی داشت، همان تکنیک
+        # probe-insert رو استفاده می‌کنیم تا بفهمیم و rebuild کنیم.
+        _books_needs_lang_fix = False
+        try:
+            conn.execute(
+                "INSERT INTO books "
+                "(title, author, language, physics_field, file_id, file_name, file_size) "
+                "VALUES ('__lang_probe__','__probe__','de','general_physics','','',0)"
+            )
+            conn.execute("DELETE FROM books WHERE title = '__lang_probe__'")
+        except Exception as _bp_err:
+            bp_msg = str(_bp_err).lower()
+            if "check constraint" in bp_msg or "constraint failed" in bp_msg:
+                _books_needs_lang_fix = True
+
+        if _books_needs_lang_fix:
+            # rebuild جدول books بدون language CHECK
+            conn.execute("ALTER TABLE books RENAME TO _books_old")
+            # جدول جدید بدون هیچ CHECK روی language
+            conn.execute("""
+                CREATE TABLE books (
+                    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                    title           TEXT    NOT NULL,
+                    author          TEXT    NOT NULL,
+                    language        TEXT    NOT NULL,
+                    physics_field   TEXT    NOT NULL,
+                    description     TEXT,
+                    edition         TEXT,
+                    year            INTEGER,
+                    file_id         TEXT,
+                    file_name       TEXT,
+                    file_size       INTEGER,
+                    cover_file_id   TEXT,
+                    added_by        INTEGER,
+                    download_count  INTEGER NOT NULL DEFAULT 0,
+                    created_at      TEXT    NOT NULL DEFAULT (datetime('now')),
+                    updated_at      TEXT    NOT NULL DEFAULT (datetime('now')),
+                    keywords        TEXT    NOT NULL DEFAULT '',
+                    publisher       TEXT    NOT NULL DEFAULT '',
+                    field_number    INTEGER,
+                    resource_type   TEXT    NOT NULL DEFAULT 'book',
+                    doi             TEXT,
+                    journal         TEXT,
+                    volume          TEXT,
+                    issue           TEXT,
+                    pages           TEXT,
+                    url             TEXT,
+                    publication_date TEXT
+                )
+            """)
+            # کپی تمام ردیف‌های قدیمی
+            conn.execute("""
+                INSERT INTO books
+                SELECT id, title, author, language, physics_field,
+                       description, edition, year, file_id, file_name, file_size,
+                       cover_file_id, added_by, download_count, created_at, updated_at,
+                       COALESCE(keywords,''), COALESCE(publisher,''),
+                       field_number,
+                       COALESCE(resource_type,'book'),
+                       doi, journal, volume, issue, pages, url, publication_date
+                FROM _books_old
+            """)
+            conn.execute("DROP TABLE _books_old")
+            # بازسازی index ها
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_books_field ON books(physics_field)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_books_language ON books(language)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_books_title ON books(title)")
+            conn.commit()
+            # FTS باید rebuild بشه چون جدول عوض شد
+            try:
+                _rebuild_fts(conn)
+            except Exception as _rb2:
+                print(f"[DB] FTS rebuild after books migration: {_rb2}")
+            print("[DB] Migration applied: books table language CHECK constraint removed.")
 
         # ── Future migrations go here ──────────────────────────────────────────
         # Example pattern:
@@ -1771,7 +1860,7 @@ def find_resource_by_display_id(text: str) -> Optional[sqlite3.Row]:
 def add_book(
     title: str,
     author: str,
-    language: str,           # 'fa' یا 'en'
+    language: str,           # هر کد دو‌حرفی ISO 639-1 (مثلاً fa, en, de, fr, nl, ru, …)
     physics_field: str,
     file_id: str,
     file_name: str,

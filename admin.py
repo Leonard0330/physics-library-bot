@@ -2875,32 +2875,26 @@ def _pending_update(pid: int, fields: dict) -> bool:
     fields = {k: v for k, v in fields.items() if k in _PENDING_EDITABLE}
     if not fields:
         return False
-    conn = sqlite3.connect(database.DB_PATH, timeout=15)
-    try:
-        cols = {r[1] for r in conn.execute("PRAGMA table_info(pending_resources)")}
+    with database.get_connection() as conn:
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(pending_resources)")}
         fields = {k: v for k, v in fields.items() if k in cols}
         if not fields:
             return False
         sets = ", ".join(f"{k} = ?" for k in fields)
-        with conn:
-            cur = conn.execute(
-                f"UPDATE pending_resources SET {sets} WHERE id = ? AND status NOT IN ('published')",
-                (*fields.values(), pid),
-            )
+        cur = conn.execute(
+            f"UPDATE pending_resources SET {sets} WHERE id = ? AND status NOT IN ('published')",
+            (*fields.values(), pid),
+        )
+        conn.commit()
         return cur.rowcount > 0
-    finally:
-        conn.close()
 
 
 def _pending_delete(pid: int) -> bool:
-    conn = sqlite3.connect(database.DB_PATH, timeout=15)
-    try:
-        with conn:
-            cur = conn.execute(
-                "DELETE FROM pending_resources WHERE id = ? AND status NOT IN ('published')", (pid,))
+    with database.get_connection() as conn:
+        cur = conn.execute(
+            "DELETE FROM pending_resources WHERE id = ? AND status NOT IN ('published')", (pid,))
+        conn.commit()
         return cur.rowcount > 0
-    finally:
-        conn.close()
 
 
 def _pending_list_page(bot, chat_id: int, lang: str, filter_key: str, page: int,
