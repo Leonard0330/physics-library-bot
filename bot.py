@@ -4,6 +4,8 @@ import telebot
 from telebot import types
 import database
 import admin
+import analytics
+import analytics_dashboard
 
 TOKEN = os.environ.get("BOT_TOKEN")
 bot = telebot.TeleBot(TOKEN)
@@ -13,19 +15,6 @@ TELEGRAM_CAPTION_LIMIT = 1024
 
 
 def _truncate_description(desc: str, budget: int) -> str:
-    """
-    Truncate *desc* to fit within *budget* characters (inclusive), cutting on
-    a word boundary and appending "…".  Never cuts mid-word.
-
-    Rules (in order):
-      1. If desc already fits, return it unchanged.
-      2. Try to break at the last paragraph boundary (double-newline) before
-         the cut point — keeps the most coherent chunk.
-      3. Fall back to the last sentence-ending punctuation (.  !  ?  …) followed
-         by whitespace or end-of-string.
-      4. Fall back to the last whitespace (word boundary).
-      5. Last resort: hard-cut at budget-1 and append "…".
-    """
     ellipsis = "…"
     if len(desc) <= budget:
         return desc
@@ -63,18 +52,6 @@ def _fit_caption(
     description: str,
     limit: int = TELEGRAM_CAPTION_LIMIT,
 ) -> str:
-    """
-    Build a caption that is guaranteed to be ≤ *limit* characters.
-
-    *fixed_part* contains everything except the description block — it must
-    never be altered.  *description* is the only field allowed to shrink.
-
-    If the description is empty or the fixed part alone already fills the
-    budget, only the fixed part is returned (no description appended).
-
-    The description prefix "\\n📝 " (3 chars + emoji + space = 5 visible chars
-    but we measure in Unicode code points) is included in the budget.
-    """
     if not description:
         return fixed_part
 
@@ -94,7 +71,6 @@ def _fit_caption(
 
 
 def _row_get(row, key: str, default=None):
-    """sqlite3.Row does not support .get().  Use this instead of row.get(key)."""
     try:
         val = row[key]
         return val if val is not None else default
@@ -102,6 +78,7 @@ def _row_get(row, key: str, default=None):
         return default
 
 database.init_db()
+analytics_dashboard.start_daily_report_scheduler(bot)
 
 
 user_langs: dict[int, str] = {}
@@ -126,26 +103,13 @@ user_menu_state: dict[int, str] = {}
 # Pagination 
 PAGE_SIZE = 10
 
-# ── Pagination context store ──────────────────────────────────────────────────
-# Telegram limits callback_data to 64 bytes.  A full searchf context string
-# (query + lang + field + rtype + hdr) can easily exceed that limit.
-# Solution: store the full context string in memory and put only a short
-# numeric ID in callback_data.  Format in callback_data: "page:p<id>:<page>"
-#
-# The store is an LRU-capped dict (max 500 entries).  Old entries are evicted
-# when the cap is reached.  This is fine because pagination sessions are
-# short-lived and the bot process is persistent.
+# ── Pagination context store 
 _pg_store: dict[int, str] = {}   # id → full context string
 _pg_next_id: list[int] = [0]     # mutable counter (list trick avoids nonlocal)
 _PG_STORE_MAX = 500
 
 
 def _ctx_save(full_context: str) -> str:
-    """Store *full_context* and return a short token like 'p42'.
-
-    If the context fits in the inline budget already, it is stored anyway
-    so that page_callback always goes through the same lookup path.
-    """
     # Evict oldest entry when cap is reached
     if len(_pg_store) >= _PG_STORE_MAX:
         oldest = next(iter(_pg_store))
@@ -164,13 +128,6 @@ def _ctx_load(token: str) -> str | None:
 
 
 def _pagination_keyboard(context: str, page: int, has_next: bool) -> types.InlineKeyboardMarkup | None:
-    """Return an InlineKeyboardMarkup with ◀️ / ▶️ buttons, or None when not needed.
-
-    context  – full context string (stored in _pg_store; only a short token
-               appears in callback_data so we never exceed 64 bytes).
-    page     – 0-based current page index.
-    has_next – whether there is at least one item on the next page.
-    """
     show_prev = page > 0
     show_next = has_next
     if not show_prev and not show_next:
@@ -194,23 +151,6 @@ def _send_paginated_list(
     header_key: str,
     edit_message_id: int | None = None,
 ):
-    """Fetch one page of results and send (or edit) the list message.
-
-    context format:  "<list_type>|<arg>"
-      list_type   arg
-      ─────────   ───────────────────────────────────────────
-      search      <query text>
-      books       (empty)
-      articles    (empty)
-      top_all     (empty)
-      top_books   (empty)
-      top_articles (empty)
-      recent_all  (empty)
-      field       <field_key>|<rtype>   (rtype may be empty)
-
-    header_key is embedded at the END of context as  "…|hdr:<key>" so it
-    survives round-trips without a separate store.
-    """
     # ── header_key abbreviation maps (keeps callback_data under 64 bytes)
     _HDR_ENCODE = {
         "books_list_header":     "bl",
@@ -522,7 +462,7 @@ TEXTS = {
             "این کتابخانه طیف گسترده‌ای از شاخه‌های فیزیک، از مباحث پایه تا زمینه‌های تخصصی، را پوشش می‌دهد و تلاش می‌کند دانشجویان، پژوهشگران و علاقه‌مندان به فیزیک بتوانند منابع موردنیاز خود را به‌سادگی پیدا کنند.\n"
             "این پروژه به‌صورت مستمر در حال توسعه است و به مرور زمان کتاب‌ها و مقالات جدیدی به آن افزوده خواهند شد.\n\n"
             "<b>📬 ارتباط و پشتیبانی:</b> @Kimhmda0705\n"
-            "<i>Version: 4.0</i>"
+            "<i>Version: 5.0</i>"
         ),
         "en": (
             "<b>About the Project</b>\n\n"
@@ -530,7 +470,7 @@ TEXTS = {
             "The library covers a wide range of topics, from foundational physics to specialized fields, and aims to help students, educators, and researchers quickly discover useful learning resources. The project is continuously expanding, with new books and articles being added over time.\n\n"
             "Thank you for using Physics Library and supporting its growth.\n"
             "<b>📬 Contact &amp; Support:</b> @Kimhmda0705\n"
-            "<i>Version: 4.0</i>"
+            "<i>Version: 5.0</i>"
         ),
     },
     "help": {
@@ -1273,11 +1213,14 @@ def send_home(chat_id: int, user: types.User):
 @bot.message_handler(commands=["start"])
 def start(message: types.Message):
     user = message.from_user
-    database.upsert_user(
+    is_new = database.upsert_user(
         user_id=user.id,
         username=user.username or "",
         first_name=user.first_name or ""
     )
+    # فقط اولین /start به عنوان ثبت‌نام ثبت می‌شود؛
+    # /start های بعدی (بازگشت به خانه) با is_new=False لاگ می‌شوند
+    analytics.log_user_started(user.id, is_new=is_new)
     send_home(message.chat.id, user)
 
 
@@ -1351,6 +1294,11 @@ def admin_callback(callback: types.CallbackQuery):
     except Exception as exc:
         import logging
         logging.exception("admin_callback error (data=%s): %s", callback.data, exc)
+        analytics.log_bot_error(
+            callback.from_user.id,
+            handler="admin_callback",
+            error_msg=str(exc),
+        )
         try:
             bot.answer_callback_query(callback.id, "⚠️ خطای داخلی رخ داد. دوباره امتحان کن.", show_alert=True)
         except Exception:
@@ -1667,19 +1615,34 @@ def handle_search_query(message: types.Message, query: str):
     lang_f    = f.get("language", "")
     field_f   = f.get("physics_field", "")
     rtype_f   = f.get("resource_type", "")
+    has_filters = bool(lang_f or field_f or rtype_f)
+
+    # ── analytics: search_submitted (قبل از اجرا — کاربر جستجو کرد) ──────────
+    analytics.log_search_submitted(uid, has_filters=has_filters)
 
     # Quick check: does anything match at all?
-    probe = database.search_resources(
-        query=query,
-        language=lang_f,
-        physics_field=field_f,
-        resource_type=rtype_f,
-        limit=1,
-        offset=0,
-    )
+    try:
+        probe = database.search_resources(
+            query=query,
+            language=lang_f,
+            physics_field=field_f,
+            resource_type=rtype_f,
+            limit=1,
+            offset=0,
+        )
+    except Exception as exc:
+        # ── analytics: search_error (خطای فنی در جستجو) ──────────────────────
+        analytics.log_search_error(uid, error_msg=str(exc))
+        logging.exception("handle_search_query: DB error for uid=%s: %s", uid, exc)
+        bot.send_message(message.chat.id, t(user, "error_generic"))
+        return
+
     if not probe:
+        # ── analytics: search_no_results (جستجو اجرا شد، نتیجه نبود) ─────────
+        analytics.log_search_no_results(uid, has_filters=has_filters)
+
         lang = get_lang(user)
-        active_filters = bool(lang_f or field_f or rtype_f)
+        active_filters = has_filters
 
         # Try to suggest similar results (broader match, ignoring active filters)
         suggestions = database.suggest_similar(query, limit=3)
@@ -1727,6 +1690,11 @@ def handle_search_query(message: types.Message, query: str):
         ))
         bot.send_message(message.chat.id, msg, reply_markup=_nf_mk)
         return
+
+    # ── analytics: search_completed (جستجو نتیجه داشت) ──────────────────────
+    # probe حاوی یک نتیجه است؛ تعداد کامل نتایج اینجا fetch نمی‌شود
+    # تا performance تأثیر نگیرد — result_count=1 نشانگر "حداقل یک نتیجه" است.
+    analytics.log_search_completed(uid, result_count=1)
 
     # Build a context string that encodes all active filters so pagination works
     # Format: search_f|<query>|lang:<lang_f>|field:<field_f>|rtype:<rtype_f>
@@ -2157,7 +2125,8 @@ def send_book_card(chat_id: int, user: types.User, book):
     text = _fmt_book_card(book, lang, field, lang_label, disp, rating_str)
 
     markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton(t(user, "download"), callback_data=f"download:{book['id']}"))
+    if _row_get(book, "file_id"):
+        markup.add(types.InlineKeyboardButton(t(user, "download"), callback_data=f"download:{book['id']}"))
     user_r = database.get_user_rating(user.id, book["id"])
     markup.row(*[
         types.InlineKeyboardButton(
@@ -2252,6 +2221,9 @@ def download(callback: types.CallbackQuery):
     disp = database.get_display_id(res)
     rtype = res["resource_type"] if "resource_type" in res.keys() else "book"
 
+    # ── analytics: file_requested (کاربر دکمه دانلود زد) ────────────────────
+    analytics.log_file_requested(user.id, resource_id=res_id, resource_type=rtype)
+
     try:
         if rtype == "article":
             # --- Article download ---
@@ -2277,6 +2249,9 @@ def download(callback: types.CallbackQuery):
             # _fmt_book_caption() guarantees len(caption) <= 1024 via adaptive
             # description truncation — no follow-up message needed.
             caption = _fmt_book_caption(res, field, lang_label, disp)
+            if not _row_get(res, "file_id"):
+                bot.answer_callback_query(callback.id, TEXTS["download_error"][lang], show_alert=True)
+                return
             bot.send_document(
                 callback.message.chat.id,
                 res["file_id"],
@@ -2285,12 +2260,20 @@ def download(callback: types.CallbackQuery):
             )
 
     except Exception as exc:
+        # ── analytics: file_send_failed ───────────────────────────────────────
+        analytics.log_file_send_failed(user.id, resource_id=res_id, resource_type=rtype)
         logging.warning("download: failed to send resource id=%s to uid=%s: %s", res_id, user.id, exc)
         bot.answer_callback_query(callback.id, TEXTS["download_error"][lang], show_alert=True)
         return
 
+    # ── analytics: file_sent (فایل با موفقیت تحویل داده شد) ─────────────────
+    analytics.log_file_sent(user.id, resource_id=res_id, resource_type=rtype)
+
     # Record only after a confirmed successful delivery
-    database.record_download(res_id, user.id)
+    try:
+        database.record_download(res_id, user.id)
+    except Exception as exc:
+        logging.exception("record_download failed for res_id=%s uid=%s: %s", res_id, user.id, exc)
     bot.answer_callback_query(callback.id, TEXTS["downloaded"][lang])
 
 
@@ -2687,11 +2670,22 @@ def page_callback(callback: types.CallbackQuery):
 @bot.callback_query_handler(func=lambda c: c.data.startswith("rate:"))
 def rate_callback(callback: types.CallbackQuery):
     user = callback.from_user
-    _, res_id_str, rating_str = callback.data.split(":")
-    res_id = int(res_id_str)
-    rating = int(rating_str)
-    database.rate_resource(user.id, res_id, rating)
-    bot.answer_callback_query(callback.id, TEXTS["rate_saved"][get_lang(user)], show_alert=False)
+    lang = "fa"  # safe fallback before any DB call
+    try:
+        lang = get_lang(user)
+        _, res_id_str, rating_str = callback.data.split(":")
+        res_id = int(res_id_str)
+        rating = int(rating_str)
+        database.rate_resource(user.id, res_id, rating)
+        bot.answer_callback_query(callback.id, TEXTS["rate_saved"][lang], show_alert=True)
+    except Exception as exc:
+        logging.exception("rate_callback: error for uid=%s data=%s: %s", user.id, callback.data, exc)
+        bot.answer_callback_query(
+            callback.id,
+            "⚠️ خطا رخ داد." if lang == "fa" else "⚠️ An error occurred.",
+            show_alert=True,
+        )
+        return
     # Refresh the star row in-place
     try:
         old_mk = callback.message.reply_markup
@@ -2720,10 +2714,22 @@ def rate_callback(callback: types.CallbackQuery):
 @bot.callback_query_handler(func=lambda c: c.data.startswith("bookmark:"))
 def bookmark_callback(callback: types.CallbackQuery):
     user = callback.from_user
-    res_id = int(callback.data.split(":")[1])
-    added = database.toggle_bookmark(user.id, res_id)
-    key = "bookmark_added" if added else "bookmark_removed"
-    bot.answer_callback_query(callback.id, TEXTS[key][get_lang(user)], show_alert=True)
+    lang = "fa"  # safe fallback before any DB call
+    res_id = None
+    try:
+        res_id = int(callback.data.split(":")[1])
+        lang = get_lang(user)
+        added = database.toggle_bookmark(user.id, res_id)
+        key = "bookmark_added" if added else "bookmark_removed"
+        bot.answer_callback_query(callback.id, TEXTS[key][lang], show_alert=True)
+    except Exception as exc:
+        logging.exception("bookmark_callback: DB error for uid=%s res_id=%s: %s", user.id, res_id, exc)
+        bot.answer_callback_query(
+            callback.id,
+            "⚠️ خطا رخ داد." if lang == "fa" else "⚠️ An error occurred.",
+            show_alert=True,
+        )
+        return
     # Refresh the 🔖 button label in-place
     try:
         old_mk = callback.message.reply_markup
@@ -2809,7 +2815,14 @@ admin.set_notify_callback(notify_field_subscribers)
 def handle_my_bookmarks(message: types.Message):
     user = message.from_user
     lang = get_lang(user)
-    rows = database.get_bookmarks(user.id)
+    try:
+        rows = database.get_bookmarks(user.id)
+    except Exception as exc:
+        logging.exception("handle_my_bookmarks: DB error for uid=%s: %s", user.id, exc)
+        bot.send_message(message.chat.id,
+                         "⚠️ خطا در بارگذاری ذخیره‌شده‌ها." if lang == "fa" else "⚠️ Failed to load bookmarks.",
+                         reply_markup=main_keyboard(user))
+        return
     if not rows:
         bot.send_message(message.chat.id, TEXTS["bookmarks_empty"][lang],
                          reply_markup=main_keyboard(user))
@@ -2830,7 +2843,14 @@ def handle_my_bookmarks(message: types.Message):
 def handle_my_history(message: types.Message):
     user = message.from_user
     lang = get_lang(user)
-    rows = database.get_download_history(user.id, limit=20)
+    try:
+        rows = database.get_download_history(user.id, limit=20)
+    except Exception as exc:
+        logging.exception("handle_my_history: DB error for uid=%s: %s", user.id, exc)
+        bot.send_message(message.chat.id,
+                         "⚠️ خطا در بارگذاری تاریخچه." if lang == "fa" else "⚠️ Failed to load history.",
+                         reply_markup=main_keyboard(user))
+        return
     if not rows:
         bot.send_message(message.chat.id, TEXTS["history_empty"][lang],
                          reply_markup=main_keyboard(user))

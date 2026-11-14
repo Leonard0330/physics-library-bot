@@ -9,6 +9,7 @@ from datetime import datetime
 
 from telebot import types
 import database
+import analytics_dashboard
 
 admin_sessions: dict[int, dict] = {}
 
@@ -77,6 +78,7 @@ T = {
     "btn_list":         {"fa": "📋 لیست منابع",          "en": "📋 Resources List"},
     "btn_delete":       {"fa": "🗑 حذف منبع",              "en": "🗑 Delete Resource"},
     "btn_stats":        {"fa": "📊 آمار کتابخانه",            "en": "📊 Library Stats"},
+    "btn_analytics":    {"fa": "📈 داشبورد Analytics",        "en": "📈 Analytics Dashboard"},
     "btn_admins":       {"fa": "👥 مدیریت ادمین‌ها",       "en": "👥 Manage Admins"},
     "btn_exit":         {"fa": "🔙 خروج از پنل ادمین",     "en": "🔙 Exit Admin Panel"},
     "btn_cancel":       {"fa": "❌ لغو عملیات",            "en": "❌ Cancel Operation"},
@@ -635,6 +637,7 @@ def admin_keyboard(lang: str) -> types.ReplyKeyboardMarkup:
         types.KeyboardButton(tr("btn_list", lang)),
         types.KeyboardButton(tr("btn_admins", lang)),
     )
+    kb.add(types.KeyboardButton(tr("btn_analytics", lang)))
     kb.add(types.KeyboardButton(tr("btn_exit", lang)))
     return kb
 
@@ -1558,6 +1561,11 @@ def handle_admin_text(bot, message: types.Message) -> bool:
         _show_stats(bot, message, lang)
         return True
 
+    if text in (T["btn_analytics"]["fa"], T["btn_analytics"]["en"]):
+        admin_sessions.pop(uid, None)
+        analytics_dashboard.show_analytics_main(bot, message.chat.id)
+        return True
+
     if text in (T["btn_admins"]["fa"], T["btn_admins"]["en"]):
         admin_sessions.pop(uid, None)
         bot.send_message(message.chat.id, tr("admins_menu_title", lang), reply_markup=admins_menu_keyboard(lang))
@@ -2072,6 +2080,10 @@ def handle_admin_callback(bot, callback: types.CallbackQuery) -> bool:
         bot.answer_callback_query(callback.id)
         open_panel(bot, callback.message.chat.id, uid)
         return True
+
+    # ── Analytics Dashboard callbacks ─────────────────────────────────────────
+    if data.startswith("adm_anl:"):
+        return analytics_dashboard.handle_analytics_callback(bot, callback)
 
     if data.startswith("adm_rtype:"):
         if uid not in admin_sessions or admin_sessions[uid].get("step") != "wait_resource_type":
