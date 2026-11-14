@@ -17,14 +17,9 @@ analytics_dashboard.py — داشبورد Analytics در Telegram
     ├── 🔄 Retention
     └── 📈 رشد
 
-گزارش روزانه خودکار:
-  - ساعت قابل تنظیم (پیش‌فرض: ۰۸:۰۰ UTC)
-  - Idempotency پایدار از طریق جدول daily_report_log در SQLite
-  - Delivery status به ازای هر ادمین ردیابی می‌شود
-  - Restart ایمن: restart نمی‌تواند گزارش تکراری ایجاد کند
-  - با daemon thread ایمن
-  - Missed-window recovery: اگر ربات در پنجره ۰۸:۰۰ خاموش بود،
-    اولین بار که بعد از آن ساعت راه‌اندازی می‌شود گزارش ارسال می‌کند
+گزارش امروز:
+  - فقط on-demand: با دکمه‌ی «گزارش امروز» به همان ادمین درخواست‌دهنده ارسال می‌شود.
+  - scheduler و گزارش روزانه‌ی خودکار (daily_report_log) حذف شده‌اند.
 
 تایم‌زون:
   - پیش‌فرض: UTC
@@ -679,8 +674,11 @@ def _edit_or_send(bot, callback: types.CallbackQuery, text: str,
             reply_markup=markup,
             parse_mode="HTML",
         )
-    except Exception:
-        # پیام قابل edit نیست (خیلی قدیمی یا تغییری نکرده)
+    except Exception as exc:
+        # «Refresh» روی داده‌ی بدون تغییر → پیام جدید نفرست
+        if "message is not modified" in str(exc).lower():
+            return
+        # پیام قابل edit نیست (خیلی قدیمی یا حذف‌شده)
         bot.send_message(
             callback.message.chat.id,
             text,

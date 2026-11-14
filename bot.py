@@ -7,7 +7,11 @@ import admin
 import analytics
 import analytics_dashboard
 
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+
 TOKEN = os.environ.get("BOT_TOKEN")
+if not TOKEN:
+    raise SystemExit("BOT_TOKEN environment variable is not set.")
 bot = telebot.TeleBot(TOKEN)
 
 
@@ -346,6 +350,10 @@ TEXTS = {
     "download_error": {
         "fa": "❌ ارسال فایل با خطا مواجه شد. لطفاً دوباره تلاش کنید.",
         "en": "❌ Failed to send the file. Please try again."
+    },
+    "error_generic": {
+        "fa": "⚠️ خطایی رخ داد. لطفاً دوباره تلاش کنید.",
+        "en": "⚠️ Something went wrong. Please try again."
     },
     "rate_prompt":  {"fa": "امتیاز خود را انتخاب کن:", "en": "Choose your rating:"},
     "rate_saved":   {"fa": "✅ امتیاز ثبت شد.",         "en": "✅ Rating saved."},
@@ -1606,6 +1614,20 @@ def handle_books(message: types.Message):
     send_book_list(message.chat.id, user, rows, header_key="books_list_header")
 
 
+_retry_queries: dict[str, str] = {}
+_RETRY_MAX = 500
+_retry_counter = [0]
+
+
+def _retry_save(query: str) -> str:
+    if len(_retry_queries) >= _RETRY_MAX:
+        _retry_queries.pop(next(iter(_retry_queries)))
+    _retry_counter[0] += 1
+    token = str(_retry_counter[0])
+    _retry_queries[token] = query
+    return token
+
+
 def handle_search_query(message: types.Message, query: str):
     user = message.from_user
     uid  = user.id
@@ -1618,6 +1640,8 @@ def handle_search_query(message: types.Message, query: str):
     has_filters = bool(lang_f or field_f or rtype_f)
 
     # ── analytics: search_submitted (قبل از اجرا — کاربر جستجو کرد) ──────────
+    # "|" is the context separator used by pagination; strip it from user input
+    query = query.replace("|", " ").strip()
     analytics.log_search_submitted(uid, has_filters=has_filters)
 
     # Quick check: does anything match at all?
@@ -1678,10 +1702,12 @@ def handle_search_query(message: types.Message, query: str):
         # If filters are active, offer a one-tap retry without them
         if active_filters:
             # Store the bare query for the retry callback
-            search_filters[uid] = {"_retry_query": query}
+            # callback_data is limited to 64 bytes (Persian = 2 bytes/char), so keep
+            # the query server-side and only send a short token.
+            _retry_token = _retry_save(query)
             _nf_mk.add(types.InlineKeyboardButton(
                 "🔍 بدون فیلتر جستجو کن" if lang == "fa" else "🔍 Search without filters",
-                callback_data=f"search_no_filter:{query[:40]}"
+                callback_data=f"search_no_filter:{_retry_token}"
             ))
 
         _nf_mk.add(types.InlineKeyboardButton(
@@ -2250,6 +2276,7 @@ def download(callback: types.CallbackQuery):
             # description truncation — no follow-up message needed.
             caption = _fmt_book_caption(res, field, lang_label, disp)
             if not _row_get(res, "file_id"):
+                analytics.log_file_send_failed(user.id, resource_id=res_id, resource_type=rtype)
                 bot.answer_callback_query(callback.id, TEXTS["download_error"][lang], show_alert=True)
                 return
             bot.send_document(
@@ -2676,6 +2703,8 @@ def rate_callback(callback: types.CallbackQuery):
         _, res_id_str, rating_str = callback.data.split(":")
         res_id = int(res_id_str)
         rating = int(rating_str)
+        if not 1 <= rating <= 5:
+            raise ValueError(f"rating out of range: {rating}")
         database.rate_resource(user.id, res_id, rating)
         bot.answer_callback_query(callback.id, TEXTS["rate_saved"][lang], show_alert=True)
     except Exception as exc:
@@ -2686,7 +2715,7 @@ def rate_callback(callback: types.CallbackQuery):
             show_alert=True,
         )
         return
-    # Refresh the star row in-place
+    # Refresh the star row in-place + update rating line in card text
     try:
         old_mk = callback.message.reply_markup
         if old_mk:
@@ -2702,10 +2731,33 @@ def rate_callback(callback: types.CallbackQuery):
                     ])
                 else:
                     new_rows.append(list(row))
-            bot.edit_message_reply_markup(
-                callback.message.chat.id, callback.message.message_id,
-                reply_markup=types.InlineKeyboardMarkup(new_rows)
+            new_mk = types.InlineKeyboardMarkup(new_rows)
+
+            # Also refresh the rating line in the message text
+            old_text = callback.message.html_text or callback.message.text or ""
+            rs = database.get_rating_stats(res_id)
+            new_rating_str = (
+                TEXTS["rating_label"][lang].format(avg=rs["avg"], cnt=rs["cnt"])
+                if rs["avg"] is not None
+                else TEXTS["rating_none"][lang]
             )
+            import re as _re
+            # Replace the rating portion on the footer line (⬇️ ... ⭐ ...)
+            new_text = _re.sub(
+                r'(⬇️[^\n]*?)\s+⭐[^\n]*',
+                lambda m: m.group(1) + "   " + new_rating_str,
+                old_text,
+            )
+            if new_text != old_text:
+                bot.edit_message_text(
+                    new_text, callback.message.chat.id, callback.message.message_id,
+                    parse_mode="HTML", reply_markup=new_mk
+                )
+            else:
+                bot.edit_message_reply_markup(
+                    callback.message.chat.id, callback.message.message_id,
+                    reply_markup=new_mk
+                )
     except Exception:
         pass
 
@@ -2876,7 +2928,10 @@ def search_no_filter_callback(callback: types.CallbackQuery):
     user = callback.from_user
     uid  = user.id
     bot.answer_callback_query(callback.id)
-    query = callback.data.split(":", 1)[1]
+    query = _retry_queries.get(callback.data.split(":", 1)[1])
+    if not query:
+        bot.send_message(callback.message.chat.id, t(user, "error_generic"))
+        return
     # Clear all filters and re-run the search
     search_filters.pop(uid, None)
     # Synthesise a fake message so handle_search_query works unchanged

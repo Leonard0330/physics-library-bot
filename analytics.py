@@ -363,7 +363,7 @@ def get_daily_activity(n_days: int = 30) -> list[dict]:
                     COUNT(CASE WHEN event_type='file_sent'         THEN 1 END) AS deliveries,
                     COUNT(DISTINCT CASE WHEN user_id IS NOT NULL   THEN user_id END) AS active_users
                 FROM analytics_events
-                WHERE created_at >= datetime('now', ?)
+                WHERE datetime(created_at) >= datetime('now', ?)
                 GROUP BY day
                 ORDER BY day ASC
                 """,
@@ -425,8 +425,8 @@ def get_retention_cohort(cohort_day: int) -> dict:
                 INNER JOIN analytics_events ae ON ae.user_id = u.user_id
                 WHERE u.created_at IS NOT NULL
                   AND u.created_at <= datetime('now', ?)
-                  AND ae.created_at >= datetime(u.created_at, ?)
-                  AND ae.created_at <  datetime(u.created_at, ?)
+                  AND datetime(ae.created_at) >= datetime(u.created_at, ?)
+                  AND datetime(ae.created_at) <  datetime(u.created_at, ?)
                 """,
                 (
                     f"-{cohort_day} days",
@@ -634,10 +634,10 @@ def _period_where(col: str, days: Optional[int], offset_days: int = 0):
         return "", []
     if offset_days:
         return (
-            f"AND {col} >= datetime('now', ?) AND {col} < datetime('now', ?)",
+            f"AND datetime({col}) >= datetime('now', ?) AND datetime({col}) < datetime('now', ?)",
             [f"-{days + offset_days} days", f"-{offset_days} days"]
         )
-    return f"AND {col} >= datetime('now', ?)", [f"-{days} days"]
+    return f"AND datetime({col}) >= datetime('now', ?)", [f"-{days} days"]
 
 
 def get_growth_series(period: str = "day", n: int = 30) -> list[dict]:

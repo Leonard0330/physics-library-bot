@@ -460,6 +460,24 @@ def init_db() -> None:
     _migrate_db()
 
 
+def _disable_foreign_keys(conn) -> None:
+    """Safely turn FK enforcement off for a table rebuild.
+
+    SQLite silently IGNORES `PRAGMA foreign_keys = OFF` while a transaction is
+    open (and Python's sqlite3 leaves an implicit one open after any INSERT /
+    DELETE, even a failed probe INSERT). With FK still ON, DROP TABLE performs
+    an implicit DELETE that CASCADES into child tables (bookmarks, ratings,
+    download_logs) and wipes their rows. So: commit first, switch off, and
+    verify; abort the rebuild rather than risk losing data.
+    """
+    conn.commit()
+    conn.execute("PRAGMA foreign_keys = OFF")
+    if conn.execute("PRAGMA foreign_keys").fetchone()[0] != 0:
+        raise RuntimeError(
+            "PRAGMA foreign_keys=OFF was ignored; aborting table rebuild to avoid cascade data loss"
+        )
+
+
 def _migrate_db() -> None:
     """Apply incremental migrations to an existing database.
 
@@ -707,8 +725,13 @@ def _migrate_db() -> None:
 
         if _books_needs_lang_fix:
             # rebuild جدول books بدون language CHECK
-            conn.execute("PRAGMA foreign_keys = OFF")  # prevent SQLite from rewriting download_logs DDL
+            # FK must be REALLY off (see _disable_foreign_keys) AND legacy_alter_table ON,
+            # otherwise RENAME rewrites REFERENCES books(id) → "_books_old"(id) in
+            # bookmarks / ratings / download_logs and DROP cascades their rows away.
+            _disable_foreign_keys(conn)
+            conn.execute("PRAGMA legacy_alter_table = ON")
             conn.execute("ALTER TABLE books RENAME TO _books_old")
+            conn.execute("PRAGMA legacy_alter_table = OFF")
             # جدول جدید بدون هیچ CHECK روی language
             conn.execute("""
                 CREATE TABLE books (
@@ -772,7 +795,7 @@ def _migrate_db() -> None:
             "SELECT sql FROM sqlite_master WHERE type='table' AND name='download_logs'"
         ).fetchone()
         if dl_ddl and "_books_old" in (dl_ddl["sql"] or ""):
-            conn.execute("PRAGMA foreign_keys = OFF")
+            _disable_foreign_keys(conn)
             conn.execute("ALTER TABLE download_logs RENAME TO _download_logs_old")
             conn.execute("""
                 CREATE TABLE download_logs (
@@ -791,6 +814,52 @@ def _migrate_db() -> None:
             conn.execute("PRAGMA foreign_keys = ON")
             conn.commit()
             print("[DB] Migration applied: download_logs FK reference repaired.")
+
+        # ── Migration 8: ترمیم عمومی هر جدولی که FK اش به "_books_old" اشاره می‌کند
+        # (bookmarks / ratings / ...). Migration 6 در نسخه‌های قبلی DDL این جدول‌ها
+        # را خراب می‌کرد و هر INSERT با «no such table: main._books_old» شکست می‌خورد.
+        # داده‌های موجود حفظ می‌شوند.
+        conn.commit()
+        _broken_tables = conn.execute(
+            "SELECT name, sql FROM sqlite_master "
+            "WHERE type='table' AND name != '_books_old' "
+            "AND instr(sql, '_books_old') > 0"
+        ).fetchall()
+        if _broken_tables:
+            _disable_foreign_keys(conn)
+            conn.execute("PRAGMA legacy_alter_table = ON")
+            try:
+                for _bt in _broken_tables:
+                    _name = _bt["name"]
+                    _fixed_ddl = _bt["sql"].replace('"_books_old"', "books").replace("_books_old", "books")
+                    _idx_sqls = [
+                        r[0] for r in conn.execute(
+                            "SELECT sql FROM sqlite_master "
+                            "WHERE type='index' AND tbl_name=? AND sql IS NOT NULL", (_name,)
+                        ).fetchall()
+                    ]
+                    _tmp = f"{_name}__fkfix_old"
+                    conn.execute(f'ALTER TABLE "{_name}" RENAME TO "{_tmp}"')
+                    conn.execute(_fixed_ddl)
+                    _cols = [r["name"] for r in conn.execute(f'PRAGMA table_info("{_tmp}")').fetchall()]
+                    _col_list = ", ".join(f'"{c}"' for c in _cols)
+                    conn.execute(
+                        f'INSERT OR IGNORE INTO "{_name}" ({_col_list}) '
+                        f'SELECT {_col_list} FROM "{_tmp}"'
+                    )
+                    conn.execute(f'DROP TABLE "{_tmp}"')
+                    for _s in _idx_sqls:
+                        conn.execute(_s)
+                    # ردیف‌های یتیم (کتابی که دیگر وجود ندارد) را پاک کن
+                    if "book_id" in _cols:
+                        conn.execute(
+                            f'DELETE FROM "{_name}" WHERE book_id NOT IN (SELECT id FROM books)'
+                        )
+                    print(f"[DB] Migration applied: FK reference repaired for table '{_name}'.")
+                conn.commit()
+            finally:
+                conn.execute("PRAGMA legacy_alter_table = OFF")
+                conn.execute("PRAGMA foreign_keys = ON")
 
         # ── Future migrations go here ──────────────────────────────────────────
         # Example pattern:
@@ -2058,7 +2127,7 @@ def get_bookmarks(user_id: int) -> list[sqlite3.Row]:
     with get_connection() as conn:
         return conn.execute(
             "SELECT b.* FROM books b JOIN bookmarks bm ON b.id=bm.book_id "
-            "WHERE bm.user_id=? ORDER BY bm.saved_at DESC",
+            "WHERE bm.user_id=? ORDER BY COALESCE(bm.saved_at, '1970-01-01') DESC",
             (user_id,)
         ).fetchall()
 

@@ -1,72 +1,91 @@
 """
-test_dashboard.py — تست‌های Phase 3: داشبورد و گزارش روزانه
+test_dashboard.py — تست‌های داشبورد Analytics و ارتباط آن با پنل ادمین
 
-اجرا: python test_dashboard.py
+اجرا (کنار database_mini.py که به نام database.py کپی شده):
+    python test_dashboard.py
 
-تست‌های پوشش‌داده‌شده:
+پوشش:
   1. دسترسی فقط ادمین
-  2. رد callback غیرمجاز
-  3. هر بخش داشبورد
-  4. فیلترهای بازه زمانی
-  5. دیتابیس خالی
-  6. تولید گزارش روزانه
-  7. جلوگیری از تکرار گزارش
-  8. Restart safety (idempotency)
-  9. retention calculations
-  10. سازگاری با bot موجود
+  2. هر بخش داشبورد + دیتابیس خالی
+  3. فیلتر بازه‌های زمانی و مرز «امروز/دیروز»
+  4. گزارش امروز (on-demand)
+  5. Retention
+  6. سازگاری با ربات و پنل ادمین (زبان، دکمه‌ها)
+  7. گزینه‌ی گیرنده‌ی بکاپ/ریستور (فقط من / همه ادمین‌ها)
+
+نکته: گزارش روزانه‌ی خودکار (scheduler) از analytics_dashboard حذف شده است؛
+گزارش فقط با دکمه‌ی «گزارش امروز» (on-demand) ارسال می‌شود.
 """
 
-import json
+import contextlib
 import os
 import sqlite3
 import sys
 import tempfile
-import threading
 import time
 import types as pytypes
 import unittest
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 # ── telebot stub ──────────────────────────────────────────────────────────────
 _tb = pytypes.ModuleType("telebot")
 _tb_types = pytypes.ModuleType("telebot.types")
 
+
 class _IKM:
     def __init__(self, row_width=1):
         self.keyboard = []
+
     def add(self, *btns):
         self.keyboard.append(list(btns))
+
+    def row(self, *btns):
+        self.keyboard.append(list(btns))
+
 
 class _IKB:
     def __init__(self, text="", callback_data=None):
         self.text = text
         self.callback_data = callback_data
 
+
+class _KB:
+    def __init__(self, text=""):
+        self.text = text
+
+
 class _RKM:
     def __init__(self, **kwargs):
         self.keyboard = []
+
     def add(self, *btns):
         self.keyboard.append(list(btns))
+
+    def row(self, *btns):
+        self.keyboard.append(list(btns))
+
 
 for _cls_name in ["CallbackQuery", "Message", "Chat", "User"]:
     setattr(_tb_types, _cls_name, type(_cls_name, (), {}))
 
 _tb_types.InlineKeyboardMarkup = _IKM
 _tb_types.InlineKeyboardButton = _IKB
-_tb_types.ReplyKeyboardMarkup  = _RKM
+_tb_types.ReplyKeyboardMarkup = _RKM
+_tb_types.KeyboardButton = _KB
 _tb.types = _tb_types
-sys.modules["telebot"]       = _tb
+sys.modules["telebot"] = _tb
 sys.modules["telebot.types"] = _tb_types
 # ─────────────────────────────────────────────────────────────────────────────
 
 _tmp_dir = tempfile.mkdtemp()
 _TEST_DB = os.path.join(_tmp_dir, "test_dashboard.db")
 
-import database
+import database  # noqa: E402
+
 database.DB_PATH = _TEST_DB
 
-import analytics
-import analytics_dashboard
+import analytics  # noqa: E402
+import analytics_dashboard  # noqa: E402
 
 
 def _fresh_db():
@@ -77,16 +96,21 @@ def _fresh_db():
 
 
 def _flush():
-    time.sleep(0.3)
+    """منتظر می‌مانیم worker thread رویدادهای queue را در دیتابیس بنویسد."""
+    deadline = time.time() + 5
+    while time.time() < deadline:
+        if analytics._event_queue.empty():
+            break
+        time.sleep(0.05)
+    time.sleep(0.2)
 
 
 def _make_callback(data: str, user_id: int = 999001) -> MagicMock:
-    """ساخت یک mock CallbackQuery."""
     cb = MagicMock()
     cb.data = data
-    cb.id   = "cb_id_123"
+    cb.id = "cb_id_123"
     cb.from_user.id = user_id
-    cb.message.chat.id    = user_id
+    cb.message.chat.id = user_id
     cb.message.message_id = 42
     return cb
 
@@ -94,57 +118,55 @@ def _make_callback(data: str, user_id: int = 999001) -> MagicMock:
 def _make_message(text: str, user_id: int = 999001) -> MagicMock:
     msg = MagicMock()
     msg.text = text
-    msg.from_user.id  = user_id
-    msg.chat.id       = user_id
+    msg.from_user.id = user_id
+    msg.chat.id = user_id
     return msg
 
 
-# ── Tests ─────────────────────────────────────────────────────────────────────
+@contextlib.contextmanager
+def _connect(path: str = None):
+    """اتصال SQLite که commit می‌کند و حتماً می‌بندد (with خودِ sqlite3 اتصال را نمی‌بندد)."""
+    conn = sqlite3.connect(path or _TEST_DB)
+    try:
+        yield conn
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _sql(query: str, params=()):
+    with _connect() as conn:
+        conn.execute(query, params)
+
+
+# ── 1. دسترسی ─────────────────────────────────────────────────────────────────
 
 class TestDashboardAccess(unittest.TestCase):
 
     def setUp(self):
         _fresh_db()
-        # admin user
         database.upsert_user(901, "admin_user", "Admin")
         database.set_admin(901, True)
-        # regular user
         database.upsert_user(902, "regular", "Regular")
 
-    def test_analytics_callback_routing_admin(self):
-        """ادمین باید بتواند داشبورد را ببیند."""
+    def test_admin_can_open_dashboard_callback(self):
         import admin as adm
-        bot = MagicMock()
-        cb  = _make_callback("adm_anl:overview", user_id=901)
-        # handle_admin_callback باید is_admin را چک کند
-        result = adm.handle_admin_callback(bot, cb)
+        result = adm.handle_admin_callback(MagicMock(), _make_callback("adm_anl:overview", 901))
         self.assertTrue(result)
 
-    def test_analytics_callback_routing_non_admin(self):
-        """غیرادمین نباید به داشبورد دسترسی داشته باشد."""
+    def test_non_admin_rejected_for_every_section(self):
         import admin as adm
-        bot = MagicMock()
-        cb  = _make_callback("adm_anl:overview", user_id=902)
-        result = adm.handle_admin_callback(bot, cb)
-        self.assertFalse(result)
-
-    def test_all_analytics_callbacks_check_admin(self):
-        """هر callback با prefix adm_anl باید is_admin چک کند."""
-        import admin as adm
-        bot = MagicMock()
-        callbacks = [
-            "adm_anl:main",
-            "adm_anl:users:all",
-            "adm_anl:search:today",
-            "adm_anl:delivery:week",
-            "adm_anl:retention",
-            "adm_anl:growth:day",
-        ]
-        for data in callbacks:
-            cb = _make_callback(data, user_id=902)   # non-admin
-            result = adm.handle_admin_callback(bot, cb)
+        for data in ["adm_anl:main", "adm_anl:users:all", "adm_anl:search:today",
+                     "adm_anl:delivery:week", "adm_anl:retention", "adm_anl:growth:day",
+                     "adm_anl:today_report"]:
+            bot = MagicMock()
+            result = adm.handle_admin_callback(bot, _make_callback(data, 902))
             self.assertFalse(result, f"غیرادمین نباید به {data} دسترسی داشته باشد")
+            bot.send_message.assert_not_called()
+            bot.edit_message_text.assert_not_called()
 
+
+# ── 2. بخش‌های داشبورد ────────────────────────────────────────────────────────
 
 class TestDashboardSections(unittest.TestCase):
 
@@ -162,249 +184,311 @@ class TestDashboardSections(unittest.TestCase):
         analytics.log_file_send_failed(802, resource_id=2, resource_type="article")
         _flush()
 
-    def _run_callback(self, data: str):
+    def _run(self, data: str):
         bot = MagicMock()
-        cb  = _make_callback(data, user_id=801)
-        result = analytics_dashboard.handle_analytics_callback(bot, cb)
+        result = analytics_dashboard.handle_analytics_callback(bot, _make_callback(data, 801))
         return bot, result
 
-    def test_overview_section(self):
-        bot, result = self._run_callback("adm_anl:overview")
+    def _text(self, bot) -> str:
+        return bot.edit_message_text.call_args[0][0]
+
+    def test_overview(self):
+        bot, result = self._run("adm_anl:overview")
         self.assertTrue(result)
         bot.edit_message_text.assert_called_once()
-        text = bot.edit_message_text.call_args[0][0]
-        self.assertIn("خلاصه کلی", text)
-        self.assertIn("کاربران", text)
+        self.assertIn("خلاصه کلی", self._text(bot))
 
-    def test_users_section_all(self):
-        bot, result = self._run_callback("adm_anl:users:all")
-        self.assertTrue(result)
-        text = bot.edit_message_text.call_args[0][0]
-        self.assertIn("کاربران", text)
-        self.assertIn("نرخ تبدیل", text)
+    def test_users_all_periods(self):
+        for p in ["all", "today", "week", "month", "quarter"]:
+            bot, result = self._run(f"adm_anl:users:{p}")
+            self.assertTrue(result, p)
+        bot, _ = self._run("adm_anl:users:all")
+        self.assertIn("کاربران", self._text(bot))
 
-    def test_users_section_today(self):
-        bot, result = self._run_callback("adm_anl:users:today")
+    def test_search_section_numbers(self):
+        bot, result = self._run("adm_anl:search:all")
         self.assertTrue(result)
-
-    def test_users_section_week(self):
-        bot, result = self._run_callback("adm_anl:users:week")
-        self.assertTrue(result)
-
-    def test_users_section_month(self):
-        bot, result = self._run_callback("adm_anl:users:month")
-        self.assertTrue(result)
-
-    def test_users_section_quarter(self):
-        bot, result = self._run_callback("adm_anl:users:quarter")
-        self.assertTrue(result)
-
-    def test_search_section(self):
-        bot, result = self._run_callback("adm_anl:search:all")
-        self.assertTrue(result)
-        text = bot.edit_message_text.call_args[0][0]
+        text = self._text(bot)
         self.assertIn("جستجو", text)
-        self.assertIn("موفق", text)
+        # 2 submitted, 1 completed, 1 no-result
+        s = analytics.get_search_stats_in_period(days=None)
+        self.assertEqual(s["total_submitted"], 2)
+        self.assertEqual(s["total_completed"], 1)
+        self.assertEqual(s["total_no_results"], 1)
 
-    def test_delivery_section(self):
-        bot, result = self._run_callback("adm_anl:delivery:all")
+    def test_delivery_section_numbers(self):
+        bot, result = self._run("adm_anl:delivery:all")
         self.assertTrue(result)
-        text = bot.edit_message_text.call_args[0][0]
-        self.assertIn("تحویل", text)
+        d = analytics.get_delivery_stats_in_period(days=None)
+        self.assertEqual((d["total_requested"], d["total_sent"], d["total_failed"]), (2, 1, 1))
+        self.assertEqual(d["success_rate_pct"], 50.0)
 
-    def test_retention_section(self):
-        bot, result = self._run_callback("adm_anl:retention")
-        self.assertTrue(result)
-        text = bot.edit_message_text.call_args[0][0]
-        self.assertIn("Retention", text)
+    def test_retention_growth_main(self):
+        for data in ["adm_anl:retention", "adm_anl:growth:day", "adm_anl:growth:week",
+                     "adm_anl:growth:month", "adm_anl:main"]:
+            _, result = self._run(data)
+            self.assertTrue(result, data)
 
-    def test_growth_day_section(self):
-        bot, result = self._run_callback("adm_anl:growth:day")
-        self.assertTrue(result)
-
-    def test_growth_week_section(self):
-        bot, result = self._run_callback("adm_anl:growth:week")
-        self.assertTrue(result)
-
-    def test_growth_month_section(self):
-        bot, result = self._run_callback("adm_anl:growth:month")
-        self.assertTrue(result)
-
-    def test_main_menu(self):
-        bot, result = self._run_callback("adm_anl:main")
-        self.assertTrue(result)
+    def test_retention_text_title(self):
+        bot, _ = self._run("adm_anl:retention")
+        self.assertIn("Retention", self._text(bot))
 
     def test_unknown_section_returns_false(self):
-        bot, result = self._run_callback("adm_anl:nonexistent_section")
+        _, result = self._run("adm_anl:nonexistent_section")
+        self.assertFalse(result)
+
+    def test_foreign_prefix_returns_false(self):
+        _, result = self._run("other:overview")
         self.assertFalse(result)
 
 
 class TestEmptyDatabase(unittest.TestCase):
-    """دیتابیس کاملاً خالی نباید crash کند."""
+    """دیتابیس خالی نباید crash کند."""
 
     def setUp(self):
         _fresh_db()
 
     def _run(self, data: str):
         bot = MagicMock()
-        cb  = _make_callback(data)
         try:
-            analytics_dashboard.handle_analytics_callback(bot, cb)
-        except Exception as e:
+            analytics_dashboard.handle_analytics_callback(bot, _make_callback(data))
+        except Exception as e:  # pragma: no cover
             self.fail(f"crash با دیتابیس خالی برای {data}: {e}")
+        bot.edit_message_text.assert_called_once()
 
-    def test_overview_empty(self):       self._run("adm_anl:overview")
-    def test_users_empty(self):          self._run("adm_anl:users:all")
-    def test_search_empty(self):         self._run("adm_anl:search:all")
-    def test_delivery_empty(self):       self._run("adm_anl:delivery:all")
-    def test_retention_empty(self):      self._run("adm_anl:retention")
-    def test_growth_empty(self):         self._run("adm_anl:growth:day")
+    def test_all_sections_empty(self):
+        for data in ["adm_anl:overview", "adm_anl:users:all", "adm_anl:search:all",
+                     "adm_anl:delivery:all", "adm_anl:retention", "adm_anl:growth:day"]:
+            with self.subTest(data=data):
+                self._run(data)
 
-    def test_overview_text_no_crash(self):
-        """متن خلاصه با دیتابیس خالی نباید crash کند."""
-        try:
-            text = analytics_dashboard._build_overview_text()
-            self.assertIsInstance(text, str)
-        except Exception as e:
-            self.fail(f"_build_overview_text crash: {e}")
+    def test_overview_text_is_str(self):
+        self.assertIsInstance(analytics_dashboard._build_overview_text(0), str)
 
     def test_retention_no_data_graceful(self):
-        text = analytics_dashboard._build_retention_text()
-        self.assertIn("داده کافی", text)
+        self.assertIn("داده کافی", analytics_dashboard._build_retention_text(0))
 
+
+# ── 3. بازه‌های زمانی ─────────────────────────────────────────────────────────
 
 class TestDateFilters(unittest.TestCase):
 
     def setUp(self):
         _fresh_db()
-        # چند رویداد امروز
         for i in range(3):
             analytics.log_search_submitted(700 + i, has_filters=False)
             analytics.log_search_completed(700 + i, result_count=1)
         _flush()
 
-    def test_today_filter_nonzero(self):
-        s = analytics.get_search_stats_in_period(days=1)
-        self.assertGreater(s.get("total_submitted", 0), 0)
-
-    def test_all_filter_nonzero(self):
-        s = analytics.get_search_stats_in_period(days=None)
-        self.assertGreater(s.get("total_submitted", 0), 0)
+    def test_today_and_all_nonzero(self):
+        self.assertEqual(analytics.get_search_stats_in_period(days=1)["total_submitted"], 3)
+        self.assertEqual(analytics.get_search_stats_in_period(days=None)["total_submitted"], 3)
 
     def test_period_text_contains_label(self):
         for period in ["today", "week", "month", "quarter", "all"]:
-            text = analytics_dashboard._build_search_stats_text(period)
-            self.assertIn(analytics_dashboard._period_label(period), text,
-                          f"برچسب بازه '{period}' باید در متن باشد")
+            text = analytics_dashboard._build_search_stats_text(period, 0)
+            self.assertIn(analytics_dashboard._period_label(period, 0), text, period)
 
-    def test_period_keyboard_has_all_buttons(self):
-        kb = analytics_dashboard.period_filter_keyboard("search", "all")
+    def test_period_keyboard_buttons(self):
+        kb = analytics_dashboard.period_filter_keyboard("search", "all", 0)
         buttons = [b.text for row in kb.keyboard for b in row]
         self.assertTrue(any("امروز" in b for b in buttons))
-        self.assertTrue(any("همه"   in b for b in buttons))
+        self.assertTrue(any("همه" in b for b in buttons))
+
+    def test_current_period_is_marked(self):
+        kb = analytics_dashboard.period_filter_keyboard("users", "week", 0)
+        marked = [b.text for row in kb.keyboard for b in row if b.text.startswith("●")]
+        self.assertEqual(len(marked), 1)
 
 
-class TestDailyReport(unittest.TestCase):
+class TestPeriodWindows(unittest.TestCase):
 
     def setUp(self):
         _fresh_db()
 
-    def test_daily_report_sent_to_admins(self):
-        """گزارش روزانه باید به همه ادمین‌ها ارسال شود."""
+    def test_period_where_today(self):
+        clause, params = analytics._period_where("created_at", 1, 0)
+        self.assertIn(">=", clause)
+        self.assertNotIn("<", clause)
+        self.assertEqual(params, ["-1 days"])
+
+    def test_period_where_yesterday(self):
+        clause, params = analytics._period_where("created_at", 1, 1)
+        self.assertIn(">=", clause)
+        self.assertIn("<", clause)
+        self.assertEqual(params, ["-2 days", "-1 days"])
+
+    def test_period_where_all(self):
+        self.assertEqual(analytics._period_where("created_at", None), ("", []))
+
+    def test_yesterday_window_does_not_overlap_today(self):
+        database.upsert_user(901, "today_user", "TodayUser")
+        self.assertEqual(analytics.get_new_users_in_period(days=1, offset_days=0), 1)
+        self.assertEqual(analytics.get_new_users_in_period(days=1, offset_days=1), 0)
+
+    def test_event_timestamp_format_boundary(self):
+        """
+        regression: analytics_events.created_at فرمت ISO ('T…Z') دارد ولی
+        datetime('now') فرمت 'YYYY-MM-DD HH:MM:SS'. مقایسه‌ی رشته‌ای باعث
+        می‌شد رویداد ۳۰ ساعت پیش در «۲۴ ساعت اخیر» شمرده شود.
+        """
+        with _connect() as conn:
+            conn.execute(
+                "INSERT INTO analytics_events (event_type, user_id, created_at) "
+                "VALUES ('search_submitted', 1, strftime('%Y-%m-%dT%H:%M:%fZ','now','-30 hours'))"
+            )
+            conn.execute(
+                "INSERT INTO analytics_events (event_type, user_id, created_at) "
+                "VALUES ('search_submitted', 2, strftime('%Y-%m-%dT%H:%M:%fZ','now','-1 hours'))"
+            )
+        last_24h = analytics.get_search_stats_in_period(days=1)["total_submitted"]
+        self.assertEqual(last_24h, 1, "فقط رویداد ۱ ساعت پیش باید در ۲۴ ساعت اخیر باشد")
+        yesterday = analytics.get_search_stats_in_period(days=1, offset_days=1)["total_submitted"]
+        self.assertEqual(yesterday, 1, "رویداد ۳۰ ساعت پیش باید در «دیروز» باشد")
+
+
+class TestReportingTimezone(unittest.TestCase):
+
+    def test_default_is_utc(self):
+        self.assertEqual(analytics_dashboard.REPORTING_TZ_NAME, "UTC")
+        self.assertIsNotNone(analytics_dashboard._get_reporting_tz())
+
+    def test_invalid_tz_falls_back(self):
+        original = analytics_dashboard.REPORTING_TZ_NAME
+        analytics_dashboard.REPORTING_TZ_NAME = "Invalid/Timezone"
+        try:
+            self.assertIsNotNone(analytics_dashboard._get_reporting_tz())
+            self.assertRegex(analytics_dashboard._report_date_for_now(), r"^\d{4}-\d{2}-\d{2}$")
+        finally:
+            analytics_dashboard.REPORTING_TZ_NAME = original
+
+    def test_report_date_format(self):
+        self.assertRegex(analytics_dashboard._report_date_for_now(), r"^\d{4}-\d{2}-\d{2}$")
+
+
+# ── 4. گزارش امروز (on-demand) ────────────────────────────────────────────────
+
+class TestTodayReport(unittest.TestCase):
+
+    def setUp(self):
+        _fresh_db()
         database.upsert_user(601, "admin1", "Admin1")
         database.set_admin(601, True)
-        database.upsert_user(602, "admin2", "Admin2")
-        database.set_admin(602, True)
 
+    def test_text_structure(self):
+        text = analytics_dashboard._build_daily_report_text(analytics_dashboard._report_date_for_now(), 601)
+        for word in ("گزارش روزانه", "کاربران", "جستجو", "تحویل"):
+            self.assertIn(word, text)
+
+    def test_send_report_to_admin_sends_one_html_message(self):
         bot = MagicMock()
-        result = analytics_dashboard.send_daily_report(bot, force=True)
-        self.assertTrue(result)
-        self.assertEqual(bot.send_message.call_count, 2)
+        analytics_dashboard.send_report_to_admin(bot, 601)
+        bot.send_message.assert_called_once()
+        args, kwargs = bot.send_message.call_args
+        self.assertEqual(args[0], 601)
+        self.assertEqual(kwargs.get("parse_mode"), "HTML")
 
-    def test_daily_report_text_structure(self):
-        """گزارش روزانه باید بخش‌های اصلی را داشته باشد."""
-        from datetime import datetime, timezone
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        text = analytics_dashboard._build_daily_report_text(today)
-        self.assertIn("گزارش روزانه", text)
-        self.assertIn("کاربران", text)
-        self.assertIn("جستجو", text)
-        self.assertIn("تحویل", text)
-
-    def test_no_duplicate_report_same_day(self):
-        """گزارش روزانه نباید دو بار در یک روز ارسال شود."""
-        database.upsert_user(603, "admin3", "Admin3")
-        database.set_admin(603, True)
-
+    def test_send_failure_does_not_raise(self):
         bot = MagicMock()
-        analytics_dashboard.send_daily_report(bot)   # اول
-        analytics_dashboard.send_daily_report(bot)   # دوم — باید skip شود
-        self.assertEqual(bot.send_message.call_count, 1,
-                         "گزارش نباید دوبار در یک روز ارسال شود")
-
-    def test_no_admins_returns_false_cleanup(self):
-        """اگر ادمینی وجود نداشته باشد نباید crash کند."""
-        bot = MagicMock()
+        bot.send_message.side_effect = Exception("Telegram 500")
         try:
-            analytics_dashboard.send_daily_report(bot, force=True)
-        except Exception as e:
-            self.fail(f"send_daily_report crash: {e}")
+            analytics_dashboard.send_report_to_admin(bot, 601)
+        except Exception as e:  # pragma: no cover
+            self.fail(f"نباید exception بدهد: {e}")
 
-    def test_force_bypasses_idempotency(self):
-        """force=True باید idempotency guard را دور بزند."""
-        database.upsert_user(604, "admin4", "Admin4")
-        database.set_admin(604, True)
-
+    def test_callback_today_report_goes_to_requesting_admin(self):
         bot = MagicMock()
-        analytics_dashboard.send_daily_report(bot, force=True)
-        analytics_dashboard.send_daily_report(bot, force=True)
-        self.assertEqual(bot.send_message.call_count, 2)
+        cb = _make_callback("adm_anl:today_report", 601)
+        self.assertTrue(analytics_dashboard.handle_analytics_callback(bot, cb))
+        bot.send_message.assert_called_once()
+        self.assertEqual(bot.send_message.call_args[0][0], 601)
 
-    def test_no_admins_no_crash(self):
-        """اگر ادمینی وجود نداشته باشد نباید crash کند."""
+    def test_delta_formatting(self):
+        d = analytics_dashboard._delta
+        self.assertEqual(d(10, 8), " ↑2")
+        self.assertEqual(d(5, 8), " ↓3")
+        self.assertEqual(d(8, 8), " ═")
+        self.assertEqual(d(5, 0), "")
+
+
+class TestEditOrSend(unittest.TestCase):
+
+    def test_not_modified_does_not_send_new_message(self):
         bot = MagicMock()
-        try:
-            analytics_dashboard.send_daily_report(bot, force=True)
-        except Exception as e:
-            self.fail(f"send_daily_report crash: {e}")
+        bot.edit_message_text.side_effect = Exception(
+            "Bad Request: message is not modified: specified new message content ...")
+        analytics_dashboard._edit_or_send(bot, _make_callback("adm_anl:main"), "x", MagicMock())
+        bot.send_message.assert_not_called()
 
-    def test_report_survives_send_failure(self):
-        """اگر ارسال به یک ادمین fail شود، باید به بقیه ادامه دهد."""
-        database.upsert_user(605, "admin5", "Admin5")
-        database.set_admin(605, True)
-        database.upsert_user(606, "admin6", "Admin6")
-        database.set_admin(606, True)
-
+    def test_other_edit_errors_fall_back_to_new_message(self):
         bot = MagicMock()
-        # اولین call fail می‌شود
-        bot.send_message.side_effect = [Exception("Network error"), None]
-        try:
-            analytics_dashboard.send_daily_report(bot, force=True)
-        except Exception as e:
-            self.fail(f"crash هنگام fail شدن ارسال: {e}")
-        # باید هر دو ادمین تلاش شده باشند
-        self.assertEqual(bot.send_message.call_count, 2)
+        bot.edit_message_text.side_effect = Exception("Bad Request: message to edit not found")
+        analytics_dashboard._edit_or_send(bot, _make_callback("adm_anl:main"), "x", MagicMock())
+        bot.send_message.assert_called_once()
 
 
-class TestRetentionCalculations(unittest.TestCase):
+# ── 5. Retention ──────────────────────────────────────────────────────────────
+
+class TestRetention(unittest.TestCase):
 
     def setUp(self):
         _fresh_db()
 
-    def test_retention_no_eligible_users(self):
-        result = analytics.get_retention_cohort(1)
-        self.assertEqual(result["eligible_users"], 0)
-        self.assertIsNone(result["retention_rate_pct"])
+    def _user(self, uid: int, days_ago: float):
+        database.upsert_user(uid, f"r{uid}", f"R{uid}")
+        _sql("UPDATE users SET created_at = datetime('now', ?) WHERE user_id = ?",
+             (f"-{days_ago} days", uid))
 
-    def test_retention_text_shows_no_data(self):
-        text = analytics_dashboard._build_retention_text()
-        self.assertIn("داده کافی", text)
+    def _event(self, uid: int, days_ago: float):
+        _sql("INSERT INTO analytics_events (event_type, user_id, created_at) "
+             "VALUES ('user_started', ?, datetime('now', ?))", (uid, f"-{days_ago} days"))
 
-    def test_delta_formatting(self):
-        self.assertEqual(analytics_dashboard._delta(10, 8),  " ↑2")
-        self.assertEqual(analytics_dashboard._delta(5,  8),  " ↓3")
-        self.assertEqual(analytics_dashboard._delta(8,  8),  " ═")
-        self.assertEqual(analytics_dashboard._delta(5,  0),  "")
+    def test_no_eligible_users(self):
+        r = analytics.get_retention_cohort(1)
+        self.assertEqual(r["eligible_users"], 0)
+        self.assertIsNone(r["retention_rate_pct"])
+
+    def test_incomplete_cohorts_excluded(self):
+        self._user(1001, 0.5)
+        self.assertEqual(analytics.get_retention_cohort(1)["eligible_users"], 0)
+        self._user(1005, 5)
+        self.assertEqual(analytics.get_retention_cohort(7)["eligible_users"], 0)
+        self._user(1007, 25)
+        self.assertEqual(analytics.get_retention_cohort(30)["eligible_users"], 0)
+
+    def test_complete_cohorts_included(self):
+        self._user(1002, 2.5)
+        self.assertEqual(analytics.get_retention_cohort(1)["eligible_users"], 1)
+        self._user(1006, 9)
+        self.assertEqual(analytics.get_retention_cohort(7)["eligible_users"], 1)
+
+    def test_retained_inside_window(self):
+        self._user(1003, 2.5)
+        self._event(1003, 1.5)      # [day1, day2) = [1.5, 0.5) روز پیش
+        r = analytics.get_retention_cohort(1)
+        self.assertEqual(r["retained_users"], 1)
+        self.assertEqual(r["retention_rate_pct"], 100.0)
+
+    def test_retained_with_iso_event_timestamp(self):
+        """رویدادهایی که worker با فرمت ISO می‌نویسد هم باید درست شمرده شوند."""
+        self._user(1010, 2.5)
+        _sql("INSERT INTO analytics_events (event_type, user_id, created_at) VALUES "
+             "('user_started', 1010, strftime('%Y-%m-%dT%H:%M:%fZ','now','-1.5 days'))")
+        self.assertEqual(analytics.get_retention_cohort(1)["retained_users"], 1)
+
+    def test_activity_outside_window_not_retained(self):
+        self._user(1004, 2.5)
+        self._event(1004, 2.5)
+        r = analytics.get_retention_cohort(1)
+        self.assertEqual((r["eligible_users"], r["retained_users"]), (1, 0))
+
+    def test_users_without_created_at_excluded(self):
+        database.upsert_user(1008, "hist", "Hist")
+        _sql("UPDATE users SET created_at = NULL WHERE user_id = 1008")
+        self.assertEqual(analytics.get_retention_cohort(1)["eligible_users"], 0)
+
+    def test_text_mentions_incomplete_cohorts(self):
+        self.assertIn("ناقص", analytics_dashboard._build_retention_text(0))
 
 
 class TestPeriodQueryHelpers(unittest.TestCase):
@@ -416,854 +500,207 @@ class TestPeriodQueryHelpers(unittest.TestCase):
             analytics.log_search_submitted(500 + i, has_filters=False)
         _flush()
 
-    def test_new_users_in_period_today(self):
-        count = analytics.get_new_users_in_period(days=1)
-        self.assertEqual(count, 5)
+    def test_counts(self):
+        self.assertEqual(analytics.get_new_users_in_period(days=1), 5)
+        self.assertEqual(analytics.get_active_users_in_period(days=1), 5)
+        self.assertEqual(analytics.get_search_stats_in_period(days=1)["total_submitted"], 5)
+        self.assertEqual(analytics.get_search_stats_in_period(days=None)["total_submitted"], 5)
 
-    def test_active_users_in_period_today(self):
-        count = analytics.get_active_users_in_period(days=1)
-        self.assertEqual(count, 5)
-
-    def test_search_stats_in_period_today(self):
-        s = analytics.get_search_stats_in_period(days=1)
-        self.assertEqual(s.get("total_submitted"), 5)
-
-    def test_search_stats_in_period_all(self):
-        s = analytics.get_search_stats_in_period(days=None)
-        self.assertEqual(s.get("total_submitted"), 5)
-
-    def test_delivery_stats_empty_period(self):
+    def test_delivery_empty_period(self):
         d = analytics.get_delivery_stats_in_period(days=1)
-        self.assertEqual(d.get("total_requested"), 0)
-        self.assertEqual(d.get("success_rate_pct"), 0.0)
+        self.assertEqual(d["total_requested"], 0)
+        self.assertEqual(d["success_rate_pct"], 0.0)
 
+
+# ── 6. سازگاری با ربات و پنل ادمین ────────────────────────────────────────────
 
 class TestBotCompatibility(unittest.TestCase):
-    """اطمینان از اینکه Phase 3 عملکرد موجود را نشکسته."""
 
     def setUp(self):
         _fresh_db()
-
-    def test_upsert_user_still_works(self):
-        is_new = database.upsert_user(400, "compat", "Compat")
-        self.assertTrue(is_new)
-
-    def test_analytics_still_works(self):
-        analytics.log_search_submitted(400, has_filters=False)
-        _flush()
-        s = analytics.get_search_stats()
-        self.assertGreater(s.get("total_submitted", 0), 0)
+        database.upsert_user(950, "adm", "Adm")
+        database.set_admin(950, True)
 
     def test_admin_keyboard_has_analytics_button(self):
         import admin as adm
         kb = adm.admin_keyboard("fa")
-        # ReplyKeyboardMarkup.keyboard is list[list[dict]] where each dict has 'text'
-        buttons = []
-        for row in kb.keyboard:
-            for b in row:
-                if isinstance(b, dict):
-                    buttons.append(b.get("text", ""))
-                elif hasattr(b, "text"):
-                    buttons.append(b.text)
-                else:
-                    buttons.append(str(b))
-        self.assertTrue(
-            any("Analytics" in b or "داشبورد" in b for b in buttons),
-            f"دکمه Analytics باید در keyboard ادمین باشد. دکمه‌های موجود: {buttons}"
-        )
+        buttons = [getattr(b, "text", str(b)) for row in kb.keyboard for b in row]
+        self.assertTrue(any("Analytics" in b or "داشبورد" in b for b in buttons), buttons)
 
-    def test_analytics_callback_prefix_not_conflict(self):
-        """prefix 'adm_anl:' نباید با سایر callback‌های ادمین تداخل داشته باشد."""
-        existing_prefixes = [
-            "adm_rtype:", "adm_lang:", "adm_field:", "adm_confirm:",
-            "adm_csv_import:", "adm_pnd:", "adm_open_panel",
-        ]
-        for p in existing_prefixes:
-            self.assertFalse(
-                p.startswith("adm_anl:"),
-                f"prefix '{p}' نباید با 'adm_anl:' تداخل داشته باشد"
-            )
+    def test_analytics_button_opens_dashboard_with_admin_uid(self):
+        """admin.py باید uid را به داشبورد بدهد تا زبان ادمین رعایت شود."""
+        import admin as adm
+        bot = MagicMock()
+        msg = _make_message(adm.T["btn_analytics"]["fa"], 950)
+        with patch.object(analytics_dashboard, "show_analytics_main") as m:
+            handled = adm.handle_admin_text(bot, msg)
+        self.assertTrue(handled)
+        m.assert_called_once()
+        self.assertEqual(m.call_args[0][2] if len(m.call_args[0]) > 2 else m.call_args[1].get("uid"), 950)
 
+    def test_dashboard_main_menu_uses_uid_language(self):
+        bot = MagicMock()
+        with patch.object(database, "get_user_lang", return_value="en"):
+            analytics_dashboard.show_analytics_main(bot, 950, 950)
+        text = bot.send_message.call_args[0][1]
+        self.assertIn("Analytics Dashboard", text)
 
-# ── Runner ────────────────────────────────────────────────────────────────────
+    def test_back_button_returns_to_admin_panel(self):
+        kb = analytics_dashboard.analytics_main_keyboard(950)
+        datas = [b.callback_data for row in kb.keyboard for b in row]
+        self.assertIn("adm_open_panel", datas)
 
-# ══════════════════════════════════════════════════════════════════════════════
-# Phase 3.1 — Reliability tests
-# ══════════════════════════════════════════════════════════════════════════════
+    def test_callback_data_within_telegram_limit(self):
+        kbs = [analytics_dashboard.analytics_main_keyboard(950),
+               analytics_dashboard.period_filter_keyboard("delivery", "quarter", 950),
+               analytics_dashboard.growth_period_keyboard("month", 950),
+               analytics_dashboard.back_to_main_keyboard(950)]
+        for kb in kbs:
+            for row in kb.keyboard:
+                for b in row:
+                    self.assertLessEqual(len(b.callback_data.encode()), 64, b.callback_data)
 
-import sqlite3 as _sqlite3
+    def test_analytics_prefix_not_shadowed_by_other_admin_prefixes(self):
+        others = ["adm_rtype:", "adm_lang:", "adm_field:", "adm_confirm:", "adm_csv_import:",
+                  "adm_pnd:", "adm_open_panel", "adm_bk:", "adm_rs:"]
+        for p in others:
+            self.assertFalse("adm_anl:".startswith(p) or p.startswith("adm_anl:"), p)
 
-
-def _get_report_log(report_date: str = None) -> list:
-    """Helper: خواندن مستقیم جدول daily_report_log از دیتابیس."""
-    with _sqlite3.connect(_TEST_DB) as conn:
-        conn.row_factory = _sqlite3.Row
-        if report_date:
-            rows = conn.execute(
-                "SELECT * FROM daily_report_log WHERE report_date=?",
-                (report_date,)
-            ).fetchall()
-        else:
-            rows = conn.execute("SELECT * FROM daily_report_log").fetchall()
-    return [dict(r) for r in rows]
+    def test_user_started_and_search_events_recorded(self):
+        analytics.log_user_started(950, is_new=True)
+        analytics.log_search_submitted(950, has_filters=False)
+        _flush()
+        self.assertEqual(analytics.get_search_count_for_user(950), 1)
 
 
-class TestPersistentIdempotency(unittest.TestCase):
-    """
-    تست‌های idempotency پایدار (SQLite-backed).
-    تضمین می‌کند restart نمی‌تواند گزارش تکراری ایجاد کند.
-    """
+# ── 7. گیرنده‌ی بکاپ / ریستور ─────────────────────────────────────────────────
+
+class TestBackupRestoreRecipients(unittest.TestCase):
 
     def setUp(self):
         _fresh_db()
-        # اطمینان از وجود جدول daily_report_log
-        analytics_dashboard._init_report_log_table()
-        database.upsert_user(701, "admin_p1", "AdminP1")
-        database.set_admin(701, True)
+        for uid in (1, 2, 3):
+            database.upsert_user(uid, f"a{uid}", f"A{uid}")
+            database.set_admin(uid, True)
+        import admin as adm
+        self.adm = adm
+        adm._restore_sessions.clear()
 
-    def test_report_log_table_exists(self):
-        """جدول daily_report_log باید در دیتابیس وجود داشته باشد."""
-        with _sqlite3.connect(_TEST_DB) as conn:
-            row = conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='daily_report_log'"
-            ).fetchone()
-        self.assertIsNotNone(row, "جدول daily_report_log باید وجود داشته باشد")
+    def tearDown(self):
+        for sess in list(self.adm._restore_sessions.values()):
+            t = sess.get("timer")
+            if t:
+                t.cancel()
+        self.adm._restore_sessions.clear()
+        if self.adm._backup_restore_lock.locked():
+            self.adm._backup_restore_lock.release()
 
-    def test_first_send_creates_log_record(self):
-        """اولین ارسال باید رکورد 'sent' در daily_report_log ایجاد کند."""
+    def _targets(self, bot):
+        return sorted(c[0][0] for c in bot.send_document.call_args_list)
+
+    def test_broadcast_all_admins_by_default(self):
         bot = MagicMock()
-        analytics_dashboard.send_daily_report(bot)
-        today = analytics_dashboard._report_date_for_now()
-        rows = _get_report_log(today)
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["status"], "sent")
-        self.assertEqual(rows[0]["admin_id"], 701)
+        path = self.adm.broadcast_backup_to_admins(bot, "backup_caption", time="t")
+        self.assertEqual(self._targets(bot), [1, 2, 3])
+        os.unlink(path)
 
-    def test_restart_does_not_duplicate_sent_report(self):
-        """
-        شبیه‌سازی restart: ارسال موفق + reset state در حافظه +
-        ارسال مجدد نباید پیام تکراری بفرستد.
-        """
+    def test_broadcast_only_requester(self):
         bot = MagicMock()
-        # ارسال اول
-        analytics_dashboard.send_daily_report(bot)
-        self.assertEqual(bot.send_message.call_count, 1)
+        path = self.adm.broadcast_backup_to_admins(bot, "backup_caption", recipients=[2], time="t")
+        self.assertEqual(self._targets(bot), [2])
+        os.unlink(path)
 
-        # شبیه‌سازی restart: هیچ چیزی در حافظه نیست اما دیتابیس دست نخورد
-        # (در تست واقعی این به‌صورت خودکار با importlib.reload شبیه‌سازی می‌شد،
-        # اما چون ماژول تنها یک‌بار import می‌شود، مستقیماً ارسال می‌کنیم)
-        analytics_dashboard.send_daily_report(bot)   # باید skip شود
-        self.assertEqual(bot.send_message.call_count, 1,
-                         "بعد از restart نباید گزارش تکراری ارسال شود")
-
-    def test_failed_delivery_is_retryable(self):
-        """ارسال ناموفق باید 'failed' ثبت شود و قابل retry باشد."""
+    def test_backup_command_asks_scope_first_without_sending_file(self):
         bot = MagicMock()
-        bot.send_message.side_effect = Exception("Telegram API error")
-        analytics_dashboard.send_daily_report(bot)
+        self.adm.handle_backup_command(bot, _make_message("/backup", 1))
+        bot.send_document.assert_not_called()
+        kb = bot.send_message.call_args[1]["reply_markup"]
+        datas = [b.callback_data for row in kb.keyboard for b in row]
+        self.assertEqual(datas, ["adm_bk:me", "adm_bk:all", "adm_bk:cancel"])
 
-        today = analytics_dashboard._report_date_for_now()
-        rows = _get_report_log(today)
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["status"], "failed",
-                         "ارسال ناموفق باید 'failed' ثبت شود")
-
-    def test_retry_after_failed_sends_successfully(self):
-        """
-        بعد از یک ارسال ناموفق، retry باید گزارش را بفرستد و
-        وضعیت را به 'sent' تبدیل کند.
-        """
+    def test_backup_callback_me_sends_only_to_requester(self):
         bot = MagicMock()
-        # اولین تلاش fail می‌شود
-        bot.send_message.side_effect = Exception("Network error")
-        analytics_dashboard.send_daily_report(bot)
-        self.assertEqual(bot.send_message.call_count, 1)
+        self.assertTrue(self.adm.handle_admin_callback(bot, _make_callback("adm_bk:me", 2)))
+        self.assertEqual(self._targets(bot), [2])
 
-        # retry: این بار موفق
-        bot.send_message.side_effect = None
-        analytics_dashboard.send_daily_report(bot)
-        self.assertEqual(bot.send_message.call_count, 2,
-                         "retry بعد از failure باید گزارش را بفرستد")
-
-        today = analytics_dashboard._report_date_for_now()
-        rows = _get_report_log(today)
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["status"], "sent",
-                         "بعد از retry موفق status باید 'sent' باشد")
-
-    def test_successful_admin_not_re_sent_on_partial_retry(self):
-        """
-        اگر ادمین A موفق و ادمین B ناموفق بود، retry فقط باید B را امتحان کند.
-        """
-        database.upsert_user(702, "admin_p2", "AdminP2")
-        database.set_admin(702, True)
-
+    def test_backup_callback_all_sends_to_everyone(self):
         bot = MagicMock()
-        # A موفق، B ناموفق
-        bot.send_message.side_effect = [None, Exception("fail")]
-        analytics_dashboard.send_daily_report(bot)
-        self.assertEqual(bot.send_message.call_count, 2)
+        self.adm.handle_admin_callback(bot, _make_callback("adm_bk:all", 2))
+        self.assertEqual(self._targets(bot), [1, 2, 3])
 
-        today = analytics_dashboard._report_date_for_now()
-        rows = {r["admin_id"]: r["status"] for r in _get_report_log(today)}
-        # وضعیت‌ها پس از اولین تلاش: یکی sent یکی failed
-        statuses = set(rows.values())
-        self.assertIn("sent", statuses)
-        self.assertIn("failed", statuses)
-
-        # retry: فقط ادمین با 'failed' باید مجدداً امتحان شود
-        bot.send_message.reset_mock()
-        bot.send_message.side_effect = None
-        analytics_dashboard.send_daily_report(bot)
-        # فقط یک ادمین باید مجدداً پیام دریافت کند
-        self.assertEqual(bot.send_message.call_count, 1,
-                         "فقط ادمین ناموفق باید در retry پیام دریافت کند")
-
-    def test_one_failed_admin_does_not_stop_others(self):
-        """شکست ارسال به ادمین اول نباید مانع ارسال به ادمین دوم شود."""
-        database.upsert_user(703, "admin_p3", "AdminP3")
-        database.set_admin(703, True)
-
+    def test_backup_callback_cancel_sends_nothing(self):
         bot = MagicMock()
-        bot.send_message.side_effect = [Exception("fail first"), None]
-        analytics_dashboard.send_daily_report(bot, force=True)
-        self.assertEqual(bot.send_message.call_count, 2,
-                         "هر دو ادمین باید امتحان شوند حتی اگر اولی fail کند")
+        self.adm.handle_admin_callback(bot, _make_callback("adm_bk:cancel", 2))
+        bot.send_document.assert_not_called()
 
-    def test_report_already_sent_returns_false(self):
-        """_report_already_sent باید True برگرداند وقتی 'sent' وجود دارد."""
-        today = analytics_dashboard._report_date_for_now()
-        analytics_dashboard._mark_report_sent(today, 701, "sent")
-        self.assertTrue(analytics_dashboard._report_already_sent(today, 701))
+    def test_backup_lock_released_after_run(self):
+        self.adm.handle_admin_callback(MagicMock(), _make_callback("adm_bk:me", 1))
+        self.assertFalse(self.adm._backup_restore_lock.locked())
 
-    def test_report_failed_is_still_retryable(self):
-        """_report_already_sent باید False برگرداند وقتی فقط 'failed' وجود دارد."""
-        today = analytics_dashboard._report_date_for_now()
-        analytics_dashboard._mark_report_sent(today, 701, "failed")
-        self.assertFalse(analytics_dashboard._report_already_sent(today, 701))
-
-    def test_unique_constraint_prevents_duplicates(self):
-        """UNIQUE(report_date, admin_id) باید از درج تکراری جلوگیری کند."""
-        today = analytics_dashboard._report_date_for_now()
-        analytics_dashboard._mark_report_sent(today, 701, "sent")
-        # درج دوباره نباید exception ایجاد کند — باید UPDATE شود
-        try:
-            analytics_dashboard._mark_report_sent(today, 701, "failed")
-        except Exception as e:
-            self.fail(f"_mark_report_sent با UNIQUE conflict crash کرد: {e}")
-        rows = _get_report_log(today)
-        self.assertEqual(len(rows), 1, "باید فقط یک رکورد وجود داشته باشد")
-
-
-class TestSchedulerReliability(unittest.TestCase):
-    """
-    تست‌های قابلیت اطمینان scheduler.
-    """
-
-    def setUp(self):
-        _fresh_db()
-        analytics_dashboard._init_report_log_table()
-        # reset single-instance guard
-        analytics_dashboard._scheduler_started = False
-        database.upsert_user(801, "sched_admin", "SchedAdmin")
-        database.set_admin(801, True)
-
-    def test_start_scheduler_twice_only_one_thread(self):
-        """فراخوانی چندباره start_daily_report_scheduler باید فقط یک thread ایجاد کند."""
+    def test_non_admin_cannot_use_backup_callbacks(self):
+        database.upsert_user(77, "x", "X")
         bot = MagicMock()
-        before = threading.active_count()
-        analytics_dashboard.start_daily_report_scheduler(bot)
-        analytics_dashboard.start_daily_report_scheduler(bot)
-        after = threading.active_count()
-        # فقط یک thread اضافه شده باشد
-        self.assertEqual(after - before, 1,
-                         "فقط یک scheduler thread باید ایجاد شود")
+        self.assertFalse(self.adm.handle_admin_callback(bot, _make_callback("adm_bk:all", 77)))
+        bot.send_document.assert_not_called()
 
-    def test_scheduler_flag_set_after_start(self):
-        """_scheduler_started باید بعد از start True باشد."""
+    def test_restore_flow_scope_then_file_prompt(self):
+        adm = self.adm
         bot = MagicMock()
-        analytics_dashboard._scheduler_started = False
-        analytics_dashboard.start_daily_report_scheduler(bot)
-        self.assertTrue(analytics_dashboard._scheduler_started)
+        adm.handle_restore_command(bot, _make_message("/restore", 1))
+        self.assertEqual(adm._restore_sessions[1]["step"], "wait_scope")
 
-    def test_missed_window_report_sent_on_startup(self):
-        """
-        شبیه‌سازی missed window: اگر ربات ساعت ۰۸:۰۰ خاموش بود
-        و بعد از آن راه‌اندازی شود، _any_report_attempted باید False
-        باشد و send_daily_report باید فراخوانی شود.
-        """
-        today = analytics_dashboard._report_date_for_now()
-        # هنوز هیچ تلاشی ثبت نشده
-        self.assertFalse(analytics_dashboard._any_report_attempted(today))
+        # قبل از انتخاب گیرنده، ارسال فایل پذیرفته نمی‌شود
+        doc_msg = _make_message("", 1)
+        doc_msg.document.file_name = "x.db"
+        self.assertFalse(adm.handle_restore_document(bot, doc_msg))
 
+        adm.handle_admin_callback(bot, _make_callback("adm_rs:me", 1))
+        self.assertEqual(adm._restore_sessions[1]["step"], "wait_file")
+        self.assertEqual(adm._restore_sessions[1]["scope"], "me")
+
+        adm.handle_cancel_command(bot, _make_message("/cancel", 1))
+        self.assertNotIn(1, adm._restore_sessions)
+        self.assertFalse(adm._backup_restore_lock.locked())
+
+    def test_restore_scope_cancel_releases_lock(self):
+        adm = self.adm
         bot = MagicMock()
-        analytics_dashboard.send_daily_report(bot)
-        self.assertTrue(analytics_dashboard._any_report_attempted(today))
+        adm.handle_restore_command(bot, _make_message("/restore", 1))
+        adm.handle_admin_callback(bot, _make_callback("adm_rs:cancel", 1))
+        self.assertNotIn(1, adm._restore_sessions)
+        self.assertFalse(adm._backup_restore_lock.locked())
 
-    def test_no_missed_window_if_already_sent(self):
-        """
-        اگر گزارش قبلاً ارسال شده باشد، _any_report_attempted باید True
-        باشد و scheduler نباید دوباره ارسال کند.
-        """
-        today = analytics_dashboard._report_date_for_now()
-        analytics_dashboard._mark_report_sent(today, 801, "sent")
-        self.assertTrue(analytics_dashboard._any_report_attempted(today))
-
-    def test_should_send_now_exact_match(self):
-        """_should_send_now باید در دقیقه درست True برگرداند."""
-        from datetime import datetime, timezone
-        h = analytics_dashboard.DAILY_REPORT_HOUR
-        m = analytics_dashboard.DAILY_REPORT_MINUTE
-        t = datetime(2024, 1, 15, h, m, 0, tzinfo=timezone.utc)
-        self.assertTrue(analytics_dashboard._should_send_now(t))
-
-    def test_should_send_now_different_minute(self):
-        """_should_send_now باید در دقیقه اشتباه False برگرداند."""
-        from datetime import datetime, timezone
-        h = analytics_dashboard.DAILY_REPORT_HOUR
-        m = (analytics_dashboard.DAILY_REPORT_MINUTE + 1) % 60
-        t = datetime(2024, 1, 15, h, m, 0, tzinfo=timezone.utc)
-        self.assertFalse(analytics_dashboard._should_send_now(t))
-
-
-class TestTimezoneHandling(unittest.TestCase):
-    """
-    تست‌های مرز روزانه و تایم‌زون.
-    """
-
-    def setUp(self):
-        _fresh_db()
-        analytics_dashboard._init_report_log_table()
-
-    def test_default_timezone_is_utc(self):
-        """تایم‌زون پیش‌فرض باید UTC باشد."""
-        self.assertEqual(analytics_dashboard.REPORTING_TZ_NAME, "UTC")
-
-    def test_get_reporting_tz_utc(self):
-        """_get_reporting_tz باید با UTC کار کند."""
-        tz = analytics_dashboard._get_reporting_tz()
-        self.assertIsNotNone(tz)
-
-    def test_get_reporting_tz_invalid_fallback(self):
-        """تایم‌زون نامعتبر باید به UTC fallback کند."""
-        original = analytics_dashboard.REPORTING_TZ_NAME
-        analytics_dashboard.REPORTING_TZ_NAME = "Invalid/Timezone"
-        try:
-            tz = analytics_dashboard._get_reporting_tz()
-            self.assertIsNotNone(tz)
-            # باید UTC برگرداند
-            from datetime import timezone
-            now_utc = analytics_dashboard._report_date_for_now()
-            self.assertRegex(now_utc, r"^\d{4}-\d{2}-\d{2}$")
-        finally:
-            analytics_dashboard.REPORTING_TZ_NAME = original
-
-    def test_report_date_format(self):
-        """_report_date_for_now باید فرمت YYYY-MM-DD برگرداند."""
-        d = analytics_dashboard._report_date_for_now()
-        self.assertRegex(d, r"^\d{4}-\d{2}-\d{2}$")
-
-    def test_period_where_today_window(self):
-        """_period_where با offset=0 باید پنجره آخر N روز را برگرداند."""
-        from analytics import _period_where
-        clause, params = _period_where("created_at", 1, 0)
-        self.assertIn(">=", clause)
-        self.assertNotIn("<", clause)
-        self.assertEqual(params, ["-1 days"])
-
-    def test_period_where_yesterday_window(self):
-        """
-        _period_where با days=1, offset=1 باید پنجره دقیقاً دیروز را برگرداند:
-        [now-2d, now-1d) — نه [now-2d, now).
-        """
-        from analytics import _period_where
-        clause, params = _period_where("created_at", 1, 1)
-        self.assertIn(">=", clause)
-        self.assertIn("<", clause)
-        # پارامتر پایان باید now-1d باشد نه now-0d
-        self.assertEqual(params[0], "-2 days")
-        self.assertEqual(params[1], "-1 days",
-                         "پارامتر پایان باید '-1 days' باشد، نه '-0 days'")
-
-    def test_yesterday_window_does_not_overlap_today(self):
-        """
-        داده‌های امروز نباید در پنجره 'دیروز' گنجانده شوند.
-        کاربری که همین لحظه ثبت شده نباید در get_new_users_in_period(1, offset=1) دیده شود.
-        """
-        database.upsert_user(901, "today_user", "TodayUser")
-        count_yest = analytics.get_new_users_in_period(days=1, offset_days=1)
-        # این کاربر الان ثبت شده، نباید در پنجره دیروز باشد
-        count_today = analytics.get_new_users_in_period(days=1, offset_days=0)
-        self.assertEqual(count_today, 1)
-        self.assertEqual(count_yest, 0,
-                         "کاربر ثبت‌شده امروز نباید در پنجره دیروز باشد")
-
-
-class TestRetentionAccuracy(unittest.TestCase):
-    """
-    تست‌های دقت محاسبات retention.
-    """
-
-    def setUp(self):
-        _fresh_db()
-
-    def _insert_user_with_created_at(self, user_id: int, days_ago: float) -> None:
-        """درج کاربر با created_at دقیق X روز پیش."""
-        database.upsert_user(user_id, f"ruser{user_id}", f"RUser{user_id}")
-        with _sqlite3.connect(_TEST_DB) as conn:
-            conn.execute(
-                "UPDATE users SET created_at = datetime('now', ?) WHERE user_id = ?",
-                (f"-{days_ago} days", user_id)
-            )
-
-    def _insert_event_at(self, user_id: int, days_ago: float) -> None:
-        """درج رویداد analytics برای کاربر X روز پیش."""
-        with _sqlite3.connect(_TEST_DB) as conn:
-            conn.execute(
-                """INSERT INTO analytics_events (event_type, user_id, created_at)
-                   VALUES ('user_started', ?, datetime('now', ?))""",
-                (user_id, f"-{days_ago} days")
-            )
-
-    def test_incomplete_cohort_excluded_day1(self):
-        """
-        کاربری که کمتر از 2 روز پیش ثبت‌نام کرده نباید در cohort day-1 واجد شرایط باشد.
-        (پنجره فعالیت day1 = [day1, day2) هنوز در گذشته نیست)
-        """
-        self._insert_user_with_created_at(1001, 0.5)   # 12 ساعت پیش — ناقص
-        result = analytics.get_retention_cohort(1)
-        self.assertEqual(result["eligible_users"], 0,
-                         "کاربر < 2 روز پیش نباید در cohort day-1 شمرده شود")
-
-    def test_complete_cohort_included_day1(self):
-        """
-        کاربری که ۲+ روز پیش ثبت‌نام کرده باید در cohort day-1 واجد شرایط باشد.
-        """
-        self._insert_user_with_created_at(1002, 2.5)   # 2.5 روز پیش — کامل
-        result = analytics.get_retention_cohort(1)
-        self.assertEqual(result["eligible_users"], 1,
-                         "کاربر 2.5 روز پیش باید در cohort day-1 واجد شرایط باشد")
-
-    def test_retained_user_in_window(self):
-        """
-        کاربر ۲ روز پیش ثبت‌نام کرده و ۱ روز پیش فعال بوده → باید retained باشد.
-        """
-        self._insert_user_with_created_at(1003, 2.5)
-        self._insert_event_at(1003, 1.5)   # داخل پنجره [day1, day2) = [1.5, 0.5)
-        result = analytics.get_retention_cohort(1)
-        self.assertEqual(result["retained_users"], 1)
-        self.assertIsNotNone(result["retention_rate_pct"])
-
-    def test_no_activity_in_window_not_retained(self):
-        """
-        کاربر ثبت‌نام کرده اما در پنجره day-1 فعالیتی نداشته → باید not-retained باشد.
-        """
-        self._insert_user_with_created_at(1004, 2.5)
-        # فعالیت در روز ۰ (همان روز ثبت‌نام) — خارج از پنجره day-1
-        self._insert_event_at(1004, 2.5)
-        result = analytics.get_retention_cohort(1)
-        self.assertEqual(result["eligible_users"], 1)
-        self.assertEqual(result["retained_users"], 0)
-
-    def test_incomplete_cohort_excluded_day7(self):
-        """کاربر ۵ روز پیش ثبت‌نام کرده نباید در cohort day-7 شمرده شود."""
-        self._insert_user_with_created_at(1005, 5)
-        result = analytics.get_retention_cohort(7)
-        self.assertEqual(result["eligible_users"], 0,
-                         "کاربر < 8 روز پیش نباید در cohort day-7 باشد")
-
-    def test_complete_cohort_day7(self):
-        """کاربر ۸+ روز پیش ثبت‌نام کرده باید در cohort day-7 واجد شرایط باشد."""
-        self._insert_user_with_created_at(1006, 9)
-        result = analytics.get_retention_cohort(7)
-        self.assertEqual(result["eligible_users"], 1)
-
-    def test_incomplete_cohort_excluded_day30(self):
-        """کاربر ۲۵ روز پیش ثبت‌نام کرده نباید در cohort day-30 شمرده شود."""
-        self._insert_user_with_created_at(1007, 25)
-        result = analytics.get_retention_cohort(30)
-        self.assertEqual(result["eligible_users"], 0,
-                         "کاربر < 31 روز پیش نباید در cohort day-30 باشد")
-
-    def test_retention_text_distinguishes_approximate_data(self):
-        """متن retention باید اطلاعات داده‌های تخمینی را ذکر کند."""
-        text = analytics_dashboard._build_retention_text()
-        # باید توضیح درباره cohort‌های ناقص وجود داشته باشد
-        self.assertIn("ناقص", text)
-
-    def test_zero_eligible_users_no_rate(self):
-        """اگر eligible_users صفر است، retention_rate_pct باید None باشد."""
-        result = analytics.get_retention_cohort(1)
-        self.assertIsNone(result["retention_rate_pct"])
-
-    def test_historical_users_without_created_at_excluded(self):
-        """
-        کاربران قدیمی بدون created_at نباید در محاسبات retention شمرده شوند.
-        """
-        # درج کاربر بدون created_at (مانند کاربران قدیمی pre-migration)
-        database.upsert_user(1008, "hist_user", "HistUser")
-        with _sqlite3.connect(_TEST_DB) as conn:
-            conn.execute(
-                "UPDATE users SET created_at = NULL WHERE user_id = ?",
-                (1008,)
-            )
-        result = analytics.get_retention_cohort(1)
-        self.assertEqual(result["eligible_users"], 0,
-                         "کاربران بدون created_at نباید در cohort باشند")
-
-
-class TestErrorHandlingAndDelivery(unittest.TestCase):
-    """
-    تست‌های error handling ارسال گزارش.
-    """
-
-    def setUp(self):
-        _fresh_db()
-        analytics_dashboard._init_report_log_table()
-        database.upsert_user(951, "err_admin1", "ErrAdmin1")
-        database.set_admin(951, True)
-        database.upsert_user(952, "err_admin2", "ErrAdmin2")
-        database.set_admin(952, True)
-
-    def test_telegram_api_failure_logged_not_raised(self):
-        """خطای Telegram API نباید exception به caller بدهد."""
+    def test_restore_scope_callback_without_session_is_rejected(self):
         bot = MagicMock()
-        bot.send_message.side_effect = Exception("Telegram 500")
-        try:
-            analytics_dashboard.send_daily_report(bot, force=True)
-        except Exception as e:
-            self.fail(f"send_daily_report نباید exception بدهد: {e}")
+        self.adm.handle_admin_callback(bot, _make_callback("adm_rs:all", 1))
+        self.assertIn("show_alert", bot.answer_callback_query.call_args[1])
 
-    def test_all_admins_attempted_despite_first_failure(self):
-        """حتی اگر اولین ادمین fail کند، ادمین دوم باید امتحان شود."""
+    def test_restore_emergency_backup_respects_scope(self):
+        """ریستور با scope=me: بکاپ اضطراری فقط برای ریستورکننده ارسال شود."""
+        adm = self.adm
         bot = MagicMock()
-        bot.send_message.side_effect = [Exception("fail"), None]
-        analytics_dashboard.send_daily_report(bot, force=True)
-        self.assertEqual(bot.send_message.call_count, 2)
+        adm.handle_restore_command(bot, _make_message("/restore", 2))
+        adm.handle_admin_callback(bot, _make_callback("adm_rs:me", 2))
 
-    def test_failed_status_allows_retry(self):
-        """status='failed' نباید از retry جلوگیری کند."""
-        bot = MagicMock()
-        # اولین تلاش fail
-        bot.send_message.side_effect = Exception("Network error")
-        analytics_dashboard.send_daily_report(bot)
+        # فایل .db معتبر با جدول‌های لازم
+        src = os.path.join(_tmp_dir, "to_restore.db")
+        with _connect(src) as c:
+            c.executescript("CREATE TABLE IF NOT EXISTS books(id INTEGER);"
+                            "CREATE TABLE IF NOT EXISTS users(user_id INTEGER);"
+                            "CREATE TABLE IF NOT EXISTS download_logs(id INTEGER);")
+        with open(src, "rb") as f:
+            raw = f.read()
+        bot.get_file.return_value = MagicMock(file_path="p")
+        bot.download_file.return_value = raw
+        msg = _make_message("", 2)
+        msg.document.file_name = "backup.db"
+        msg.document.file_id = "fid"
+        self.assertTrue(adm.handle_restore_document(bot, msg))
 
-        # retry باید گزارش را بفرستد
-        bot.send_message.side_effect = None
-        bot.send_message.reset_mock()
-        analytics_dashboard.send_daily_report(bot)
-        self.assertGreater(bot.send_message.call_count, 0,
-                           "retry بعد از failure باید ارسال کند")
-
-    def test_database_error_in_idempotency_check_safe(self):
-        """
-        اگر بررسی idempotency با خطای دیتابیس مواجه شود،
-        باید احتیاطاً True برگرداند (نه ارسال تکراری).
-        """
-        with patch.object(database, "get_connection", side_effect=Exception("DB down")):
-            result = analytics_dashboard._report_already_sent("2024-01-01", 951)
-        self.assertTrue(result,
-                        "در صورت خطای دیتابیس، احتیاطاً باید True برگردد")
-
-    def test_no_admins_returns_false(self):
-        """اگر هیچ ادمینی وجود نداشته باشد، send_daily_report باید False برگرداند."""
-        _fresh_db()
-        analytics_dashboard._init_report_log_table()
-        bot = MagicMock()
-        result = analytics_dashboard.send_daily_report(bot, force=True)
-        self.assertFalse(result)
-
-    def test_partial_delivery_returns_true(self):
-        """اگر حداقل یک ادمین گزارش دریافت کند، باید True برگرداند."""
-        bot = MagicMock()
-        bot.send_message.side_effect = [Exception("fail"), None]
-        result = analytics_dashboard.send_daily_report(bot, force=True)
-        self.assertTrue(result,
-                        "partial delivery (یک موفق) باید True برگرداند")
-
-
-class TestPendingStateAndAtomicClaim(unittest.TestCase):
-    """
-    تست‌های مکانیزم رزرو اتمیک ('pending') و _try_claim_report_send.
-    این تست‌ها از دو SQLite connection مستقل برای شبیه‌سازی دو process استفاده می‌کنند.
-    """
-
-    def setUp(self):
-        _fresh_db()
-        analytics_dashboard._init_report_log_table()
-        database.upsert_user(1101, "claim_admin", "ClaimAdmin")
-        database.set_admin(1101, True)
-
-    def test_first_claim_returns_true(self):
-        """اولین claim باید True برگرداند."""
-        today = analytics_dashboard._report_date_for_now()
-        result = analytics_dashboard._try_claim_report_send(today, 1101)
-        self.assertTrue(result)
-
-    def test_second_claim_returns_false_pending(self):
-        """دومین claim در حالی که اول 'pending' است باید False برگرداند."""
-        today = analytics_dashboard._report_date_for_now()
-        analytics_dashboard._try_claim_report_send(today, 1101)   # اول → pending
-        result = analytics_dashboard._try_claim_report_send(today, 1101)  # دوم
-        self.assertFalse(result, "claim دوم باید False برگرداند وقتی 'pending' وجود دارد")
-
-    def test_claim_after_sent_returns_false(self):
-        """claim پس از 'sent' باید False برگرداند."""
-        today = analytics_dashboard._report_date_for_now()
-        analytics_dashboard._mark_report_sent(today, 1101, "sent")
-        result = analytics_dashboard._try_claim_report_send(today, 1101)
-        self.assertFalse(result)
-
-    def test_claim_after_failed_returns_true(self):
-        """claim پس از 'failed' باید True برگرداند (retry مجاز است)."""
-        today = analytics_dashboard._report_date_for_now()
-        analytics_dashboard._mark_report_sent(today, 1101, "failed")
-        result = analytics_dashboard._try_claim_report_send(today, 1101)
-        self.assertTrue(result, "retry بعد از 'failed' باید امکان‌پذیر باشد")
-
-    def test_pending_recorded_in_db_after_claim(self):
-        """پس از claim موفق، وضعیت 'pending' در دیتابیس ثبت می‌شود."""
-        today = analytics_dashboard._report_date_for_now()
-        analytics_dashboard._try_claim_report_send(today, 1101)
-        rows = _get_report_log(today)
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["status"], "pending")
-
-    def test_send_updates_pending_to_sent(self):
-        """ارسال موفق باید 'pending' را به 'sent' تبدیل کند."""
-        today = analytics_dashboard._report_date_for_now()
-        analytics_dashboard._try_claim_report_send(today, 1101)
-        analytics_dashboard._mark_report_sent(today, 1101, "sent")
-        rows = _get_report_log(today)
-        self.assertEqual(rows[0]["status"], "sent")
-
-    def test_failed_send_updates_pending_to_failed(self):
-        """ارسال ناموفق باید 'pending' را به 'failed' تبدیل کند."""
-        today = analytics_dashboard._report_date_for_now()
-        analytics_dashboard._try_claim_report_send(today, 1101)
-        analytics_dashboard._mark_report_sent(today, 1101, "failed")
-        rows = _get_report_log(today)
-        self.assertEqual(rows[0]["status"], "failed")
-
-    def test_pending_blocked_by_idempotency_check(self):
-        """_report_already_sent باید 'pending' را به عنوان 'ارسال در حال انجام' تلقی کند."""
-        today = analytics_dashboard._report_date_for_now()
-        analytics_dashboard._mark_report_sent(today, 1101, "failed")  # ابتدا failed
-        # simulate: claim → pending
-        analytics_dashboard._try_claim_report_send(today, 1101)
-        # _report_already_sent باید True برگرداند (ارسال در حال انجام است)
-        result = analytics_dashboard._report_already_sent(today, 1101)
-        self.assertTrue(result, "'pending' باید توسط _report_already_sent بلاک شود")
-
-
-class TestCrossProcessRaceCondition(unittest.TestCase):
-    """
-    تست race condition بین دو process مستقل که همزمان send_daily_report فراخوانی می‌کنند.
-
-    از thread‌های مستقل با connections جداگانه استفاده می‌شود تا رفتار
-    دو process مختلف را شبیه‌سازی کنید.
-    BEGIN IMMEDIATE در WAL mode تضمین می‌کند فقط یک caller بتواند 'pending' درج کند.
-    """
-
-    def setUp(self):
-        _fresh_db()
-        analytics_dashboard._init_report_log_table()
-        database.upsert_user(1201, "race_admin", "RaceAdmin")
-        database.set_admin(1201, True)
-
-    def test_concurrent_claims_only_one_wins(self):
-        """
-        دو thread که همزمان _try_claim_report_send را فراخوانی می‌کنند:
-        دقیقاً یکی باید True و دیگری False دریافت کند.
-        از دو اتصال SQLite مستقل استفاده می‌شود.
-        """
-        today = analytics_dashboard._report_date_for_now()
-        results = []
-        errors = []
-        barrier = threading.Barrier(2)
-
-        def claim_worker():
-            try:
-                barrier.wait()   # هر دو thread همزمان شروع می‌کنند
-                r = analytics_dashboard._try_claim_report_send(today, 1201)
-                results.append(r)
-            except Exception as e:
-                errors.append(str(e))
-
-        t1 = threading.Thread(target=claim_worker)
-        t2 = threading.Thread(target=claim_worker)
-        t1.start(); t2.start()
-        t1.join(timeout=5); t2.join(timeout=5)
-
-        self.assertEqual(len(errors), 0, f"خطاهای غیرمنتظره: {errors}")
-        self.assertEqual(len(results), 2)
-        # دقیقاً یکی True و دیگری False
-        self.assertEqual(sorted(results), [False, True],
-                         f"یکی باید برنده رزرو باشد، نتایج: {results}")
-
-    def test_concurrent_send_daily_report_no_duplicate(self):
-        """
-        دو فراخوانی موازی send_daily_report نباید پیام تکراری بفرستند.
-        """
-        send_counts = []
-        errors = []
-        barrier = threading.Barrier(2)
-
-        def send_worker():
-            bot = MagicMock()
-            try:
-                barrier.wait()
-                analytics_dashboard.send_daily_report(bot)
-                send_counts.append(bot.send_message.call_count)
-            except Exception as e:
-                errors.append(str(e))
-
-        t1 = threading.Thread(target=send_worker)
-        t2 = threading.Thread(target=send_worker)
-        t1.start(); t2.start()
-        t1.join(timeout=10); t2.join(timeout=10)
-
-        self.assertEqual(len(errors), 0, f"خطاهای غیرمنتظره: {errors}")
-        # مجموع ارسال‌ها در کل باید دقیقاً یک پیام باشد
-        total_sent = sum(send_counts)
-        self.assertEqual(total_sent, 1,
-                         f"مجموع ارسال‌ها باید ۱ باشد، نه {total_sent}: {send_counts}")
-
-    def test_pending_in_db_after_concurrent_race(self):
-        """
-        پس از race، دقیقاً یک رکورد در دیتابیس وجود داشته باشد.
-        """
-        today = analytics_dashboard._report_date_for_now()
-        barrier = threading.Barrier(2)
-
-        def claim_worker():
-            try:
-                barrier.wait()
-                analytics_dashboard._try_claim_report_send(today, 1201)
-            except Exception:
-                pass
-
-        t1 = threading.Thread(target=claim_worker)
-        t2 = threading.Thread(target=claim_worker)
-        t1.start(); t2.start()
-        t1.join(timeout=5); t2.join(timeout=5)
-
-        rows = _get_report_log(today)
-        self.assertEqual(len(rows), 1,
-                         f"باید دقیقاً یک رکورد در دیتابیس باشد، نه {len(rows)}")
-
-    def test_restart_simulation_with_separate_db_state(self):
-        """
-        شبیه‌سازی واقعی restart:
-        1. ارسال موفق + ثبت 'sent' در دیتابیس
-        2. ماژول reset نمی‌شود (در Python تست واقعی‌تر)
-        3. فراخوانی مجدد send_daily_report با همان دیتابیس
-        4. نباید پیام تکراری ارسال شود
-        """
-        bot1 = MagicMock()
-        analytics_dashboard.send_daily_report(bot1)
-        self.assertEqual(bot1.send_message.call_count, 1)
-
-        # Bot2 مانند یک process جدید: state در حافظه ندارد،
-        # اما دیتابیس دست نخورده است.
-        bot2 = MagicMock()
-        analytics_dashboard.send_daily_report(bot2)
-        self.assertEqual(bot2.send_message.call_count, 0,
-                         "بعد از restart (با دیتابیس دست نخورده) نباید پیام تکراری ارسال شود")
-
-
-class TestYesterdayPeriodBoundary(unittest.TestCase):
-    """
-    تست صحت بازه زمانی 'دیروز' در گزارش روزانه.
-    اطمینان از اینکه days=1,offset=1 (نه days=2,offset=1) استفاده می‌شود.
-    """
-
-    def setUp(self):
-        _fresh_db()
-
-    def test_today_and_yesterday_are_non_overlapping_equal_periods(self):
-        """
-        بازه 'امروز' و 'دیروز' باید هم‌اندازه و غیرمتداخل باشند.
-        days=1,offset=0 → [now-1d, now)
-        days=1,offset=1 → [now-2d, now-1d)
-        """
-        from analytics import _period_where
-        clause_today, params_today = _period_where("created_at", 1, 0)
-        clause_yest,  params_yest  = _period_where("created_at", 1, 1)
-
-        # امروز: یک پارامتر (فقط lower bound)
-        self.assertEqual(len(params_today), 1)
-        self.assertEqual(params_today[0], "-1 days")
-
-        # دیروز: دو پارامتر (lower + upper bound)
-        self.assertEqual(len(params_yest), 2)
-        self.assertEqual(params_yest[0], "-2 days")  # start
-        self.assertEqual(params_yest[1], "-1 days")  # end
-
-    def test_daily_report_text_uses_correct_yesterday_period(self):
-        """
-        _build_daily_report_text نباید از days=2 برای مقایسه دیروز استفاده کند.
-        بازه‌های امروز و دیروز باید هم‌اندازه باشند.
-        """
-        # اگر کاربر جدیدی همین لحظه اضافه شود، نباید در 'دیروز' دیده شود
-        database.upsert_user(1301, "today_new", "TodayNew")
-        nu_today = analytics.get_new_users_in_period(days=1, offset_days=0)
-        nu_yest  = analytics.get_new_users_in_period(days=1, offset_days=1)
-        self.assertEqual(nu_today, 1, "کاربر جدید باید در امروز دیده شود")
-        self.assertEqual(nu_yest, 0,
-                         "کاربر ثبت‌شده همین لحظه نباید در دیروز دیده شود — "
-                         "این تضمین می‌کند days=1 استفاده شده، نه days=2")
-
-    def test_delta_comparison_uses_equal_window(self):
-        """
-        مقایسه delta در گزارش روزانه باید بین دو پنجره هم‌اندازه باشد.
-        تست اطمینان می‌دهد متن گزارش بدون crash تولید می‌شود.
-        """
-        from datetime import datetime, timezone
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        try:
-            text = analytics_dashboard._build_daily_report_text(today)
-            self.assertIn("گزارش روزانه", text)
-        except Exception as e:
-            self.fail(f"_build_daily_report_text crash: {e}")
+        self.assertEqual(self._targets(bot), [2])
+        self.assertEqual(adm._restore_sessions[2]["step"], "wait_confirm")
+        adm.handle_cancel_command(bot, _make_message("/cancel", 2))
 
 
 if __name__ == "__main__":
-    loader = unittest.TestLoader()
-    suite  = unittest.TestSuite()
-
-    test_classes = [
-        TestDashboardAccess,
-        TestDashboardSections,
-        TestEmptyDatabase,
-        TestDateFilters,
-        TestDailyReport,
-        TestRetentionCalculations,
-        TestPeriodQueryHelpers,
-        TestBotCompatibility,
-        # Phase 3.1 — Reliability
-        TestPersistentIdempotency,
-        TestSchedulerReliability,
-        TestTimezoneHandling,
-        TestRetentionAccuracy,
-        TestErrorHandlingAndDelivery,
-        # Final Review additions
-        TestPendingStateAndAtomicClaim,
-        TestCrossProcessRaceCondition,
-        TestYesterdayPeriodBoundary,
-    ]
-
-    for cls in test_classes:
-        suite.addTests(loader.loadTestsFromTestCase(cls))
-
-    runner = unittest.TextTestRunner(verbosity=2, stream=sys.stdout)
-    result = runner.run(suite)
-
-    print("\n" + "=" * 60)
-    print(f"تست‌های اجراشده : {result.testsRun}")
-    print(f"موفق            : {result.testsRun - len(result.failures) - len(result.errors)}")
-    print(f"ناموفق          : {len(result.failures)}")
-    print(f"خطا             : {len(result.errors)}")
-    print("=" * 60)
-
-    sys.exit(0 if result.wasSuccessful() else 1)
+    unittest.main(verbosity=2)

@@ -1,4 +1,5 @@
 import csv
+import html
 import io
 import os
 import sqlite3
@@ -211,6 +212,21 @@ T = {
         "en": "⚠️ Emergency backup created and sent to admins.\n"
               "To confirm the restore, type <b>exactly</b>:\n\n"
               "<code>CONFIRM RESTORE</code>"},
+    "restore_confirm_prompt_me": {
+        "fa": "⚠️ بکاپ اضطراری ساخته شد و فقط برای تو ارسال شد.\n"
+              "برای تأیید ریستور عبارت زیر را <b>عیناً</b> تایپ کن:\n\n"
+              "<code>CONFIRM RESTORE</code>",
+        "en": "⚠️ Emergency backup created and sent to you only.\n"
+              "To confirm the restore, type <b>exactly</b>:\n\n"
+              "<code>CONFIRM RESTORE</code>"},
+    "backup_scope_prompt": {"fa": "💾 بکاپ برای چه کسانی ارسال شود؟",
+                            "en": "💾 Who should receive the backup?"},
+    "restore_scope_prompt": {"fa": "🆘 بکاپ اضطراری قبل از ریستور برای چه کسانی ارسال شود؟",
+                             "en": "🆘 Who should receive the emergency backup before the restore?"},
+    "btn_scope_me":     {"fa": "👤 فقط من",           "en": "👤 Only me"},
+    "btn_scope_all":    {"fa": "👥 همه ادمین‌ها",     "en": "👥 All admins"},
+    "scope_expired":    {"fa": "⚠️ این درخواست منقضی شده. دوباره امتحان کن.",
+                         "en": "⚠️ This request has expired. Please try again."},
     "restore_cancelled":{"fa": "↩️ ریستور لغو شد.",                "en": "↩️ Restore cancelled."},
     "restore_timeout":  {"fa": "⏱ تایم‌اوت ریستور. دوباره /restore بزن.",
                           "en": "⏱ Restore timed out. Run /restore again."},
@@ -1106,7 +1122,7 @@ def _book_summary_text(book, lang: str) -> str:
     def _g(k):
         try:
             v = book[k]
-            return v if v is not None else ""
+            return html.escape(str(v)) if v is not None else ""
         except (KeyError, IndexError):
             return ""
 
@@ -1222,15 +1238,17 @@ def send_db_backup(bot, chat_id: int, lang: str, caption: str | None = None) -> 
             pass
 
 
-def broadcast_backup_to_admins(bot, caption_key: str, **caption_kwargs) -> str | None:
+def broadcast_backup_to_admins(bot, caption_key: str, recipients: list[int] | None = None,
+                               **caption_kwargs) -> str | None:
+    """Send a fresh DB backup. recipients=None -> all admins, else only those user ids."""
     try:
         tmp_path, fname = _make_backup_file()
     except Exception as e:
         logging.error("broadcast_backup_to_admins: backup creation failed: %s", e)
         return None
 
-    for a in database.list_admins():
-        uid_a = a["user_id"]
+    targets = list(recipients) if recipients else [a["user_id"] for a in database.list_admins()]
+    for uid_a in targets:
         lang_a = get_lang(uid_a)
         caption = tr(caption_key, lang_a, **caption_kwargs)
         try:
@@ -1242,24 +1260,41 @@ def broadcast_backup_to_admins(bot, caption_key: str, **caption_kwargs) -> str |
     return tmp_path
 
 
+def _scope_keyboard(lang: str, prefix: str) -> types.InlineKeyboardMarkup:
+    mk = types.InlineKeyboardMarkup()
+    mk.row(
+        types.InlineKeyboardButton(tr("btn_scope_me", lang),  callback_data=f"{prefix}:me"),
+        types.InlineKeyboardButton(tr("btn_scope_all", lang), callback_data=f"{prefix}:all"),
+    )
+    mk.row(types.InlineKeyboardButton(tr("btn_confirm_no", lang), callback_data=f"{prefix}:cancel"))
+    return mk
+
+
 def handle_backup_command(bot, message: types.Message):
     uid = message.from_user.id
     lang = get_lang(uid)
     if not is_admin(uid):
         bot.send_message(message.chat.id, tr("no_access", lang))
         return
+    bot.send_message(message.chat.id, tr("backup_scope_prompt", lang),
+                     reply_markup=_scope_keyboard(lang, "adm_bk"))
+
+
+def _run_backup(bot, chat_id: int, uid: int, lang: str, recipients: list[int] | None) -> None:
     if not _backup_restore_lock.acquire(blocking=False):
-        bot.send_message(message.chat.id, tr("backup_busy", lang))
+        bot.send_message(chat_id, tr("backup_busy", lang))
         return
     try:
-        bot.send_message(message.chat.id, tr("backup_sending", lang))
+        bot.send_message(chat_id, tr("backup_sending", lang))
         time_str = datetime.now().strftime("%Y-%m-%d %H:%M")
-        tmp_path = broadcast_backup_to_admins(bot, "backup_caption", time=time_str)
+        tmp_path = broadcast_backup_to_admins(bot, "backup_caption", recipients=recipients, time=time_str)
         if tmp_path:
             try:
                 os.unlink(tmp_path)
             except Exception:
                 pass
+        else:
+            bot.send_message(chat_id, tr("backup_error", lang, err="backup creation failed"))
     finally:
         _backup_restore_lock.release()
 
@@ -1357,14 +1392,16 @@ def handle_restore_command(bot, message: types.Message):
         timer = threading.Timer(RESTORE_TIMEOUT, _expire_restore_session, args=(bot, uid))
         timer.daemon = True
         _restore_sessions[uid] = {
-            "step": "wait_file",
+            "step": "wait_scope",
+            "scope": "all",
             "expire": datetime.now().timestamp() + RESTORE_TIMEOUT,
             "emergency_path": None,
             "tmp_db_path": None,
             "timer": timer,
         }
         timer.start()
-        bot.send_message(message.chat.id, tr("restore_prompt", lang))
+        bot.send_message(message.chat.id, tr("restore_scope_prompt", lang),
+                         reply_markup=_scope_keyboard(lang, "adm_rs"))
     except Exception:
         _restore_sessions.pop(uid, None)
         _backup_restore_lock.release()
@@ -1438,7 +1475,9 @@ def handle_restore_document(bot, message: types.Message) -> bool:
 
     time_str = datetime.now().strftime("%Y-%m-%d %H:%M")
     emergency_tmp = broadcast_backup_to_admins(
-        bot, "emergency_caption", time=time_str
+        bot, "emergency_caption",
+        recipients=[uid] if sess.get("scope") == "me" else None,
+        time=time_str,
     )
     try:
         em_fd, em_path = tempfile.mkstemp(suffix=".db", prefix="tgbot_emergency_")
@@ -1453,6 +1492,28 @@ def handle_restore_document(bot, message: types.Message) -> bool:
         logging.error("handle_restore_document: emergency backup failed: %s", e)
         em_path = None
 
+    if em_path is None:
+        # No rollback point -> abort instead of risking data loss
+        if emergency_tmp:
+            try:
+                os.unlink(emergency_tmp)
+            except Exception:
+                pass
+        _restore_sessions.pop(uid, None)
+        timer = sess.get("timer")
+        if timer:
+            timer.cancel()
+        try:
+            os.unlink(tmp_path)
+        except Exception:
+            pass
+        try:
+            _backup_restore_lock.release()
+        except RuntimeError:
+            pass
+        bot.send_message(message.chat.id, tr("backup_error", lang, err="emergency backup failed"))
+        return True
+
     if emergency_tmp:
         try:
             os.unlink(emergency_tmp)
@@ -1462,7 +1523,8 @@ def handle_restore_document(bot, message: types.Message) -> bool:
     sess["step"] = "wait_confirm"
     sess["tmp_db_path"] = tmp_path
     sess["emergency_path"] = em_path
-    bot.send_message(message.chat.id, tr("restore_confirm_prompt", lang), parse_mode="HTML")
+    _ck = "restore_confirm_prompt_me" if sess.get("scope") == "me" else "restore_confirm_prompt"
+    bot.send_message(message.chat.id, tr(_ck, lang), parse_mode="HTML")
     return True
 
 
@@ -1563,7 +1625,7 @@ def handle_admin_text(bot, message: types.Message) -> bool:
 
     if text in (T["btn_analytics"]["fa"], T["btn_analytics"]["en"]):
         admin_sessions.pop(uid, None)
-        analytics_dashboard.show_analytics_main(bot, message.chat.id)
+        analytics_dashboard.show_analytics_main(bot, message.chat.id, uid)
         return True
 
     if text in (T["btn_admins"]["fa"], T["btn_admins"]["en"]):
@@ -1684,7 +1746,7 @@ def handle_admin_text(bot, message: types.Message) -> bool:
                 bot.send_message(
                     message.chat.id,
                     tr("publish_dup_warning", lang,
-                       dup_title=dup["title"], dup_author=dup["author"] or "-",
+                       dup_title=html.escape(dup["title"] or ""), dup_author=html.escape(dup["author"] or "-"),
                        dup_disp=_disp(dup)),
                     reply_markup=publish_dup_keyboard(lang, pid, dup["id"]),
                     parse_mode="HTML",
@@ -1837,7 +1899,7 @@ def handle_admin_text(bot, message: types.Message) -> bool:
         else:
             disp = _disp(resource)
             database.delete_book(resource["id"])
-            bot.send_message(message.chat.id, tr("resource_deleted", lang, title=resource["title"], disp=disp), parse_mode="HTML")
+            bot.send_message(message.chat.id, tr("resource_deleted", lang, title=html.escape(resource["title"] or ""), disp=disp), parse_mode="HTML")
         admin_sessions.pop(uid, None)
         bot.send_message(message.chat.id, tr("back_to_panel", lang), reply_markup=admin_keyboard(lang))
         return True
@@ -2082,6 +2144,46 @@ def handle_admin_callback(bot, callback: types.CallbackQuery) -> bool:
         return True
 
     # ── Analytics Dashboard callbacks ─────────────────────────────────────────
+    if data.startswith("adm_bk:"):
+        choice = data.split(":", 1)[1]
+        bot.answer_callback_query(callback.id)
+        try:
+            bot.edit_message_reply_markup(callback.message.chat.id, callback.message.message_id, reply_markup=None)
+        except Exception:
+            pass
+        if choice == "cancel":
+            bot.send_message(callback.message.chat.id, tr("cancelled", lang))
+        else:
+            _run_backup(bot, callback.message.chat.id, uid, lang, [uid] if choice == "me" else None)
+        return True
+
+    if data.startswith("adm_rs:"):
+        choice = data.split(":", 1)[1]
+        sess = _restore_sessions.get(uid)
+        if not sess or sess.get("step") != "wait_scope":
+            bot.answer_callback_query(callback.id, tr("scope_expired", lang), show_alert=True)
+            return True
+        bot.answer_callback_query(callback.id)
+        try:
+            bot.edit_message_reply_markup(callback.message.chat.id, callback.message.message_id, reply_markup=None)
+        except Exception:
+            pass
+        if choice == "cancel":
+            _restore_sessions.pop(uid, None)
+            timer = sess.get("timer")
+            if timer:
+                timer.cancel()
+            try:
+                _backup_restore_lock.release()
+            except RuntimeError:
+                pass
+            bot.send_message(callback.message.chat.id, tr("restore_cancelled", lang))
+            return True
+        sess["scope"] = "me" if choice == "me" else "all"
+        sess["step"] = "wait_file"
+        bot.send_message(callback.message.chat.id, tr("restore_prompt", lang))
+        return True
+
     if data.startswith("adm_anl:"):
         return analytics_dashboard.handle_analytics_callback(bot, callback)
 
@@ -2224,7 +2326,7 @@ def handle_admin_callback(bot, callback: types.CallbackQuery) -> bool:
                 resource = database.get_resource(resource_id)
                 bot.send_message(
                     callback.message.chat.id,
-                    tr("saved_ok_article", lang, disp=_disp(resource), title=d["title"]),
+                    tr("saved_ok_article", lang, disp=_disp(resource), title=html.escape(d["title"])),
                     reply_markup=admin_keyboard(lang),
                     parse_mode="HTML",
                 )
@@ -2247,7 +2349,7 @@ def handle_admin_callback(bot, callback: types.CallbackQuery) -> bool:
                 book = database.get_book(book_id)
                 bot.send_message(
                     callback.message.chat.id,
-                    tr("saved_ok", lang, disp=_disp(book), title=d["title"]),
+                    tr("saved_ok", lang, disp=_disp(book), title=html.escape(d["title"])),
                     reply_markup=admin_keyboard(lang),
                     parse_mode="HTML",
                 )
@@ -2726,12 +2828,11 @@ def handle_admin_callback(bot, callback: types.CallbackQuery) -> bool:
             return True
 
         except Exception as _pnd_exc:
-            import logging
             logging.exception("adm_pnd callback error (data=%r uid=%s): %s", data, uid, _pnd_exc)
             try:
                 bot.send_message(
                     callback.message.chat.id,
-                    f"⚠️ خطای داخلی در پردازش درخواست.\n<code>{type(_pnd_exc).__name__}: {_pnd_exc}</code>",
+                    f"⚠️ خطای داخلی در پردازش درخواست.\n<code>{html.escape(type(_pnd_exc).__name__ + ": " + str(_pnd_exc))}</code>",
                     parse_mode="HTML",
                     reply_markup=admin_keyboard(lang),
                 )
@@ -3217,7 +3318,7 @@ def _pending_list_page(bot, chat_id: int, lang: str, filter_key: str, page: int,
         if n_nofile:
             markup.row(types.InlineKeyboardButton(
                 tr("btn_quick", lang, n=n_nofile),
-                callback_data=f"adm_pnd:q_start:{nofile_fk.replace('_nofile', '') or 'all'}",
+                callback_data="adm_pnd:q_start:" + {"nofile": "all", "book_nofile": "book", "article_nofile": "article"}[nofile_fk],
             ))
 
     # Bulk delete for this filter
@@ -3506,8 +3607,7 @@ def _pq_show(bot, chat_id: int, uid: int, lang: str,
         + _pending_detail_text(row, lang)
     )
     bot.send_message(chat_id, text,
-                     reply_markup=publish_queue_keyboard(lang),
-                     parse_mode="HTML")
+                     reply_markup=publish_queue_keyboard(lang))
 
 
 def _after_pending_edit(bot, chat_id: int, uid: int, lang: str, pid: int):
@@ -3600,7 +3700,7 @@ def _show_publish_confirm(bot, chat_id: int, lang: str, pending_id: int):
         bot.send_message(
             chat_id,
             tr("publish_dup_warning", lang,
-               dup_title=dup["title"], dup_author=dup["author"] or "-", dup_disp=_disp(dup)),
+               dup_title=html.escape(dup["title"] or ""), dup_author=html.escape(dup["author"] or "-"), dup_disp=_disp(dup)),
             reply_markup=publish_dup_keyboard(lang, pending_id, dup["id"]),
             parse_mode="HTML",
         )
@@ -3637,7 +3737,7 @@ def _do_publish(bot, chat_id: int, lang: str, pending_id: int, added_by: int, fo
             bot.send_message(
                 chat_id,
                 tr("publish_dup_warning", lang,
-                   dup_title=dup["title"], dup_author=dup["author"] or "-", dup_disp=_disp(dup)),
+                   dup_title=html.escape(dup["title"] or ""), dup_author=html.escape(dup["author"] or "-"), dup_disp=_disp(dup)),
                 reply_markup=publish_dup_keyboard(lang, pending_id, dup["id"]),
                 parse_mode="HTML",
             )
@@ -3667,7 +3767,7 @@ def _do_publish(bot, chat_id: int, lang: str, pending_id: int, added_by: int, fo
 
     bot.send_message(
         chat_id,
-        tr("publish_success", lang, title=row["title"], disp=disp, pid=pending_id),
+        tr("publish_success", lang, title=html.escape(row["title"] or ""), disp=disp, pid=pending_id),
         reply_markup=admin_keyboard(lang),
         parse_mode="HTML",
     )
