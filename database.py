@@ -1,124 +1,2830 @@
-"""
-database.py — Stub for test environment.
-
-Implements the minimal API surface used by analytics.py, analytics_dashboard.py,
-and test_dashboard.py:
-
-  DB_PATH         — مسیر فایل SQLite
-  get_connection  — context manager برای اتصال به دیتابیس
-  init_db         — ایجاد جداول
-  upsert_user     — ثبت یا بروزرسانی کاربر
-  set_admin       — تنظیم وضعیت ادمین
-  list_admins     — لیست ادمین‌های فعال
-"""
-
 import sqlite3
-import contextlib
 import os
+import re
+import unicodedata
+from functools import lru_cache
+from datetime import datetime
+from typing import Optional
 
-DB_PATH: str = "test.db"
+DB_PATH = os.getenv("DB_PATH", "physics_library.db")
+
+# مجموعه کامل کدهای معتبر ISO 639-1 (دو حرفی).
+# به‌جای محدود کردن به fa و en، هر کد دو‌حرفی استاندارد پذیرفته می‌شود.
+VALID_ISO_639_1: frozenset = frozenset({
+    "aa", "ab", "ae", "af", "ak", "am", "an", "ar", "as", "av", "ay", "az",
+    "ba", "be", "bg", "bh", "bi", "bm", "bn", "bo", "br", "bs",
+    "ca", "ce", "ch", "co", "cr", "cs", "cu", "cv", "cy",
+    "da", "de", "dv", "dz",
+    "ee", "el", "en", "eo", "es", "et", "eu",
+    "fa", "ff", "fi", "fj", "fo", "fr", "fy",
+    "ga", "gd", "gl", "gn", "gu", "gv",
+    "ha", "he", "hi", "ho", "hr", "ht", "hu", "hy",
+    "hz",
+    "ia", "id", "ie", "ig", "ii", "ik", "io", "is", "it", "iu",
+    "ja", "jv",
+    "ka", "kg", "ki", "kj", "kk", "kl", "km", "kn", "ko", "kr", "ks", "ku", "kv", "kw", "ky",
+    "la", "lb", "lg", "li", "ln", "lo", "lt", "lu", "lv",
+    "mg", "mh", "mi", "mk", "ml", "mn", "mr", "ms", "mt", "my",
+    "na", "nb", "nd", "ne", "ng", "nl", "nn", "no", "nr", "nv", "ny",
+    "oc", "oj", "om", "or", "os",
+    "pa", "pi", "pl", "ps", "pt",
+    "qu",
+    "rm", "rn", "ro", "ru", "rw",
+    "sa", "sc", "sd", "se", "sg", "si", "sk", "sl", "sm", "sn", "so", "sq", "sr", "ss", "st", "su", "sv", "sw",
+    "ta", "te", "tg", "th", "ti", "tk", "tl", "tn", "to", "tr", "ts", "tt", "tw", "ty",
+    "ug", "uk", "ur", "uz",
+    "va", "ve", "vi", "vo",
+    "wa", "wo",
+    "xh",
+    "yi", "yo",
+    "za", "zh", "zu",
+})
+
+# نام بومی زبان‌های پرکاربرد؛ هم admin و هم bot از این dict استفاده می‌کنن
+# تا زبان‌های جدید در هر دو ماژول به درستی نمایش داده بشن.
+LANG_NATIVE: dict[str, str] = {
+    "fa": "فارسی",
+    "en": "English",
+    "de": "Deutsch",
+    "fr": "Français",
+    "nl": "Nederlands",
+    "ru": "Русский",
+    "ar": "العربية",
+    "zh": "中文",
+    "es": "Español",
+    "it": "Italiano",
+    "pt": "Português",
+    "tr": "Türkçe",
+    "ja": "日本語",
+    "ko": "한국어",
+}
 
 
-@contextlib.contextmanager
-def get_connection():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
+def lang_native(code: str) -> str:
+    """Return the native name of a language given its ISO 639-1 code.
+
+    Falls back to the upper-cased code for codes not in the lookup table.
+    """
+    return LANG_NATIVE.get(code, code.upper() if code else code)
+
+
+_PHYSICS_FIELDS_SEED = {
+    "classical_mechanics":        ("مکانیک کلاسیک", "Classical Mechanics",                                              "CM"),
+    "electromagnetism":           ("الکترومغناطیس", "Electromagnetism",                                                "EM"),
+    "general_physics":            ("فیزیک پایه", "General Physics",                                                    "GEN"),
+    "quantum_mechanics":          ("مکانیک کوانتومی (و نظریه میدان)", "Quantum Mechanics (incl. QFT)",                "QM"),
+    "relativity":                 ("نسبیت", "Relativity",                                                              "REL"),
+    "thermodynamics_statistical": ("ترمودینامیک و مکانیک آماری", "Thermodynamics & Statistical Physics",             "THS"),
+    "mathematical_physics":       ("فیزیک ریاضی", "Mathematical Physics",                                             "MTH"),
+    "condensed_matter":           ("فیزیک ماده چگال (حالت جامد، نرم، نانو، مواد)", "Condensed Matter Physics (Solid, Soft, Nano, Materials)", "CMP"),
+    "optics_amo":                 ("اپتیک، لیزر و فیزیک اتمی-مولکولی (AMO)", "Optics, Laser & AMO Physics",         "OPT"),
+    "nuclear_physics":            ("فیزیک هسته‌ای", "Nuclear Physics",                                                "NUC"),
+    "particle_physics":           ("فیزیک ذرات", "Particle Physics",                                                  "PAR"),
+    "plasma_physics":             ("فیزیک پلاسما", "Plasma Physics",                                                  "PLA"),
+    "astrophysics":               ("اخترفیزیک و نجوم", "Astrophysics & Astronomy",                                    "AST"),
+    "cosmology":                  ("کیهان‌شناسی", "Cosmology",                                                        "COS"),
+    "computational_nonlinear":    ("فیزیک محاسباتی و دینامیک غیرخطی", "Computational Physics & Nonlinear Dynamics",  "CMN"),
+    "biophysics_medical":         ("بیوفیزیک و فیزیک پزشکی", "Biophysics & Medical Physics",                         "BIO"),
+    "chemical_physics":           ("فیزیک شیمی", "Chemical Physics",                                                  "CHP"),
+    "acoustics":                  ("آکوستیک", "Acoustics",                                                             "ACU"),
+    "history_philosophy":         ("تاریخ و فلسفه فیزیک", "History & Philosophy of Physics",                         "HPP"),
+    "other":                      ("سایر / میان‌رشته‌ای", "Other / Interdisciplinary",                               "OTH"),
+}
+
+# In-memory caches — loaded from DB by _load_field_caches() after init_db()
+PHYSICS_FIELDS: dict[str, tuple[str, str]] = {}
+FIELD_CODES:    dict[str, str]             = {}
+
+
+def _load_field_caches(conn: Optional[sqlite3.Connection] = None) -> None:
+    """Reload PHYSICS_FIELDS and FIELD_CODES from the physics_fields table.
+
+    Pass an existing *conn* to reuse the current transaction (e.g. during
+    init_db); omit it to open a fresh connection.
+    """
+    global PHYSICS_FIELDS, FIELD_CODES
+
+    def _fetch(c: sqlite3.Connection) -> None:
+        global PHYSICS_FIELDS, FIELD_CODES
+        rows = c.execute(
+            "SELECT key, name_fa, name_en, code FROM physics_fields"
+        ).fetchall()
+        PHYSICS_FIELDS = {r["key"]: (r["name_fa"], r["name_en"]) for r in rows}
+        FIELD_CODES    = {r["key"]: r["code"]                    for r in rows}
+
+    if conn is not None:
+        _fetch(conn)
+    else:
+        with get_connection() as c:
+            _fetch(c)
+
+
+def field_code(physics_field: str) -> str:
+    if physics_field in FIELD_CODES:
+        return FIELD_CODES[physics_field]
+    return (physics_field or "gen")[:3].upper()
+
+
+def get_display_id(resource: "sqlite3.Row | dict") -> str:
+    """Return the display ID for a resource.
+
+    Books  → #QM-B7  (field_code + 'B' prefix + field_number)
+    Articles → #QM-A3 (field_code + 'A' prefix + field_number)
+    Unknown resource_type falls back to book behaviour.
+    """
+    keys = resource.keys() if hasattr(resource, "keys") else resource
+    field  = resource["physics_field"]
+    number = resource["field_number"] if "field_number" in keys else None
+
+    if number:
+        rtype = resource["resource_type"] if "resource_type" in keys else "book"
+        if rtype == "article":
+            return f"#{field_code(field)}-A{number}"
+        return f"#{field_code(field)}-B{number}"
+    return f"#{resource['id']}"
+
+
+class _AutoClosingConnection(sqlite3.Connection):
+    """sqlite3.Connection, used as a context manager, only commits/rolls
+    back the current transaction on `__exit__` — it does NOT close the
+    connection. Every ``with get_connection() as conn:`` block in this
+    codebase (there are dozens) assumed the connection would also be
+    closed, so each call was silently leaking a connection / file handle.
+    This subclass closes the connection once the `with` block exits, which
+    fixes every existing call site without having to touch each of them.
+    """
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        try:
+            return super().__exit__(exc_type, exc_val, exc_tb)
+        finally:
+            self.close()
+
+
+def get_connection() -> sqlite3.Connection:
+    conn = sqlite3.connect(DB_PATH, factory=_AutoClosingConnection)
+    conn.row_factory = sqlite3.Row         
+    conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA journal_mode = WAL")  
+    return conn
+
+
+def _try_load_field_caches_if_ready() -> None:
+    """اگر دیتابیس از قبل وجود داشت و جدول physics_fields آماده بود، کش‌ها رو لود کن.
+    این تابع هنگام import ماژول صدا زده می‌شه تا PHYSICS_FIELDS و FIELD_CODES
+    بدون نیاز به فراخوانی init_db() در دسترس باشن (مثلاً بعد از ریستارت ربات).
+    """
     try:
-        yield conn
-    finally:
-        conn.close()
+        if not os.path.exists(DB_PATH):
+            return
+        with get_connection() as conn:
+            tables = {r[0] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()}
+            if "physics_fields" in tables:
+                _load_field_caches(conn)
+    except Exception:
+        pass  
+
+
+_try_load_field_caches_if_ready()
 
 
 def init_db() -> None:
     with get_connection() as conn:
-        conn.executescript("""
-            CREATE TABLE IF NOT EXISTS users (
-                user_id    INTEGER PRIMARY KEY,
-                username   TEXT,
-                full_name  TEXT,
-                is_admin   INTEGER NOT NULL DEFAULT 0,
-                created_at TEXT,
-                last_seen  TEXT
-            );
 
-            CREATE TABLE IF NOT EXISTS analytics_events (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                event_type  TEXT    NOT NULL,
-                user_id     INTEGER,
-                resource_id INTEGER,
-                extra       TEXT,
-                created_at  TEXT    NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS daily_report_log (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                report_date TEXT    NOT NULL,
-                admin_id    INTEGER NOT NULL,
-                status      TEXT    NOT NULL CHECK(status IN ('sent','failed','pending')),
-                sent_at     TEXT    NOT NULL,
-                UNIQUE(report_date, admin_id)
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_report_log_date
-                ON daily_report_log(report_date);
+        # ── physics_fields table
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS physics_fields (
+                key         TEXT PRIMARY KEY,
+                name_fa     TEXT NOT NULL,
+                name_en     TEXT NOT NULL,
+                code        TEXT NOT NULL UNIQUE,
+                parent_key  TEXT REFERENCES physics_fields(key) ON DELETE SET NULL
+            )
         """)
+
+        # Seed rows that are missing (idempotent)
+        for key, (name_fa, name_en, code) in _PHYSICS_FIELDS_SEED.items():
+            conn.execute("""
+                INSERT INTO physics_fields (key, name_fa, name_en, code, parent_key)
+                VALUES (?, ?, ?, ?, NULL)
+                ON CONFLICT(key) DO NOTHING
+            """, (key, name_fa, name_en, code))
+
+        # ── books table 
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS books (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                title           TEXT    NOT NULL,
+                author          TEXT    NOT NULL,
+                language        TEXT    NOT NULL,
+                physics_field   TEXT    NOT NULL,
+                description     TEXT,
+                edition         TEXT,
+                year            INTEGER,
+                file_id         TEXT,        -- file_id فایل تلگرام
+                file_name       TEXT,        -- نام فایل اصلی
+                file_size       INTEGER,     -- بایت
+                cover_file_id   TEXT,        -- عکس جلد (اختیاری)
+                added_by        INTEGER,     -- telegram user_id ادمین
+                download_count  INTEGER NOT NULL DEFAULT 0,
+                created_at      TEXT    NOT NULL DEFAULT (datetime('now')),
+                updated_at      TEXT    NOT NULL DEFAULT (datetime('now')),
+                keywords        TEXT    NOT NULL DEFAULT '',
+                publisher       TEXT    NOT NULL DEFAULT ''
+            )
+        """)
+
+        # CC for quick Search
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_books_field
+            ON books(physics_field)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_books_language
+            ON books(language)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_books_title
+            ON books(title)
+        """)
+
+        # Field Number
+        book_cols = {row["name"] for row in conn.execute("PRAGMA table_info(books)")}
+        if "field_number" not in book_cols:
+            conn.execute("ALTER TABLE books ADD COLUMN field_number INTEGER")
+            rows = conn.execute(
+                "SELECT id, physics_field FROM books ORDER BY physics_field, created_at, id"
+            ).fetchall()
+            counters: dict[str, int] = {}
+            for r in rows:
+                counters[r["physics_field"]] = counters.get(r["physics_field"], 0) + 1
+                conn.execute(
+                    "UPDATE books SET field_number = ? WHERE id = ?",
+                    (counters[r["physics_field"]], r["id"])
+                )
+
+        conn.execute(
+            "UPDATE books SET physics_field = 'general_physics' "
+            "WHERE physics_field = 'General Physics'"
+        )
+
+        # ── New columns on books (article support + resource_type) 
+        book_cols = {row["name"] for row in conn.execute("PRAGMA table_info(books)")}
+        _new_book_cols = [
+            ("resource_type",    "TEXT NOT NULL DEFAULT 'book'"),
+            ("doi",              "TEXT"),
+            ("journal",          "TEXT"),
+            ("volume",           "TEXT"),
+            ("issue",            "TEXT"),
+            ("pages",            "TEXT"),
+            ("url",              "TEXT"),
+            ("publication_date", "TEXT"),
+            ("publisher",        "TEXT NOT NULL DEFAULT ''"),
+        ]
+        for col_name, col_def in _new_book_cols:
+            if col_name not in book_cols:
+                conn.execute(f"ALTER TABLE books ADD COLUMN {col_name} {col_def}")
+
+        # Download Logs
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS download_logs (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                book_id     INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+                user_id     INTEGER NOT NULL,
+                downloaded_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
+
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_dl_book
+            ON download_logs(book_id)
+        """)
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                user_id     INTEGER PRIMARY KEY,
+                username    TEXT,
+                first_name  TEXT,
+                last_seen   TEXT NOT NULL DEFAULT (datetime('now')),
+                is_admin    INTEGER NOT NULL DEFAULT 0,
+                lang        TEXT
+            )
+        """)
+
+        existing_cols = {row["name"] for row in conn.execute("PRAGMA table_info(users)")}
+        if "lang" not in existing_cols:
+            conn.execute("ALTER TABLE users ADD COLUMN lang TEXT")
+
+        # ── bookmarks
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS bookmarks (
+                user_id  INTEGER NOT NULL,
+                book_id  INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+                saved_at TEXT NOT NULL DEFAULT (datetime('now')),
+                PRIMARY KEY (user_id, book_id)
+            )
+        """)
+
+        # ── field subscriptions
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS subscriptions (
+                user_id       INTEGER NOT NULL,
+                physics_field TEXT    NOT NULL,
+                subscribed_at TEXT    NOT NULL DEFAULT (datetime('now')),
+                PRIMARY KEY (user_id, physics_field)
+            )
+        """)
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS ratings (
+                user_id    INTEGER NOT NULL,
+                book_id    INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+                rating     INTEGER NOT NULL CHECK(rating BETWEEN 1 AND 5),
+                updated_at TEXT    NOT NULL DEFAULT (datetime('now')),
+                PRIMARY KEY (user_id, book_id)
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_ratings_book ON ratings(book_id)")
+
+        # ── pending_resources table (Phase 1: Foundation)
+        # Stores metadata for resources awaiting admin file upload + publishing.
+        # Intentionally has NO field_number — that is assigned only on publish via add_resource().
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS pending_resources (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                resource_type    TEXT    NOT NULL DEFAULT 'book'
+                                         CHECK(resource_type IN ('book', 'article')),
+                title            TEXT    NOT NULL,
+                author           TEXT    NOT NULL,
+                language         TEXT    NOT NULL,
+                physics_field    TEXT    NOT NULL,
+                description      TEXT    NOT NULL DEFAULT '',
+                edition          TEXT    NOT NULL DEFAULT '',
+                year             INTEGER,
+                doi              TEXT    NOT NULL DEFAULT '',
+                journal          TEXT    NOT NULL DEFAULT '',
+                volume           TEXT    NOT NULL DEFAULT '',
+                issue            TEXT    NOT NULL DEFAULT '',
+                pages            TEXT    NOT NULL DEFAULT '',
+                url              TEXT    NOT NULL DEFAULT '',
+                publication_date TEXT    NOT NULL DEFAULT '',
+                file_id          TEXT,
+                file_name        TEXT,
+                file_size        INTEGER,
+                status           TEXT    NOT NULL DEFAULT 'pending'
+                                         CHECK(status IN ('pending', 'file_received', 'published', 'rejected')),
+                created_at       TEXT    NOT NULL DEFAULT (datetime('now')),
+                updated_at       TEXT    NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
+
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_pending_status
+            ON pending_resources(status)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_pending_field
+            ON pending_resources(physics_field)
+        """)
+
+
+        # ── FTS5 virtual table for fast full-text search ─────────────────────
+        # Mirrors title, author, description, keywords from books.
+        # Rebuilt incrementally via triggers so it stays in sync automatically.
+        conn.execute("""
+            CREATE VIRTUAL TABLE IF NOT EXISTS books_fts USING fts5(
+                title, author, description, keywords, publisher,
+                content='books', content_rowid='id',
+                tokenize='unicode61 remove_diacritics 2'
+            )
+        """)
+
+        # ── Triggers to keep FTS in sync ──────────────────────────────────────
+        conn.execute("""
+            CREATE TRIGGER IF NOT EXISTS books_fts_ai
+            AFTER INSERT ON books BEGIN
+                INSERT INTO books_fts(rowid, title, author, description, keywords, publisher)
+                VALUES (new.id, new.title, new.author,
+                        COALESCE(new.description,''), COALESCE(new.keywords,''),
+                        COALESCE(new.publisher,''));
+            END
+        """)
+        conn.execute("""
+            CREATE TRIGGER IF NOT EXISTS books_fts_ad
+            AFTER DELETE ON books BEGIN
+                INSERT INTO books_fts(books_fts, rowid, title, author, description, keywords, publisher)
+                VALUES ('delete', old.id, old.title, old.author,
+                        COALESCE(old.description,''), COALESCE(old.keywords,''),
+                        COALESCE(old.publisher,''));
+            END
+        """)
+        conn.execute("""
+            CREATE TRIGGER IF NOT EXISTS books_fts_au
+            AFTER UPDATE ON books BEGIN
+                INSERT INTO books_fts(books_fts, rowid, title, author, description, keywords, publisher)
+                VALUES ('delete', old.id, old.title, old.author,
+                        COALESCE(old.description,''), COALESCE(old.keywords,''),
+                        COALESCE(old.publisher,''));
+                INSERT INTO books_fts(rowid, title, author, description, keywords, publisher)
+                VALUES (new.id, new.title, new.author,
+                        COALESCE(new.description,''), COALESCE(new.keywords,''),
+                        COALESCE(new.publisher,''));
+            END
+        """)
+
+        # ── Backfill FTS for existing rows (idempotent) ───────────────────────
+        # Guard with try/except: if the books table doesn't yet have the
+        # 'keywords' column (migration runs after init_db), the content-based
+        # FTS query will raise OperationalError.  In that case we skip the
+        # backfill here and let Migration 5 handle it after the column exists.
+        try:
+            fts_count = conn.execute("SELECT COUNT(*) FROM books_fts").fetchone()[0]
+            books_count = conn.execute("SELECT COUNT(*) FROM books").fetchone()[0]
+            if fts_count < books_count:
+                conn.execute("DELETE FROM books_fts")
+                conn.execute("""
+                    INSERT INTO books_fts(rowid, title, author, description, keywords, publisher)
+                    SELECT id, title, author,
+                           COALESCE(description,''), COALESCE(keywords,''),
+                           COALESCE(publisher,'')
+                    FROM books
+                """)
+        except Exception as _fts_err:
+            print(f"[DB] FTS backfill skipped (will retry after migrations): {_fts_err}")
+
         conn.commit()
+        _load_field_caches(conn)
+    print(f"[DB] دیتابیس آماده شد: {DB_PATH}")
+    _migrate_db()
 
 
-def upsert_user(user_id: int, username: str, full_name: str) -> bool:
-    """
-    ثبت کاربر جدید یا بروزرسانی last_seen.
-    Returns True اگر کاربر جدید بود.
+def _migrate_db() -> None:
+    """Apply incremental migrations to an existing database.
+
+    Safe to run on every startup: every statement uses CREATE TABLE IF NOT EXISTS
+    or ALTER TABLE only when the column/table is absent.  Never drops or modifies
+    existing data.
+
+    Migrations are listed in chronological order so they can be extended easily.
     """
     with get_connection() as conn:
-        existing = conn.execute(
-            "SELECT 1 FROM users WHERE user_id=?", (user_id,)
-        ).fetchone()
-        if existing:
+        existing_tables = {
+            row[0] for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+
+        # ── Migration 1: pending_resources (added in Phase 1) ─────────────────
+        if "pending_resources" not in existing_tables:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS pending_resources (
+                    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                    resource_type    TEXT    NOT NULL DEFAULT 'book'
+                                             CHECK(resource_type IN ('book', 'article')),
+                    title            TEXT    NOT NULL,
+                    author           TEXT    NOT NULL,
+                    language         TEXT    NOT NULL,
+                    physics_field    TEXT    NOT NULL,
+                    description      TEXT    NOT NULL DEFAULT '',
+                    edition          TEXT    NOT NULL DEFAULT '',
+                    year             INTEGER,
+                    doi              TEXT    NOT NULL DEFAULT '',
+                    journal          TEXT    NOT NULL DEFAULT '',
+                    volume           TEXT    NOT NULL DEFAULT '',
+                    issue            TEXT    NOT NULL DEFAULT '',
+                    pages            TEXT    NOT NULL DEFAULT '',
+                    url              TEXT    NOT NULL DEFAULT '',
+                    publication_date TEXT    NOT NULL DEFAULT '',
+                    file_id          TEXT,
+                    file_name        TEXT,
+                    file_size        INTEGER,
+                    status           TEXT    NOT NULL DEFAULT 'pending'
+                                             CHECK(status IN ('pending', 'file_received', 'published', 'rejected')),
+                    created_at       TEXT    NOT NULL DEFAULT (datetime('now')),
+                    updated_at       TEXT    NOT NULL DEFAULT (datetime('now'))
+                )
+            """)
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_pending_status
+                ON pending_resources(status)
+            """)
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_pending_field
+                ON pending_resources(physics_field)
+            """)
+            conn.commit()
+            print("[DB] Migration applied: pending_resources table created.")
+
+        # ── Migration 2: keywords column on books ─────────────────────────────
+        book_cols_m = {r["name"] for r in conn.execute("PRAGMA table_info(books)")}
+        if "keywords" not in book_cols_m:
+            conn.execute("ALTER TABLE books ADD COLUMN keywords TEXT NOT NULL DEFAULT ''")
+            conn.commit()
+            print("[DB] Migration applied: books.keywords column added.")
+
+        # ── Migration 3: remove old language CHECK constraint from pending_resources
+        # قدیمی‌ترین نسخه جدول با CHECK(language IN ('fa','en')) ساخته شده بود.
+        # SQLite اجازه حذف مستقیم constraint نمیده؛ راه‌حل: rebuild جدول.
+        #
+        # روش تشخیص: به‌جای string-matching روی DDL (که با فرمت‌بندی SQLite
+        # ناپایدار بود)، مستقیماً یک INSERT تست می‌زنیم. اگر constraint
+        # language IN ('fa','en') هنوز وجود داشته باشه، با IntegrityError
+        # خطا می‌دیم و می‌دونیم باید rebuild بشه.
+        _needs_lang_fix = False
+        try:
             conn.execute(
-                "UPDATE users SET last_seen=datetime('now'), username=?, full_name=? WHERE user_id=?",
-                (username, full_name, user_id),
+                "INSERT INTO pending_resources "
+                "(resource_type, title, author, language, physics_field) "
+                "VALUES ('book', '__lang_probe__', '__probe__', 'de', 'general_physics')"
+            )
+            # اگر موفق شد یعنی constraint وجود نداره؛ row آزمایشی رو پاک می‌کنیم
+            conn.execute(
+                "DELETE FROM pending_resources WHERE title = '__lang_probe__'"
+            )
+        except Exception as _probe_err:
+            err_msg = str(_probe_err).lower()
+            if "check constraint" in err_msg or "constraint failed" in err_msg:
+                _needs_lang_fix = True
+            # هر خطای دیگری (مثلاً NOT NULL) نشانه‌ی مشکل دیگریه، نه language
+        if _needs_lang_fix:
+            conn.execute("ALTER TABLE pending_resources RENAME TO _pending_resources_old")
+            conn.execute("""
+                CREATE TABLE pending_resources (
+                    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                    resource_type    TEXT    NOT NULL DEFAULT 'book'
+                                             CHECK(resource_type IN ('book', 'article')),
+                    title            TEXT    NOT NULL,
+                    author           TEXT    NOT NULL,
+                    language         TEXT    NOT NULL,
+                    physics_field    TEXT    NOT NULL,
+                    description      TEXT    NOT NULL DEFAULT '',
+                    edition          TEXT    NOT NULL DEFAULT '',
+                    year             INTEGER,
+                    doi              TEXT    NOT NULL DEFAULT '',
+                    journal          TEXT    NOT NULL DEFAULT '',
+                    volume           TEXT    NOT NULL DEFAULT '',
+                    issue            TEXT    NOT NULL DEFAULT '',
+                    pages            TEXT    NOT NULL DEFAULT '',
+                    url              TEXT    NOT NULL DEFAULT '',
+                    publication_date TEXT    NOT NULL DEFAULT '',
+                    file_id          TEXT,
+                    file_name        TEXT,
+                    file_size        INTEGER,
+                    status           TEXT    NOT NULL DEFAULT 'pending'
+                                             CHECK(status IN ('pending', 'file_received', 'published', 'rejected')),
+                    created_at       TEXT    NOT NULL DEFAULT (datetime('now')),
+                    updated_at       TEXT    NOT NULL DEFAULT (datetime('now'))
+                )
+            """)
+            conn.execute("""
+                INSERT INTO pending_resources
+                SELECT id, resource_type, title, author, language, physics_field,
+                       description, edition, year, doi, journal, volume, issue,
+                       pages, url, publication_date, file_id, file_name, file_size,
+                       status, created_at, updated_at
+                FROM _pending_resources_old
+            """)
+            conn.execute("DROP TABLE _pending_resources_old")
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_pending_status
+                ON pending_resources(status)
+            """)
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_pending_field
+                ON pending_resources(physics_field)
+            """)
+            conn.commit()
+            print("[DB] Migration applied: pending_resources language CHECK constraint removed.")
+
+
+        # ── Migration 4: publisher column on books ────────────────────────────
+        book_cols_m2 = {r["name"] for r in conn.execute("PRAGMA table_info(books)")}
+        if "publisher" not in book_cols_m2:
+            conn.execute("ALTER TABLE books ADD COLUMN publisher TEXT NOT NULL DEFAULT ''")
+            conn.commit()
+            print("[DB] Migration applied: books.publisher column added.")
+
+        # ── Migration 5: rebuild FTS if stale or schema is outdated ─────────
+        # An existing books_fts built against an old books schema (without
+        # 'keywords' or 'publisher') will raise OperationalError on any query.
+        # Strategy:
+        #   1. Try a cheap probe query. If it fails, the FTS is stale.
+        #   2. Drop all FTS-related objects and recreate from scratch.
+        #   3. Otherwise just backfill missing rows as before.
+        def _rebuild_fts(conn):
+            """Drop and recreate books_fts plus its triggers, then backfill."""
+            for obj in ("books_fts_au", "books_fts_ad", "books_fts_ai"):
+                conn.execute(f"DROP TRIGGER IF EXISTS {obj}")
+            conn.execute("DROP TABLE IF EXISTS books_fts")
+            conn.execute("""
+                CREATE VIRTUAL TABLE books_fts USING fts5(
+                    title, author, description, keywords, publisher,
+                    content='books', content_rowid='id',
+                    tokenize='unicode61 remove_diacritics 2'
+                )
+            """)
+            conn.execute("""
+                CREATE TRIGGER books_fts_ai
+                AFTER INSERT ON books BEGIN
+                    INSERT INTO books_fts(rowid, title, author, description, keywords, publisher)
+                    VALUES (new.id, new.title, new.author,
+                            COALESCE(new.description,''), COALESCE(new.keywords,''),
+                            COALESCE(new.publisher,''));
+                END
+            """)
+            conn.execute("""
+                CREATE TRIGGER books_fts_ad
+                AFTER DELETE ON books BEGIN
+                    INSERT INTO books_fts(books_fts, rowid, title, author, description, keywords, publisher)
+                    VALUES ('delete', old.id, old.title, old.author,
+                            COALESCE(old.description,''), COALESCE(old.keywords,''),
+                            COALESCE(old.publisher,''));
+                END
+            """)
+            conn.execute("""
+                CREATE TRIGGER books_fts_au
+                AFTER UPDATE ON books BEGIN
+                    INSERT INTO books_fts(books_fts, rowid, title, author, description, keywords, publisher)
+                    VALUES ('delete', old.id, old.title, old.author,
+                            COALESCE(old.description,''), COALESCE(old.keywords,''),
+                            COALESCE(old.publisher,''));
+                    INSERT INTO books_fts(rowid, title, author, description, keywords, publisher)
+                    VALUES (new.id, new.title, new.author,
+                            COALESCE(new.description,''), COALESCE(new.keywords,''),
+                            COALESCE(new.publisher,''));
+                END
+            """)
+            book_cnt = conn.execute("SELECT COUNT(*) FROM books").fetchone()[0]
+            conn.execute("""
+                INSERT INTO books_fts(rowid, title, author, description, keywords, publisher)
+                SELECT id, title, author,
+                       COALESCE(description,''), COALESCE(keywords,''),
+                       COALESCE(publisher,'')
+                FROM books
+            """)
+            conn.commit()
+            print(f"[DB] Migration applied: FTS rebuilt ({book_cnt} rows).")
+
+        try:
+            # Probe: will raise if schema is stale
+            fts_cnt  = conn.execute("SELECT COUNT(*) FROM books_fts").fetchone()[0]
+            book_cnt = conn.execute("SELECT COUNT(*) FROM books").fetchone()[0]
+            if fts_cnt < book_cnt:
+                conn.execute("DELETE FROM books_fts")
+                conn.execute("""
+                    INSERT INTO books_fts(rowid, title, author, description, keywords, publisher)
+                    SELECT id, title, author,
+                           COALESCE(description,''), COALESCE(keywords,''),
+                           COALESCE(publisher,'')
+                    FROM books
+                """)
+                conn.commit()
+                print(f"[DB] Migration applied: FTS backfilled ({book_cnt} rows).")
+        except Exception:
+            # Stale FTS — rebuild from scratch
+            try:
+                _rebuild_fts(conn)
+            except Exception as _rb_err:
+                print(f"[DB] FTS rebuild failed: {_rb_err}")
+
+        # ── Migration 6: اطمینان از عدم وجود language CHECK در جدول books ────
+        # اگر جدول books هم به هر دلیلی constraint قدیمی داشت، همان تکنیک
+        # probe-insert رو استفاده می‌کنیم تا بفهمیم و rebuild کنیم.
+        _books_needs_lang_fix = False
+        try:
+            conn.execute(
+                "INSERT INTO books "
+                "(title, author, language, physics_field, file_id, file_name, file_size) "
+                "VALUES ('__lang_probe__','__probe__','de','general_physics','','',0)"
+            )
+            conn.execute("DELETE FROM books WHERE title = '__lang_probe__'")
+        except Exception as _bp_err:
+            bp_msg = str(_bp_err).lower()
+            if "check constraint" in bp_msg or "constraint failed" in bp_msg:
+                _books_needs_lang_fix = True
+
+        if _books_needs_lang_fix:
+            # rebuild جدول books بدون language CHECK
+            conn.execute("PRAGMA foreign_keys = OFF")  # prevent SQLite from rewriting download_logs DDL
+            conn.execute("ALTER TABLE books RENAME TO _books_old")
+            # جدول جدید بدون هیچ CHECK روی language
+            conn.execute("""
+                CREATE TABLE books (
+                    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                    title           TEXT    NOT NULL,
+                    author          TEXT    NOT NULL,
+                    language        TEXT    NOT NULL,
+                    physics_field   TEXT    NOT NULL,
+                    description     TEXT,
+                    edition         TEXT,
+                    year            INTEGER,
+                    file_id         TEXT,
+                    file_name       TEXT,
+                    file_size       INTEGER,
+                    cover_file_id   TEXT,
+                    added_by        INTEGER,
+                    download_count  INTEGER NOT NULL DEFAULT 0,
+                    created_at      TEXT    NOT NULL DEFAULT (datetime('now')),
+                    updated_at      TEXT    NOT NULL DEFAULT (datetime('now')),
+                    keywords        TEXT    NOT NULL DEFAULT '',
+                    publisher       TEXT    NOT NULL DEFAULT '',
+                    field_number    INTEGER,
+                    resource_type   TEXT    NOT NULL DEFAULT 'book',
+                    doi             TEXT,
+                    journal         TEXT,
+                    volume          TEXT,
+                    issue           TEXT,
+                    pages           TEXT,
+                    url             TEXT,
+                    publication_date TEXT
+                )
+            """)
+            # کپی تمام ردیف‌های قدیمی
+            conn.execute("""
+                INSERT INTO books
+                SELECT id, title, author, language, physics_field,
+                       description, edition, year, file_id, file_name, file_size,
+                       cover_file_id, added_by, download_count, created_at, updated_at,
+                       COALESCE(keywords,''), COALESCE(publisher,''),
+                       field_number,
+                       COALESCE(resource_type,'book'),
+                       doi, journal, volume, issue, pages, url, publication_date
+                FROM _books_old
+            """)
+            conn.execute("DROP TABLE _books_old")
+            conn.execute("PRAGMA foreign_keys = ON")
+            # بازسازی index ها
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_books_field ON books(physics_field)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_books_language ON books(language)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_books_title ON books(title)")
+            conn.commit()
+            # FTS باید rebuild بشه چون جدول عوض شد
+            try:
+                _rebuild_fts(conn)
+            except Exception as _rb2:
+                print(f"[DB] FTS rebuild after books migration: {_rb2}")
+            print("[DB] Migration applied: books table language CHECK constraint removed.")
+
+        # ── Migration 7: ترمیم download_logs آسیب‌دیده از Migration 6 ──────────
+        dl_ddl = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='download_logs'"
+        ).fetchone()
+        if dl_ddl and "_books_old" in (dl_ddl["sql"] or ""):
+            conn.execute("PRAGMA foreign_keys = OFF")
+            conn.execute("ALTER TABLE download_logs RENAME TO _download_logs_old")
+            conn.execute("""
+                CREATE TABLE download_logs (
+                    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                    book_id       INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+                    user_id       INTEGER NOT NULL,
+                    downloaded_at TEXT NOT NULL DEFAULT (datetime('now'))
+                )
+            """)
+            conn.execute("""
+                INSERT INTO download_logs (id, book_id, user_id, downloaded_at)
+                SELECT id, book_id, user_id, downloaded_at FROM _download_logs_old
+            """)
+            conn.execute("DROP TABLE _download_logs_old")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_dl_book ON download_logs(book_id)")
+            conn.execute("PRAGMA foreign_keys = ON")
+            conn.commit()
+            print("[DB] Migration applied: download_logs FK reference repaired.")
+
+        # ── Future migrations go here ──────────────────────────────────────────
+        # Example pattern:
+        #   pending_cols = {r["name"] for r in conn.execute("PRAGMA table_info(pending_resources)")}
+        #   if "new_column" not in pending_cols:
+        #       conn.execute("ALTER TABLE pending_resources ADD COLUMN new_column TEXT NOT NULL DEFAULT ''")
+        #       conn.commit()
+
+
+def _auto_migrate_if_needed() -> None:
+    """در هنگام import ماژول، اگه دیتابیس موجود باشه migration رو اجرا کن.
+    این کار باعث میشه حتی اگه init_db() صدا زده نشه،
+    constraint قدیمی language IN ('fa','en') از pending_resources حذف بشه.
+    """
+    try:
+        if not os.path.exists(DB_PATH):
+            return
+        with get_connection() as conn:
+            tables = {r[0] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()}
+            if "pending_resources" not in tables:
+                return  # init_db بعداً همه چیز رو می‌سازه
+        _migrate_db()
+    except Exception:
+        pass
+
+
+_auto_migrate_if_needed()
+
+
+# ── Generic resource functions 
+
+def add_resource(
+    title: str,
+    author: str,
+    language: str,
+    physics_field: str,
+    resource_type: str = "book",
+    file_id: str = "",
+    file_name: str = "",
+    file_size: int = 0,
+    description: str = "",
+    edition: str = "",
+    year: Optional[int] = None,
+    cover_file_id: str = "",
+    added_by: Optional[int] = None,
+    # article-specific fields
+    doi: str = "",
+    journal: str = "",
+    volume: str = "",
+    issue: str = "",
+    pages: str = "",
+    url: str = "",
+    publication_date: str = "",
+) -> int:
+    if physics_field not in PHYSICS_FIELDS:
+        raise ValueError(f"فیلد نامعتبر: {physics_field}")
+    if language not in VALID_ISO_639_1:
+        raise ValueError(f"زبان نامعتبر: '{language}'. کد دو‌حرفی ISO 639-1 وارد کنید (مثلاً fa, en, fr, de, nl)")
+    if resource_type not in ("book", "article"):
+        raise ValueError("resource_type باید 'book' یا 'article' باشد")
+
+    keywords = generate_keywords(physics_field, title, description, language)
+
+    with get_connection() as conn:
+        # BEGIN IMMEDIATE grabs the write lock up front, so two admins adding
+        # a resource to the same field at the same time can't both read the
+        # same MAX(field_number) and insert a duplicate — the second
+        # connection blocks until the first commits.
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT COALESCE(MAX(field_number), 0) AS mx FROM books "
+            "WHERE physics_field = ? AND resource_type = ?",
+            (physics_field, resource_type)
+        ).fetchone()
+        next_number = row["mx"] + 1
+
+        cur = conn.execute("""
+            INSERT INTO books
+                (title, author, language, physics_field,
+                 description, edition, year,
+                 file_id, file_name, file_size,
+                 cover_file_id, added_by, field_number, resource_type,
+                 doi, journal, volume, issue, pages, url, publication_date,
+                 keywords)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """, (
+            title, author, language, physics_field,
+            description, edition, year,
+            file_id, file_name, file_size,
+            cover_file_id, added_by, next_number, resource_type,
+            doi, journal, volume, issue, pages, url, publication_date,
+            keywords,
+        ))
+        conn.commit()
+        return cur.lastrowid
+
+
+def get_resource(resource_id: int) -> Optional[sqlite3.Row]:
+    with get_connection() as conn:
+        return conn.execute(
+            "SELECT * FROM books WHERE id = ?", (resource_id,)
+        ).fetchone()
+
+
+# ── Search: normalization & relevance ranking ─────────────────────────────────
+#
+# Text (both the query and the stored fields) is normalised the same way:
+# NFKD → drop combining marks (Latin accents, Arabic harakat, hamza/madda
+# marks) → ي/ى→ی, ك→ک, ة/ۀ→ه → Arabic/Persian digits → ASCII → casefold →
+# every run of punctuation / hyphens / underscores / ZWNJ becomes one space.
+
+_CHAR_MAP = str.maketrans({
+    "ي": "ی", "ى": "ی", "ك": "ک", "ة": "ه", "ۀ": "ه", "ہ": "ه", "ھ": "ه",
+    "\u200c": " ",                                    # ZWNJ → word separator
+    "\u0640": None, "\u200d": None, "\u200e": None,   # tatweel, ZWJ, LRM
+    "\u200f": None, "\ufeff": None,                   # RLM, BOM
+})
+_DIGIT_MAP = str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹", "01234567890123456789")
+_NON_WORD_RE = re.compile(r"[\W_]+")
+_DOI_PREFIX_RE = re.compile(r"^\s*(?:https?://)?(?:dx\.)?doi\.org/|^\s*doi:\s*", re.I)
+
+_DOI_RE = re.compile(r"10\.\d{4,9}/\S+")
+
+# Retrieval-only aliases: they expand the *query* and are never stored or shown.
+# Keys are normalised (lower-case, single spaces).
+_SEARCH_ALIASES = {
+    # English abbreviations
+    "qm":             "quantum mechanics",
+    "qft":            "quantum field theory",
+    "em":             "electromagnetism",
+    "gr":             "general relativity",
+    "sr":             "special relativity",
+    "stat mech":      "statistical mechanics",
+    "classical mech": "classical mechanics",
+    "thermo":         "thermodynamics",
+    "cm":             "classical mechanics",
+    "cmp":            "condensed matter",
+    "amo":            "atomic molecular optical",
+    "hep":            "particle physics",
+    "astro":          "astrophysics",
+    # Persian abbreviations / common short forms
+    "مک کوانتوم":     "مکانیک کوانتومی",
+    "مکانیک کوانتوم": "مکانیک کوانتومی",
+    "نسبیت عام":      "general relativity",
+    "نسبیت خاص":      "special relativity",
+    "الکترو":         "الکترومغناطیس",
+    "ترمو":           "ترمودینامیک",
+    "مکانیک آماری":   "statistical mechanics",
+    "فیزیک ریاضی":    "mathematical physics",
+    "ماده چگال":      "condensed matter",
+    "فیزیک هسته":     "nuclear physics",
+    "فیزیک ذره":      "particle physics",
+    "اخترفیزیک":      "astrophysics",
+}
+_ALIAS_RE = re.compile(
+    r"(?<!\S)(" + "|".join(re.escape(k) for k in sorted(_SEARCH_ALIASES, key=len, reverse=True)) + r")(?!\S)"
+)
+
+# Ignored as search tokens (unless the query consists of nothing else).
+_STOPWORDS = frozenset({
+    "the", "a", "an", "of", "to", "and", "in", "on", "for", "by", "with",
+    "و", "در", "از", "به", "با", "برای", "را", "این", "آن", "که", "تا",
+})
+
+# ── Persian keyword generation ────────────────────────────────────────────────
+#
+# Two-level lookup:
+#   1. _FIELD_KW : base keywords for every physics_field key
+#   2. _TERM_KW  : English term → Persian equivalent(s)
+#                  matched against normalised title + description tokens.
+#
+# generate_keywords() combines both sources and returns a deduplicated
+# space-joined string ready to store in books.keywords.
+
+_FIELD_KW: dict[str, list[str]] = {
+    "classical_mechanics": [
+        "مکانیک کلاسیک", "مکانیک نیوتونی", "دینامیک", "سینماتیک",
+        "قوانین نیوتون", "لاگرانژ", "هامیلتون", "انرژی پتانسیل",
+        "تکانه زاویه‌ای", "نوسان", "ارتعاش", "دستگاه مختصات",
+    ],
+    "electromagnetism": [
+        "الکترومغناطیس", "الکتریسیته", "مغناطیس", "معادلات ماکسول",
+        "میدان الکتریکی", "میدان مغناطیسی", "امواج الکترومغناطیسی",
+        "پتانسیل الکتریکی", "القای الکترومغناطیسی", "دی‌الکتریک",
+        "خازن", "سلف", "مدار الکتریکی",
+    ],
+    "general_physics": [
+        "فیزیک پایه", "فیزیک عمومی", "مکانیک", "گرما", "اپتیک",
+        "امواج", "الکتریسیته", "آزمایشگاه فیزیک",
+    ],
+    "quantum_mechanics": [
+        "مکانیک کوانتومی", "فیزیک کوانتومی", "معادله شرودینگر",
+        "تابع موج", "اصل عدم قطعیت هایزنبرگ", "عملگر", "فضای هیلبرت",
+        "اسپین", "تکانه زاویه‌ای کوانتومی", "اتم هیدروژن",
+        "نظریه اختلال", "پراکندگی کوانتومی", "ذرات یکسان",
+        "نظریه میدان کوانتومی", "الکترودینامیک کوانتومی",
+        "نمودار فاینمن", "بازبهنجارش", "نظریه پیمانه",
+        "کروموداینامیک کوانتومی", "مدل استاندارد",
+    ],
+    "relativity": [
+        "نسبیت", "نسبیت خاص", "نسبیت عام", "فضازمان",
+        "معادلات اینشتین", "انحنای فضازمان", "سیاه‌چاله",
+        "موج گرانشی", "اتساع زمان", "انقباض طول",
+        "چهاربردار", "تانسور متریک", "هندسه ریمانی",
+        "راه‌حل شوارتشیلد", "کیهان‌شناسی نسبیتی",
+    ],
+    "thermodynamics_statistical": [
+        "ترمودینامیک", "مکانیک آماری", "آنتروپی", "دمای مطلق",
+        "قانون اول ترمودینامیک", "قانون دوم ترمودینامیک",
+        "توزیع بولتزمن", "توزیع فرمی-دیراک", "توزیع بوز-اینشتین",
+        "تابع پارش", "پتانسیل شیمیایی", "گذار فازی",
+        "گاز ایده‌آل", "گاز واقعی", "معادله حالت",
+        "فیزیک آماری", "انرژی آزاد", "پتانسیل ترمودینامیکی",
+    ],
+    "mathematical_physics": [
+        "فیزیک ریاضی", "روش‌های ریاضی فیزیک", "معادلات دیفرانسیل",
+        "معادلات دیفرانسیل جزئی", "تحلیل مختلط", "توابع ویژه",
+        "توابع بسل", "چندجمله‌ای لژاندر", "سری فوریه",
+        "تبدیل فوریه", "تبدیل لاپلاس", "توابع گرین",
+        "حساب تغییرات", "نظریه گروه", "جبر لی",
+        "تانسور", "هندسه دیفرانسیل", "توپولوژی",
+    ],
+    "condensed_matter": [
+        "فیزیک ماده چگال", "فیزیک حالت جامد", "ساختار بلور",
+        "فونون", "الکترون‌های آزاد", "نوار انرژی",
+        "نیمه‌رسانا", "ابررسانایی", "مغناطیس",
+        "فرومغناطیس", "پارامغناطیس", "شبکه براوه",
+        "نمودار هرتسپرونگ-راسل", "پیوند شیمیایی",
+        "خواص الکتریکی", "خواص نوری مواد",
+        "ماده نرم", "نانوفیزیک", "فیزیک سطح",
+    ],
+    "optics_amo": [
+        "اپتیک", "نورشناخت", "لیزر", "فیزیک اتمی",
+        "فیزیک مولکولی", "تداخل نور", "پراش نور",
+        "قطبش نور", "اپتیک هندسی", "اپتیک موجی",
+        "اپتیک کوانتومی", "فوتون", "طیف‌سنجی",
+        "هولوگرافی", "فیبر نوری", "فوتونیک",
+    ],
+    "nuclear_physics": [
+        "فیزیک هسته‌ای", "هسته اتم", "نوکلئون",
+        "پروتون", "نوترون", "پوسته هسته‌ای",
+        "واپاشی هسته‌ای", "واپاشی آلفا", "واپاشی بتا",
+        "واپاشی گاما", "شکافت هسته‌ای", "همجوشی هسته‌ای",
+        "واکنش‌های هسته‌ای", "رادیواکتیویته",
+        "مدل قطره مایع", "مدل پوسته هسته‌ای",
+    ],
+    "particle_physics": [
+        "فیزیک ذرات", "ذرات بنیادی", "کوارک", "لپتون",
+        "بوزون", "فرمیون", "مدل استاندارد",
+        "نیروی ضعیف", "نیروی قوی", "الکترودینامیک کوانتومی",
+        "کروموداینامیک کوانتومی", "نظریه الکتروضعیف",
+        "بوزون هیگز", "شتاب‌دهنده ذرات",
+        "پادماده", "نوترینو", "فوتون", "گلوئون",
+    ],
+    "plasma_physics": [
+        "فیزیک پلاسما", "پلاسما", "همجوشی هسته‌ای",
+        "مگنتوهیدرودینامیک", "امواج پلاسما",
+        "ناپایداری پلاسما", "حبس مغناطیسی",
+        "توکامک", "انرژی همجوشی",
+    ],
+    "astrophysics": [
+        "اخترفیزیک", "نجوم", "ستاره", "کهکشان",
+        "سیاه‌چاله", "ستاره نوترونی", "کوتوله سفید",
+        "ابرنواختر", "پالسار", "تکامل ستاره‌ای",
+        "محیط بین‌ستاره‌ای", "طیف‌سنجی نجومی",
+        "فرآیندهای تابشی", "اخترفیزیک نسبیتی",
+        "امواج گرانشی",
+    ],
+    "cosmology": [
+        "کیهان‌شناسی", "انبساط جهان", "بیگ بنگ",
+        "تورم کیهانی", "ماده تاریک", "انرژی تاریک",
+        "ثابت هابل", "تابش زمینه کیهانی",
+        "ساختار بزرگ‌مقیاس", "نوکلئوسنتز",
+        "مدل لامبدا-سی‌دی‌ام", "معادلات فریدمان",
+    ],
+    "computational_nonlinear": [
+        "فیزیک محاسباتی", "دینامیک غیرخطی", "آشوب",
+        "روش‌های عددی", "شبیه‌سازی", "معادلات دیفرانسیل عددی",
+        "مونت‌کارلو", "دینامیک مولکولی",
+        "سیستم‌های آشوبناک", "جاذب عجیب",
+        "انشعاب", "نقشه لاجستیک",
+    ],
+    "biophysics_medical": [
+        "بیوفیزیک", "فیزیک زیستی", "فیزیک پزشکی",
+        "زیست‌شناسی مولکولی", "غشای سلولی",
+        "کانال یونی", "موتور مولکولی", "پروتئین",
+        "DNA", "RNA", "ترمودینامیک زیستی",
+        "پراش اشعه ایکس", "تصویربرداری پزشکی",
+        "میکروسکوپ", "اپتیک زیستی",
+    ],
+    "chemical_physics": [
+        "فیزیک شیمی", "شیمی کوانتومی", "پیوند شیمیایی",
+        "اوربیتال مولکولی", "طیف‌سنجی مولکولی",
+        "واکنش شیمیایی", "دینامیک واکنش",
+    ],
+    "acoustics": [
+        "آکوستیک", "صوت", "امواج صوتی", "ارتعاش",
+        "آکوستیک معماری", "اولتراسوند",
+        "پردازش سیگنال صوتی",
+    ],
+    "history_philosophy": [
+        "تاریخ فیزیک", "فلسفه فیزیک", "فلسفه علم",
+        "انقلاب علمی", "پارادایم", "روش علمی",
+        "تاریخ مکانیک کوانتومی", "بنیان‌های فیزیک",
+        "تفسیر مکانیک کوانتومی", "واقع‌گرایی علمی",
+    ],
+    "other": [
+        "فیزیک میان‌رشته‌ای",
+    ],
+}
+
+# English term (normalised, lower-case) → Persian keyword(s)
+# Matched against normalised title + description text.
+_TERM_KW: dict[str, list[str]] = {
+    # mechanics
+    "lagrangian": ["لاگرانژ", "مکانیک لاگرانژی"],
+    "hamiltonian": ["هامیلتون", "مکانیک هامیلتونی"],
+    "variational": ["حساب تغییرات", "اصل تغییراتی"],
+    "rigid body": ["جسم صلب"],
+    "oscillation": ["نوسان", "ارتعاش"],
+    "chaos": ["آشوب", "دینامیک آشوبناک"],
+    "nonlinear": ["غیرخطی", "دینامیک غیرخطی"],
+    "bifurcation": ["انشعاب"],
+    # EM
+    "maxwell": ["معادلات ماکسول", "ماکسول"],
+    "electrostatics": ["الکتروستاتیک"],
+    "magnetostatics": ["مغناطیس‌استاتیک"],
+    "electrodynamics": ["الکترودینامیک"],
+    "radiation": ["تابش", "تشعشع"],
+    "waveguide": ["موجبر"],
+    "antenna": ["آنتن"],
+    "plasma": ["پلاسما"],
+    # QM / QFT
+    "schrodinger": ["شرودینگر", "معادله شرودینگر"],
+    "heisenberg": ["هایزنبرگ", "اصل عدم قطعیت"],
+    "dirac": ["دیراک", "معادله دیراک"],
+    "hilbert": ["فضای هیلبرت"],
+    "perturbation": ["نظریه اختلال"],
+    "scattering": ["پراکندگی"],
+    "spin": ["اسپین"],
+    "angular momentum": ["تکانه زاویه‌ای"],
+    "path integral": ["انتگرال مسیر"],
+    "feynman": ["فاینمن", "نمودار فاینمن"],
+    "renormalization": ["بازبهنجارش"],
+    "gauge": ["نظریه پیمانه", "پیمانه"],
+    "symmetry": ["تقارن"],
+    "field theory": ["نظریه میدان"],
+    "qed": ["الکترودینامیک کوانتومی"],
+    "qcd": ["کروموداینامیک کوانتومی"],
+    "standard model": ["مدل استاندارد"],
+    "higgs": ["بوزون هیگز", "مکانیزم هیگز"],
+    "supersymmetry": ["ابرتقارن"],
+    "string theory": ["نظریه ریسمان"],
+    # GR / Cosmology
+    "general relativity": ["نسبیت عام"],
+    "special relativity": ["نسبیت خاص"],
+    "spacetime": ["فضازمان"],
+    "einstein": ["اینشتین", "معادلات اینشتین"],
+    "schwarzschild": ["شوارتشیلد"],
+    "black hole": ["سیاه‌چاله"],
+    "gravitational wave": ["موج گرانشی"],
+    "cosmology": ["کیهان‌شناسی"],
+    "inflation": ["تورم کیهانی"],
+    "dark matter": ["ماده تاریک"],
+    "dark energy": ["انرژی تاریک"],
+    "big bang": ["بیگ بنگ"],
+    "friedmann": ["معادلات فریدمان"],
+    "hubble": ["ثابت هابل"],
+    "cmb": ["تابش زمینه کیهانی"],
+    "nucleosynthesis": ["نوکلئوسنتز"],
+    # stat mech / thermo
+    "entropy": ["آنتروپی"],
+    "partition function": ["تابع پارش"],
+    "boltzmann": ["بولتزمن", "توزیع بولتزمن"],
+    "fermi": ["فرمی", "توزیع فرمی-دیراک"],
+    "bose": ["بوز", "توزیع بوز-اینشتین"],
+    "phase transition": ["گذار فازی"],
+    "critical phenomena": ["پدیده‌های بحرانی"],
+    "renormalization group": ["گروه بازبهنجارش"],
+    "ising": ["مدل ایزینگ"],
+    "monte carlo": ["مونت‌کارلو"],
+    # condensed matter
+    "solid state": ["فیزیک حالت جامد"],
+    "crystal": ["بلور", "ساختار بلوری"],
+    "phonon": ["فونون"],
+    "band theory": ["نظریه نوار"],
+    "semiconductor": ["نیمه‌رسانا"],
+    "superconductivity": ["ابررسانایی"],
+    "ferromagnetism": ["فرومغناطیس"],
+    "magnetism": ["مغناطیس", "خواص مغناطیسی"],
+    "many body": ["چندذره‌ای", "مسئله چند جسمی"],
+    "green function": ["تابع گرین"],
+    # nuclear / particle
+    "nuclear": ["هسته‌ای", "فیزیک هسته‌ای"],
+    "radioactivity": ["رادیواکتیویته", "واپاشی هسته‌ای"],
+    "fission": ["شکافت هسته‌ای"],
+    "fusion": ["همجوشی هسته‌ای"],
+    "quark": ["کوارک"],
+    "lepton": ["لپتون"],
+    "neutrino": ["نوترینو"],
+    "accelerator": ["شتاب‌دهنده ذرات"],
+    # optics
+    "optics": ["اپتیک", "نورشناخت"],
+    "laser": ["لیزر"],
+    "diffraction": ["پراش"],
+    "interference": ["تداخل"],
+    "polarization": ["قطبش"],
+    "holography": ["هولوگرافی"],
+    "photonics": ["فوتونیک"],
+    "fiber optic": ["فیبر نوری"],
+    # astro
+    "astrophysics": ["اخترفیزیک"],
+    "stellar": ["ستاره‌ای", "تکامل ستاره‌ای"],
+    "neutron star": ["ستاره نوترونی"],
+    "white dwarf": ["کوتوله سفید"],
+    "supernova": ["ابرنواختر"],
+    "galaxy": ["کهکشان"],
+    "pulsar": ["پالسار"],
+    # math physics
+    "differential geometry": ["هندسه دیفرانسیل"],
+    "lie group": ["گروه لی"],
+    "group theory": ["نظریه گروه"],
+    "tensor": ["تانسور"],
+    "fourier": ["تبدیل فوریه", "سری فوریه"],
+    "green function": ["تابع گرین"],
+    "complex analysis": ["آنالیز مختلط"],
+    "topology": ["توپولوژی"],
+    # biophysics
+    "biophysics": ["بیوفیزیک"],
+    "membrane": ["غشا", "غشای سلولی"],
+    "protein": ["پروتئین"],
+    "dna": ["DNA", "اسید دئوکسی‌ریبونوکلئیک"],
+    "molecular motor": ["موتور مولکولی"],
+    # computational
+    "computational": ["محاسباتی", "فیزیک محاسباتی"],
+    "numerical": ["عددی", "روش‌های عددی"],
+    "simulation": ["شبیه‌سازی"],
+    # history / philosophy
+    "history": ["تاریخ", "تاریخ علم"],
+    "philosophy": ["فلسفه", "فلسفه علم"],
+    "paradigm": ["پارادایم"],
+    "scientific revolution": ["انقلاب علمی"],
+    "kuhn": ["کوهن", "انقلاب علمی"],
+    "foundations": ["بنیان‌ها", "پایه‌های نظری"],
+    "interpretation": ["تفسیر", "تفسیر مکانیک کوانتومی"],
+}
+
+# Pre-compile for fast lookup: sorted longest-first to avoid prefix shadowing
+_TERM_KW_SORTED = sorted(_TERM_KW.keys(), key=len, reverse=True)
+
+
+def _expand_query_cross_lang(q_info: dict) -> list[str]:
+    """Return extra English tokens derived from a Persian query (and vice versa).
+
+    When the user types in Persian ("مکانیک کوانتومی"), _ALIAS_RE may not fire
+    because the alias map stores English abbreviations.  This function:
+      1. Checks each normalised token against _FA_TO_EN.
+      2. Returns any matched English terms so they can be injected into the
+         FTS OR expression and the Python scorer's known-words set.
+
+    Similarly, when typing English, the keywords column already holds Persian
+    equivalents, so the reverse direction (EN→FA) is handled implicitly by FTS
+    matching the keywords column.  No extra work needed.
+    """
+    extras: list[str] = []
+    for tok in (q_info.get("tokens") or []):
+        for en in _FA_TO_EN.get(tok, []):
+            extras.extend(_norm(en).split())
+    # Deduplicate, skip tokens already in the query
+    existing = set(q_info.get("tokens") or [])
+    return [t for t in dict.fromkeys(extras) if t not in existing and len(t) >= 2]
+
+
+
+
+def generate_keywords(
+    physics_field: str,
+    title: str,
+    description: str,
+    language: str = "en",
+) -> str:
+    """Generate Persian search keywords for a non-Persian resource.
+
+    Returns a space-joined string of Persian keyword tokens, deduplicated,
+    ready to store in books.keywords.  For Persian resources returns '' since
+    the title/description are already searchable in Persian.
+    For all other languages (en, de, fr, ru, …) Persian keywords are generated
+    so they appear in Farsi search results.
+    """
+    if language == "fa":
+        return ""
+
+    collected: list[str] = []
+
+    # 1. Field-level base keywords
+    base = _FIELD_KW.get(physics_field, [])
+    collected.extend(base)
+
+    # 2. Term-level: scan normalised title + description for known English terms
+    haystack = _norm(f"{title} {description}")
+    for term in _TERM_KW_SORTED:
+        norm_term = _norm(term)
+        # whole-word / phrase match on the normalised haystack
+        if re.search(r"(?<!\w)" + re.escape(norm_term) + r"(?!\w)", haystack):
+            collected.extend(_TERM_KW[term])
+
+    # Deduplicate phrases preserving order, then join with space
+    # (each phrase is stored as-is; the search engine's _norm splits on spaces)
+    seen: set[str] = set()
+    unique: list[str] = []
+    for kw in collected:
+        key = kw.strip()
+        if key and key not in seen:
+            seen.add(key)
+            unique.append(key)
+
+    return " ".join(unique)
+
+
+def update_keywords(resource_id: int) -> str:
+    """Regenerate and persist keywords for one resource. Returns the new value."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT physics_field, title, description, language FROM books WHERE id = ?",
+            (resource_id,)
+        ).fetchone()
+        if not row:
+            return ""
+        kw = generate_keywords(row["physics_field"], row["title"],
+                               row["description"], row["language"])
+        conn.execute("UPDATE books SET keywords = ? WHERE id = ?", (kw, resource_id))
+        conn.commit()
+    return kw
+
+
+def backfill_keywords(verbose: bool = False) -> int:
+    """One-shot: generate keywords for every non-Farsi resource that has none.
+
+    Covers all languages for which generate_keywords() produces output
+    (en, de, fr, ru, …).  Farsi resources are intentionally excluded because
+    keyword generation is not supported for that language.
+
+    Returns the number of rows updated.
+    """
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT id, physics_field, title, description, language "
+            "FROM books WHERE language != 'fa' AND (keywords IS NULL OR keywords = '')"
+        ).fetchall()
+        updated = 0
+        for row in rows:
+            kw = generate_keywords(row["physics_field"], row["title"],
+                                   row["description"], row["language"])
+            if kw:
+                conn.execute("UPDATE books SET keywords = ? WHERE id = ?",
+                             (kw, row["id"]))
+                updated += 1
+                if verbose:
+                    print(f"  [{row['id']}] {row['title'][:60]} → {len(kw.split())} kws")
+        conn.commit()
+    return updated
+
+
+# Field-class weights: title, author, other metadata, description.
+_FIELD_W = (60, 40, 25, 10)
+# Match-kind factors: 4 whole word, 3 word prefix, 2 substring, 1 ignoring spaces.
+_KIND_F = {4: 1.0, 3: 0.8, 2: 0.5, 1: 0.4}
+_FUZZY_F = 0.3      # typo matches weigh less; they are also always listed after exact ones
+
+
+@lru_cache(maxsize=4_096)
+def _norm(text) -> str:
+    if not text:
+        return ""
+    s = unicodedata.normalize("NFKD", str(text))
+    s = "".join(c for c in s if unicodedata.category(c) != "Mn")
+    s = s.translate(_CHAR_MAP).translate(_DIGIT_MAP).casefold()
+    return _NON_WORD_RE.sub(" ", s).strip()
+
+
+# ── Cross-language reverse index ─────────────────────────────────────────────
+# Maps normalised Persian keywords back to their English source terms.
+# Used in _expand_query_cross_lang() so a Persian query ("مکانیک کوانتومی")
+# also searches the English title/author fields, and an English query finds
+# Persian-titled resources via their keyword column.
+#
+# Built lazily from _TERM_KW at module load (no maintenance burden).
+_FA_TO_EN: dict[str, list[str]] = {}
+
+def _build_fa_to_en() -> None:
+    global _FA_TO_EN
+    mapping: dict[str, list[str]] = {}
+    for en_term, fa_list in _TERM_KW.items():
+        for fa_kw in fa_list:
+            key = _norm(fa_kw)
+            mapping.setdefault(key, []).append(en_term)
+    _FA_TO_EN = mapping
+
+_build_fa_to_en()
+
+def _prep(text) -> tuple:
+    t = _norm(text)
+    w = t.split()
+    return (t, w, frozenset(w), t.replace(" ", ""))
+
+
+def _prepare_query(query: str) -> Optional[dict]:
+    raw = (query or "").strip()
+    hash_id = raw.startswith("#")
+    stripped = _DOI_PREFIX_RE.sub("", raw).strip()
+    q_norm = _norm(stripped)
+    tokens = _tokenize(q_norm)
+    if not tokens:
+        return None
+    q = {"norm": q_norm, "sq": q_norm.replace(" ", ""),
+         "tokens": tokens, "hash_id": hash_id, "doi": None, "alt": None}
+
+    doi = stripped.rstrip(".,;:)]}>\"'").lower()
+    if _DOI_RE.fullmatch(doi):
+        q["doi"] = doi                       # DOI query: only DOI matches count
+        return q
+
+    # Alias variant (e.g. "qm" -> "quantum mechanics"); scored alongside the original.
+    alt_norm = q_norm if hash_id else _ALIAS_RE.sub(lambda m: _SEARCH_ALIASES[m.group(1)], q_norm)
+    if alt_norm != q_norm:
+        q["alt"] = {"norm": alt_norm, "sq": alt_norm.replace(" ", ""),
+                    "tokens": _tokenize(alt_norm), "hash_id": False,
+                    "doi": None, "alt": None}
+    return q
+
+
+def _tokenize(norm: str) -> list:
+    tokens = list(dict.fromkeys(norm.split()))
+    return [t for t in tokens if t not in _STOPWORDS] or tokens
+
+
+@lru_cache(maxsize=8_192)
+def _typo_dist(a: str, b: str) -> int:
+    """Damerau-Levenshtein (adjacent transposition counts as one edit)."""
+    prev2, prev = None, list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i]
+        for j, cb in enumerate(b, 1):
+            v = min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb))
+            if i > 1 and j > 1 and ca == b[j - 2] and a[i - 2] == cb:
+                v = min(v, prev2[j - 2] + 1)
+            cur.append(v)
+        prev2, prev = prev, cur
+    return prev[-1]
+
+
+def _fuzzy_hit(tok: str, words) -> bool:
+    """Controlled typo match: tokens of 6+ letters only (so qm/em/gr/qft never
+    fuzz), same first letter, 1 edit (2 edits for 10+ letters)."""
+    if len(tok) < 6 or not tok.isalpha():
+        return False
+    d = 1 if len(tok) <= 9 else 2
+    return any(
+        len(w) >= 4 and abs(len(w) - len(tok)) <= d and w[0] == tok[0]
+        and _typo_dist(tok, w) <= d
+        for w in words
+    )
+
+
+def _author_kind(tok: str, author: tuple, n_tokens: int) -> int:
+    """Name variations: "d griffiths" (initial), "jj sakurai" (joined initials)."""
+    if not author[0]:
+        return 0
+    if len(tok) == 1 and n_tokens > 1:
+        return 3 if any(w.startswith(tok) for w in author[1]) else 0
+    initials = "".join(w for w in author[1] if len(w) == 1)
+    return 3 if 2 <= len(tok) <= 3 and tok in initials else 0
+
+
+def _kind(tok: str, f: tuple) -> int:
+    text, words, wset, sq = f
+    if tok in wset:
+        return 4
+    n = len(tok)
+    if n < 2 or not text:
+        return 0
+    if any(w.startswith(tok) for w in words):
+        return 3
+    if n >= 3 and tok in text:
+        return 2
+    if n >= 4 and tok in sq:
+        return 1
+    return 0
+
+
+def _default_cover(n: int) -> int:
+    return n if n < 3 else n - 1                # 3+ tokens: tolerate one missing
+
+
+def _score_row(row, q: dict, min_cover: Optional[int]) -> Optional[tuple]:
+    """Best (tier, score, fuzzy) over the original query and its alias variant."""
+    best = None
+    for v in (q, q.get("alt"), q.get("cross")):
+        if not v:
+            continue
+        if min_cover is not None:
+            mc = min_cover
+        elif v is q:
+            mc = _default_cover(len(q["tokens"]))
+        else:   # alias expansion adds tokens; only allow the slack the original query had
+            mc = max(1, len(v["tokens"]) - (len(q["tokens"]) - _default_cover(len(q["tokens"]))))
+        res = _score_variant(row, v, mc)
+        if res and (best is None or (res[2], -res[0], -res[1]) < (best[2], -best[0], -best[1])):
+            best = res
+    return best
+
+
+def _score_variant(row, q: dict, min_cover: int) -> Optional[tuple]:
+    """Return (tier, score, used_fuzzy) or None when the row does not match.
+
+    tier 8 exact DOI (DOI queries only match DOIs)
+
+    tier 7 exact title / exact identifier (display ID, DOI)
+         6 title phrase      5 all tokens in title     4 … title + author
+         3 … + other metadata (journal, DOI, edition, year, field, ID)
+         2 … + description   1 weak partial (some tokens missing)
+    """
+    keys = row.keys()
+
+    def g(k):
+        v = row[k] if k in keys else None
+        return "" if v is None else str(v)
+
+    if q["doi"]:
+        row_doi = _DOI_PREFIX_RE.sub("", g("doi")).strip().lower()
+        if row_doi == q["doi"]:
+            return (8, 10_000, False)
+        return (5, 5_000, False) if row_doi and row_doi.startswith(q["doi"]) else None
+
+    title, author, desc = _prep(g("title")), _prep(g("author")), _prep(g("description"))
+    kw = _prep(g("keywords"))
+    qn, qsq, tokens = q["norm"], q["sq"], q["tokens"]
+
+    # ── tier 7: exact title or exact identifier
+    try:
+        disp = get_display_id(row)
+    except Exception:
+        disp = ""
+    idents = set()
+    disp_sq = _norm(disp).replace(" ", "")
+    if disp_sq and (q["hash_id"] or not disp.lstrip("#").isdigit()):
+        idents.add(disp_sq)
+        # Also add the no-type-prefix variant so "#QM-7" matches books displayed as "#QM-B7"
+        no_type = re.sub(r'^([a-z]+)[ab](\d+)$', r'\1\2', disp_sq)
+        if no_type != disp_sq:
+            idents.add(no_type)
+    if g("field_number") and g("resource_type") != "article":      # legacy "QM-7"
+        idents.add(_norm(field_code(g("physics_field"))).replace(" ", "") + g("field_number"))
+    doi_sq = _norm(g("doi")).replace(" ", "")
+    if doi_sq:
+        idents.add(doi_sq)
+    if qsq in idents or qn == title[0] or (qsq and qsq == title[3]):
+        return (7, 10_000, False)
+
+    fa, en = PHYSICS_FIELDS.get(g("physics_field"), ("", ""))
+    meta = [p for p in (_prep(x) for x in (
+        g("journal"), g("doi"), g("edition"), g("year"), g("publication_date"),
+        g("publisher"), fa, en, g("physics_field"), disp)) if p[0]]
+    if kw[0]:
+        meta.append(kw)   # keywords get meta-level weight (25) — higher than description (10)
+    groups = ([title], [author], meta, [desc])
+
+    covered, worst, total, title_hit, ta_hit, fuzzy = 0, 0, 0.0, False, False, False
+    for tok in tokens:
+        best_w, best_c, tok_fuzzy = 0.0, None, False
+        for c, group in enumerate(groups):
+            k = max((_kind(tok, f) for f in group), default=0)
+            if not k and c == 1:
+                k = _author_kind(tok, author, len(tokens))
+            if k and _FIELD_W[c] * _KIND_F[k] > best_w:
+                best_w, best_c = _FIELD_W[c] * _KIND_F[k], c
+        if best_c is None and tok not in q.get("known", ()):
+            # typo tolerance (title/author/metadata only) — skipped for words that
+            # are real words in the library, so "mechanics" never fuzzes to "mechanism"
+            for c in (0, 1, 2):
+                if any(_fuzzy_hit(tok, f[1]) for f in groups[c]):
+                    best_w, best_c, tok_fuzzy = _FIELD_W[c] * _FUZZY_F, c, True
+                    break
+        if best_c is not None:
+            fuzzy = fuzzy or tok_fuzzy
+            covered += 1
+            worst = max(worst, best_c)
+            total += best_w
+            title_hit = title_hit or best_c == 0
+            ta_hit = ta_hit or best_c <= 1
+    if covered < min_cover:
+        return None
+    if covered < len(tokens) and not ta_hit:
+        return None          # partial matches need a title/author hit (not just field/ID)
+
+    tier = (5, 4, 3, 2)[worst] if covered == len(tokens) else 1
+
+    # ── tier 6: query is a phrase in the title (word-start; whole word for 1-char queries)
+    t_pad = f" {title[0]} "
+    if (f" {qn}" if len(qsq) >= 2 else f" {qn} ") in t_pad:
+        tier = 6
+        # Stronger bonus when the title *begins* with the query
+        total += 60 if title[0].startswith(qn) else 0
+        total += 10 if f" {qn} " in t_pad else 0
+    # Author phrase bonus: full query appearing as a contiguous phrase in author
+    a_pad = f" {author[0]} "
+    if len(qsq) >= 2 and f" {qn}" in a_pad:
+        total += 35
+        # Extra if author starts with the query (e.g. searching "Griffiths")
+        if author[0].startswith(qn):
+            total += 20
+    if title_hit:                       # prefer titles that are mostly the query
+        total += 20 * min(1.0, len(tokens) / max(1, len(title[1])))
+    return (tier, int(total), fuzzy)
+
+
+def _rank_rows(rows, q: dict, order_by: str = "default", min_cover: Optional[int] = None) -> list:
+    if any(len(t) >= 6 and t.isalpha() for v in (q, q.get("alt")) if v for t in v["tokens"]):
+        known = set()
+        for row in rows:
+            known.update(_prep(row["title"])[1])
+            known.update(_prep(row["author"])[1])
+        q["known"] = known
+        if q.get("alt"):
+            q["alt"]["known"] = known
+    scored = []
+    for idx, row in enumerate(rows):
+        res = _score_row(row, q, min_cover)
+        if res:
+            scored.append((res, idx, row))
+    # Fuzzy (typo) matches always come after exact/normal ones.
+    # For all order_by values: sort by (fuzzy, -tier, -score, original_sql_idx).
+    # The original SQL ordering (recent/popular) is preserved as a tiebreak via idx,
+    # so exact matches still rank above weak partial matches even in recent/popular lists.
+    scored.sort(key=lambda s: (s[0][2], -s[0][0], -s[0][1], s[1]))
+    return [s[2] for s in scored]
+
+
+def _fts_query(q_info: dict) -> str:
+    """Build an FTS5 MATCH expression from a prepared query dict.
+
+    Strategy:
+    - Single-token or alias-expanded queries: prefix OR across all tokens.
+    - Multi-token queries from the *original* query (before alias expansion):
+        Primary:  AND of all original tokens (all must appear somewhere).
+        Fallback: OR of all tokens (used when AND returns nothing — see
+                  search_resources which runs both and merges).
+
+    Returns a tuple (and_expr, or_expr).  Either may be empty string.
+    When called from code that only wants one expression, use or_expr.
+    """
+    token_sets: list[list[str]] = []
+    for v in (q_info, q_info.get("alt")):
+        if v and v.get("tokens"):
+            token_sets.append(v["tokens"])
+    if not token_sets:
+        return ""
+    all_toks = list(dict.fromkeys(t for ts in token_sets for t in ts))
+    parts = [f'"{tok}"*' for tok in all_toks if len(tok) >= 2]
+    if not parts:
+        return ""
+    return " OR ".join(parts)
+
+
+def _fts_query_pair(q_info: dict) -> tuple[str, str]:
+    """Return (and_expr, or_expr) for use in search_resources.
+
+    and_expr: all original tokens must be present (tighter, used first).
+    or_expr:  any token suffices (broader, used as fallback).
+    Both use prefix matching (*) so partial words match.
+    """
+    orig_toks = [t for t in (q_info.get("tokens") or []) if len(t) >= 2]
+    # Gather alias tokens too (alias expansions go into or_expr only)
+    alt = q_info.get("alt")
+    alt_toks = [t for t in ((alt or {}).get("tokens") or []) if len(t) >= 2]
+
+    all_toks = list(dict.fromkeys(orig_toks + alt_toks))
+
+    if not all_toks:
+        return "", ""
+
+    # Cross-language expansion: Persian tokens → English equivalents (and reverse)
+    cross_toks = _expand_query_cross_lang({"tokens": orig_toks})
+    all_toks_expanded = list(dict.fromkeys(all_toks + cross_toks))
+
+    or_parts  = [f'"{t}"*' for t in all_toks_expanded]
+    or_expr   = " OR ".join(or_parts)
+
+    # AND expression: only original tokens (alias + cross-lang go into OR only)
+    if len(orig_toks) > 1:
+        and_parts = [f'"{t}"*' for t in orig_toks]
+        and_expr  = " AND ".join(and_parts)
+    else:
+        and_expr = ""   # single token: AND == OR, skip redundant query
+
+    return and_expr, or_expr
+
+
+def search_resources(
+    query: str = "",
+    physics_field: str = "",
+    language: str = "",
+    resource_type: str = "",
+    limit: int = 10,
+    offset: int = 0,
+    order_by: str = "default",   # "default" | "recent" | "popular"
+) -> list[sqlite3.Row]:
+    """Search resources with FTS pre-filtering + Python relevance ranking.
+
+    Flow (with query):
+      1. Normalise and prepare the query (aliases, tokens, DOI detection).
+      2. Try FTS5 MATCH for a fast candidate set restricted to the caller's
+         filters (field, language, type).  FTS limits the scan to rows that
+         contain at least one query token, drastically reducing the Python
+         ranking work.
+      3. Fall back to a full SQL scan of the filtered subset when FTS is
+         unavailable or returns nothing (conservative: never miss a result).
+      4. Rank the candidate rows with the full Python scorer (_score_row).
+
+    Flow (without query):
+      Simple SQL with ORDER BY and LIMIT/OFFSET — no ranking needed.
+    """
+    conditions: list[str] = []
+    params: list = []
+
+    q_info: Optional[dict] = None
+    if query:
+        q_info = _prepare_query(query)
+        if q_info is None:
+            return []
+
+    if physics_field:
+        conditions.append("physics_field = ?")
+        params.append(physics_field)
+    if language:
+        conditions.append("language = ?")
+        params.append(language)
+    if resource_type:
+        conditions.append("resource_type = ?")
+        params.append(resource_type)
+
+    where_parts = conditions[:]
+
+    if order_by == "recent":
+        order_clause = "ORDER BY created_at DESC, id DESC"
+    elif order_by == "popular":
+        order_clause = "ORDER BY download_count DESC, created_at DESC"
+    else:
+        order_clause = "ORDER BY title ASC, id ASC"
+
+    if q_info is None:
+        # ── No query: plain browse ────────────────────────────────────────────
+        where = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
+        sql = f"SELECT * FROM books {where} {order_clause} LIMIT ? OFFSET ?"
+        with get_connection() as conn:
+            return conn.execute(sql, params + [limit, offset]).fetchall()
+
+    # ── Text search ───────────────────────────────────────────────────────────
+    with get_connection() as conn:
+        # ── Step 1: try FTS5 fast path ────────────────────────────────────────
+        fts_expr = _fts_query(q_info)
+        candidate_rows: list[sqlite3.Row] = []
+        fts_tried = False
+
+        and_expr, or_expr = _fts_query_pair(q_info)
+
+        def _fts_fetch(match_expr: str) -> list:
+            """Run one FTS MATCH query inside the open connection."""
+            fts_where_parts = ["books_fts MATCH ?"] + where_parts
+            fts_where = "WHERE " + " AND ".join(fts_where_parts)
+            sql = f"""
+                SELECT b.* FROM books b
+                JOIN books_fts ON books_fts.rowid = b.id
+                {fts_where}
+                {order_clause}
+            """
+            return conn.execute(sql, [match_expr] + params).fetchall()
+
+        if not q_info.get("doi") and (and_expr or or_expr):
+            try:
+                # ── Pass 1: strict AND — all tokens must appear ───────────────
+                and_rows: list = []
+                if and_expr:
+                    and_rows = _fts_fetch(and_expr)
+
+                # ── Pass 2: broad OR — any token suffices ─────────────────────
+                or_rows: list = []
+                if or_expr:
+                    or_rows = _fts_fetch(or_expr)
+
+                # Merge: AND results first (tighter match), then OR-only extras
+                seen_ids = {r["id"] for r in and_rows}
+                extra = [r for r in or_rows if r["id"] not in seen_ids]
+                candidate_rows = list(and_rows) + extra
+                fts_tried = True
+            except Exception:
+                candidate_rows = []
+                fts_tried = False
+
+        # ── Step 2: fall back to full SQL scan when FTS misses ────────────────
+        # Always fall back for DOI queries; also fall back when FTS returns
+        # nothing (stale index, very short token, etc.).
+        if not fts_tried or (not candidate_rows and not q_info.get("doi")):
+            full_where = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
+            fallback_rows = conn.execute(
+                f"SELECT * FROM books {full_where} {order_clause}", params
+            ).fetchall()
+            if fts_tried and candidate_rows:
+                seen_ids = {r["id"] for r in candidate_rows}
+                extra = [r for r in fallback_rows if r["id"] not in seen_ids]
+                candidate_rows = list(candidate_rows) + extra
+            else:
+                candidate_rows = fallback_rows
+
+        # ── Step 3: cross-language expansion + known-word set ───────────────
+        # Inject English equivalents of Persian tokens (and vice versa) so the
+        # Python scorer can also match titles/authors in the other language.
+        cross_extras = _expand_query_cross_lang(q_info)
+        if cross_extras:
+            # Add as a synthetic "cross" variant so the scorer tries them
+            cross_norm = " ".join(cross_extras)
+            q_info["cross"] = {
+                "norm": cross_norm,
+                "sq":   cross_norm.replace(" ", ""),
+                "tokens": cross_extras,
+                "hash_id": False, "doi": None, "alt": None,
+            }
+
+        if any(len(t) >= 6 and t.isalpha()
+               for v in (q_info, q_info.get("alt"), q_info.get("cross")) if v
+               for t in (v.get("tokens") or [])):
+            known: set[str] = set()
+            for r in conn.execute("SELECT title, author FROM books").fetchall():
+                known.update(_prep(r["title"])[1])
+                known.update(_prep(r["author"])[1])
+            for v in (q_info, q_info.get("alt"), q_info.get("cross")):
+                if v:
+                    v["known"] = known
+
+    return _rank_rows(candidate_rows, q_info, order_by)[offset:offset + limit]
+
+
+def find_resource_by_display_id(text: str) -> Optional[sqlite3.Row]:
+    """Parse a display ID like #QM-B7 or #QM-A3 and return the matching row.
+
+    Format: #{FIELD_CODE}-{TYPE_PREFIX}{NUMBER}
+      TYPE_PREFIX B → book, A → article (omitting prefix also matches books).
+    """
+    cleaned = text.strip().lstrip("#").upper().replace(" ", "")
+    # Split on '-' to separate field code from the rest
+    parts = cleaned.split("-", 1)
+    if len(parts) != 2:
+        return None
+
+    letters = parts[0]                    # e.g. "QM"
+    rest    = parts[1]                    # e.g. "B7" / "A3" / "7"
+
+    if not letters or not rest:
+        return None
+
+    # Detect optional type prefix
+    if rest and rest[0] in ("B", "A"):
+        type_prefix = rest[0]
+        digits      = rest[1:]
+    else:
+        type_prefix = "B"
+        digits      = rest
+
+    if not digits.isdigit():
+        return None
+
+    resource_type  = "article" if type_prefix == "A" else "book"
+    field_number   = int(digits)
+
+    matching_fields = [f for f, code in FIELD_CODES.items() if code == letters]
+    if not matching_fields:
+        return None
+
+    with get_connection() as conn:
+        for field in matching_fields:
+            row = conn.execute(
+                "SELECT * FROM books WHERE physics_field = ? AND field_number = ? AND resource_type = ?",
+                (field, field_number, resource_type)
+            ).fetchone()
+            if row:
+                return row
+    return None
+
+
+# ── Book CRUD (thin wrappers around generic functions) 
+
+def add_book(
+    title: str,
+    author: str,
+    language: str,           # هر کد دو‌حرفی ISO 639-1 (مثلاً fa, en, de, fr, nl, ru, …)
+    physics_field: str,
+    file_id: str,
+    file_name: str,
+    file_size: int,
+    description: str = "",
+    edition: str = "",
+    year: Optional[int] = None,
+    cover_file_id: str = "",
+    added_by: Optional[int] = None,
+) -> int:
+    return add_resource(
+        title=title,
+        author=author,
+        language=language,
+        physics_field=physics_field,
+        resource_type="book",
+        file_id=file_id,
+        file_name=file_name,
+        file_size=file_size,
+        description=description,
+        edition=edition,
+        year=year,
+        cover_file_id=cover_file_id,
+        added_by=added_by,
+    )
+
+
+def get_book(book_id: int) -> Optional[sqlite3.Row]:
+    return get_resource(book_id)
+
+
+def find_book_by_display_id(text: str) -> Optional[sqlite3.Row]:
+    # Legacy: treat bare codes (no B/A prefix) as books, matching old behaviour
+    cleaned = text.strip().lstrip("#").upper().replace(" ", "")
+    # If caller passes old-style "#QM-7" without prefix, normalise to "#QM-B7"
+    parts = cleaned.split("-", 1)
+    if len(parts) == 2 and parts[1] and parts[1][0] not in ("B", "A"):
+        cleaned = f"{parts[0]}-B{parts[1]}"
+    return find_resource_by_display_id("#" + cleaned)
+
+
+def update_book(book_id: int, **kwargs) -> bool:
+    allowed = {
+        # shared fields
+        "title", "author", "language", "physics_field",
+        "description", "year",
+        "file_id", "file_name", "file_size", "cover_file_id",
+        # book-specific
+        "edition", "publisher",
+        # article-specific
+        "doi", "journal", "volume", "issue", "pages",
+        "publication_date", "url",
+    }
+    fields = {k: v for k, v in kwargs.items() if k in allowed}
+    if not fields:
+        return False
+
+    with get_connection() as conn:
+        if "physics_field" in fields:
+            # Same race as add_resource(): lock before reading MAX(field_number)
+            # so a concurrent edit/add can't be assigned the same number.
+            conn.execute("BEGIN IMMEDIATE")
+            current = conn.execute(
+                "SELECT physics_field, resource_type FROM books WHERE id = ?", (book_id,)
+            ).fetchone()
+            if current and current["physics_field"] != fields["physics_field"]:
+                row = conn.execute(
+                    "SELECT COALESCE(MAX(field_number), 0) AS mx FROM books "
+                    "WHERE physics_field = ? AND resource_type = ?",
+                    (fields["physics_field"], current["resource_type"])
+                ).fetchone()
+                fields["field_number"] = row["mx"] + 1
+
+        fields["updated_at"] = datetime.utcnow().isoformat()
+        set_clause = ", ".join(f"{k} = ?" for k in fields)
+        values = list(fields.values()) + [book_id]
+
+        cur = conn.execute(
+            f"UPDATE books SET {set_clause} WHERE id = ?", values
+        )
+        conn.commit()
+        changed = cur.rowcount > 0
+    # Regenerate keywords whenever searchable text fields change
+    _kw_trigger_fields = {"title", "description", "physics_field", "language"}
+    if changed and (_kw_trigger_fields & set(kwargs)):
+        update_keywords(book_id)
+    return changed
+
+
+def delete_book(book_id: int) -> bool:
+    with get_connection() as conn:
+        cur = conn.execute("DELETE FROM books WHERE id = ?", (book_id,))
+        conn.commit()
+        return cur.rowcount > 0
+
+
+
+# Advanced Search
+
+def search_books(
+    query: str = "",
+    physics_field: str = "",
+    language: str = "",
+    limit: int = 10,
+    offset: int = 0,
+    order_by: str = "default",
+) -> list[sqlite3.Row]:
+    return search_resources(
+        query=query,
+        physics_field=physics_field,
+        language=language,
+        resource_type="book",
+        limit=limit,
+        offset=offset,
+        order_by=order_by,
+    )
+
+
+def suggest_similar(query: str, limit: int = 5) -> list[sqlite3.Row]:
+    """Return up to *limit* resources loosely matching *query*.
+
+    Uses a relaxed min_cover=1 so at least one token must match, then ranks
+    normally.  Results are used to power "Did you mean…?" suggestions.
+    FTS pre-filters the candidates for speed on large libraries.
+    """
+    q_info = _prepare_query(query)
+    if not q_info:
+        return []
+    with get_connection() as conn:
+        # Try FTS first for a fast candidate pool
+        rows: list[sqlite3.Row] = []
+        fts_expr = _fts_query(q_info)
+        if fts_expr:
+            try:
+                rows = conn.execute(
+                    "SELECT b.* FROM books b "
+                    "JOIN books_fts ON books_fts.rowid = b.id "
+                    "WHERE books_fts MATCH ? "
+                    "ORDER BY title ASC, id ASC",
+                    [fts_expr]
+                ).fetchall()
+            except Exception:
+                rows = []
+        if not rows:
+            rows = conn.execute("SELECT * FROM books ORDER BY title ASC, id ASC").fetchall()
+    # Relaxed matching: a single matching token is enough, best matches first.
+    return _rank_rows(rows, q_info, min_cover=1)[:limit]
+
+
+# ── Bookmarks ──────────────────────────────────────────────────────────────────
+
+def toggle_bookmark(user_id: int, book_id: int) -> bool:
+    """Toggle bookmark. Returns True if added, False if removed."""
+    with get_connection() as conn:
+        exists = conn.execute(
+            "SELECT 1 FROM bookmarks WHERE user_id=? AND book_id=?", (user_id, book_id)
+        ).fetchone()
+        if exists:
+            conn.execute("DELETE FROM bookmarks WHERE user_id=? AND book_id=?", (user_id, book_id))
+            conn.commit()
+            return False
+        conn.execute("INSERT INTO bookmarks (user_id, book_id) VALUES (?,?)", (user_id, book_id))
+        conn.commit()
+        return True
+
+
+def get_bookmarks(user_id: int) -> list[sqlite3.Row]:
+    with get_connection() as conn:
+        return conn.execute(
+            "SELECT b.* FROM books b JOIN bookmarks bm ON b.id=bm.book_id "
+            "WHERE bm.user_id=? ORDER BY bm.saved_at DESC",
+            (user_id,)
+        ).fetchall()
+
+
+def is_bookmarked(user_id: int, book_id: int) -> bool:
+    with get_connection() as conn:
+        return bool(conn.execute(
+            "SELECT 1 FROM bookmarks WHERE user_id=? AND book_id=?", (user_id, book_id)
+        ).fetchone())
+
+
+# ── Subscriptions ──────────────────────────────────────────────────────────────
+
+def toggle_subscription(user_id: int, physics_field: str) -> bool:
+    """Toggle field subscription. Returns True if subscribed, False if unsubscribed."""
+    with get_connection() as conn:
+        exists = conn.execute(
+            "SELECT 1 FROM subscriptions WHERE user_id=? AND physics_field=?",
+            (user_id, physics_field)
+        ).fetchone()
+        if exists:
+            conn.execute(
+                "DELETE FROM subscriptions WHERE user_id=? AND physics_field=?",
+                (user_id, physics_field)
             )
             conn.commit()
             return False
         conn.execute(
-            """INSERT INTO users (user_id, username, full_name, created_at, last_seen)
-               VALUES (?, ?, ?, datetime('now'), datetime('now'))""",
-            (user_id, username, full_name),
+            "INSERT INTO subscriptions (user_id, physics_field) VALUES (?,?)",
+            (user_id, physics_field)
         )
         conn.commit()
         return True
 
 
-def set_admin(user_id: int, is_admin: bool) -> None:
+def get_field_subscribers(physics_field: str) -> list[int]:
+    """Return list of user_ids subscribed to a field."""
     with get_connection() as conn:
-        conn.execute(
-            "UPDATE users SET is_admin=? WHERE user_id=?",
-            (1 if is_admin else 0, user_id),
-        )
+        rows = conn.execute(
+            "SELECT user_id FROM subscriptions WHERE physics_field=?", (physics_field,)
+        ).fetchall()
+    return [r["user_id"] for r in rows]
+
+
+def get_user_subscriptions(user_id: int) -> list[str]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT physics_field FROM subscriptions WHERE user_id=?", (user_id,)
+        ).fetchall()
+    return [r["physics_field"] for r in rows]
+
+
+def is_subscribed(user_id: int, physics_field: str) -> bool:
+    with get_connection() as conn:
+        return bool(conn.execute(
+            "SELECT 1 FROM subscriptions WHERE user_id=? AND physics_field=?",
+            (user_id, physics_field)
+        ).fetchone())
+
+
+# ── Download History ───────────────────────────────────────────────────────────
+
+def get_download_history(user_id: int, limit: int = 20) -> list[sqlite3.Row]:
+    """Return distinct resources downloaded by user, most recent first."""
+    with get_connection() as conn:
+        return conn.execute(
+            "SELECT b.*, MAX(dl.downloaded_at) AS downloaded_at FROM books b "
+            "JOIN download_logs dl ON b.id = dl.book_id "
+            "WHERE dl.user_id = ? GROUP BY b.id "
+            "ORDER BY downloaded_at DESC LIMIT ?",
+            (user_id, limit)
+        ).fetchall()
+
+
+# ── Ratings ────────────────────────────────────────────────────────────────────
+
+def rate_resource(user_id: int, book_id: int, rating: int) -> None:
+    """Insert or update a user's rating for a resource (1-5)."""
+    with get_connection() as conn:
+        conn.execute("""
+            INSERT INTO ratings (user_id, book_id, rating, updated_at)
+            VALUES (?, ?, ?, datetime('now'))
+            ON CONFLICT(user_id, book_id) DO UPDATE SET
+                rating     = excluded.rating,
+                updated_at = excluded.updated_at
+        """, (user_id, book_id, rating))
         conn.commit()
 
 
-def list_admins() -> list:
-    """لیست ادمین‌های فعال — هر row یک dict با کلید user_id."""
+def get_rating_stats(book_id: int) -> dict:
+    """Return avg rating (1 decimal) and count for a resource."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT ROUND(AVG(rating), 1) AS avg, COUNT(*) AS cnt "
+            "FROM ratings WHERE book_id = ?",
+            (book_id,)
+        ).fetchone()
+    avg = row["avg"] if row and row["avg"] is not None else None
+    cnt = row["cnt"] if row else 0
+    return {"avg": avg, "cnt": cnt}
+
+
+def get_user_rating(user_id: int, book_id: int) -> Optional[int]:
+    """Return the user's existing rating for a resource, or None."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT rating FROM ratings WHERE user_id = ? AND book_id = ?",
+            (user_id, book_id)
+        ).fetchone()
+    return row["rating"] if row else None
+
+
+def get_books_by_field(physics_field: str, limit: int = 20) -> list[sqlite3.Row]:
+    with get_connection() as conn:
+        return conn.execute(
+            "SELECT * FROM books WHERE physics_field = ? ORDER BY title LIMIT ?",
+            (physics_field, limit)
+        ).fetchall()
+
+
+def get_field_counts(physics_field: str) -> dict:
+    """Return the number of books and articles for a given physics field."""
+    with get_connection() as conn:
+        book_count = conn.execute(
+            "SELECT COUNT(*) FROM books WHERE physics_field = ? AND resource_type = 'book'",
+            (physics_field,)
+        ).fetchone()[0]
+        article_count = conn.execute(
+            "SELECT COUNT(*) FROM books WHERE physics_field = ? AND resource_type = 'article'",
+            (physics_field,)
+        ).fetchone()[0]
+    return {"books": book_count, "articles": article_count}
+
+
+def list_all_fields() -> list[str]:
     with get_connection() as conn:
         rows = conn.execute(
-            "SELECT user_id, username, full_name FROM users WHERE is_admin=1"
+            "SELECT DISTINCT physics_field, COUNT(*) as cnt "
+            "FROM books GROUP BY physics_field ORDER BY cnt DESC"
         ).fetchall()
-    return [dict(r) for r in rows]
+    return [r["physics_field"] for r in rows]
+
+
+# Download Stats
+
+def record_download(book_id: int, user_id: int) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO download_logs (book_id, user_id) VALUES (?,?)",
+            (book_id, user_id)
+        )
+        conn.execute(
+            "UPDATE books SET download_count = download_count + 1 WHERE id = ?",
+            (book_id,)
+        )
+        conn.commit()
+
+# Most Downloaded Resources
+def get_top_downloads(limit: int = 10, resource_type: str = "", offset: int = 0) -> list[sqlite3.Row]:
+    """Rank by a Bayesian score that blends download_count with average rating.
+
+    score = download_count + (rating_weight * bayesian_avg)
+    bayesian_avg = (n*avg + C*m) / (n + C)
+      n = number of ratings for this resource
+      avg = resource's mean rating
+      m = global mean rating across all rated resources (fallback 3.0)
+      C = confidence constant (min ratings before rating pulls the score)
+    rating_weight scales rating contribution relative to downloads.
+    """
+    where = "WHERE resource_type = ?" if resource_type else ""
+    params_list: list = [resource_type] if resource_type else []
+
+    # Global mean and confidence constant
+    C = 5          # need at least 5 ratings before they heavily influence rank
+    W = 20         # one full "quality point" == W extra imaginary downloads
+    # (tune: a 5-star resource with >=C ratings earns up to ~2*W extra virtual downloads)
+
+    sql = f"""
+        SELECT b.*,
+               COALESCE(r.avg_r, 0)   AS avg_rating,
+               COALESCE(r.cnt_r, 0)   AS rating_count,
+               (
+                   b.download_count
+                   + {W} * (
+                       (COALESCE(r.cnt_r,0) * COALESCE(r.avg_r,0) + {C} * COALESCE(gm.global_mean, 3.0))
+                       / (COALESCE(r.cnt_r,0) + {C})
+                       - COALESCE(gm.global_mean, 3.0)
+                   )
+               ) AS score
+        FROM books b
+        LEFT JOIN (
+            SELECT book_id, AVG(rating) AS avg_r, COUNT(*) AS cnt_r
+            FROM ratings GROUP BY book_id
+        ) r ON r.book_id = b.id
+        LEFT JOIN (
+            SELECT AVG(rating) AS global_mean FROM ratings
+        ) gm ON 1=1
+        {where}
+        ORDER BY score DESC
+        LIMIT ? OFFSET ?
+    """
+    params_list += [limit, offset]
+    with get_connection() as conn:
+        return conn.execute(sql, params_list).fetchall()
+
+
+def get_book_stats(book_id: int) -> dict:
+    with get_connection() as conn:
+        book = conn.execute(
+            "SELECT download_count FROM books WHERE id = ?", (book_id,)
+        ).fetchone()
+
+        recent = conn.execute(
+            """SELECT COUNT(*) as cnt FROM download_logs
+               WHERE book_id = ?
+               AND downloaded_at >= datetime('now', '-30 days')""",
+            (book_id,)
+        ).fetchone()
+
+    return {
+        "total": book["download_count"] if book else 0,
+        "last_30_days": recent["cnt"] if recent else 0,
+    }
+
+
+def get_library_stats() -> dict:
+    with get_connection() as conn:
+        total_books    = conn.execute(
+            "SELECT COUNT(*) FROM books WHERE resource_type = 'book'"
+        ).fetchone()[0]
+        total_articles = conn.execute(
+            "SELECT COUNT(*) FROM books WHERE resource_type = 'article'"
+        ).fetchone()[0]
+        total_resources = conn.execute("SELECT COUNT(*) FROM books").fetchone()[0]
+        total_fa       = conn.execute("SELECT COUNT(*) FROM books WHERE language='fa'").fetchone()[0]
+        total_en       = conn.execute("SELECT COUNT(*) FROM books WHERE language='en'").fetchone()[0]
+        # تعداد کل منابع غیر از فارسی و انگلیسی
+        total_other    = conn.execute(
+            "SELECT COUNT(*) FROM books WHERE language NOT IN ('fa', 'en')"
+        ).fetchone()[0]
+        total_dl       = conn.execute("SELECT COALESCE(SUM(download_count),0) FROM books").fetchone()[0]
+        unique_fields  = conn.execute("SELECT COUNT(DISTINCT physics_field) FROM books").fetchone()[0]
+        total_users    = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+        has_pending_table = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='pending_resources'"
+        ).fetchone()
+        if has_pending_table:
+            pending_total = conn.execute(
+                "SELECT COUNT(*) FROM pending_resources WHERE status NOT IN ('published', 'rejected')"
+            ).fetchone()[0]
+            pending_awaiting_file = conn.execute(
+                "SELECT COUNT(*) FROM pending_resources WHERE status = 'pending'"
+            ).fetchone()[0]
+            pending_file_received = conn.execute(
+                "SELECT COUNT(*) FROM pending_resources WHERE status = 'file_received'"
+            ).fetchone()[0]
+        else:
+            pending_total = pending_awaiting_file = pending_file_received = 0
+    return {
+        "total_books":            total_books,
+        "total_articles":         total_articles,
+        "total_resources":        total_resources,
+        "fa_books":               total_fa,
+        "en_books":               total_en,
+        "other_books":            total_other,
+        "total_downloads":        total_dl,
+        "unique_fields":          unique_fields,
+        "total_users":            total_users,
+        "pending_total":          pending_total,
+        "pending_awaiting_file":  pending_awaiting_file,
+        "pending_file_received":  pending_file_received,
+    }
+
+
+# user management
+
+def upsert_user(user_id: int, username: str = "", first_name: str = "") -> None:
+    with get_connection() as conn:
+        conn.execute("""
+            INSERT INTO users (user_id, username, first_name, last_seen)
+            VALUES (?, ?, ?, datetime('now'))
+            ON CONFLICT(user_id) DO UPDATE SET
+                username   = excluded.username,
+                first_name = excluded.first_name,
+                last_seen  = datetime('now')
+        """, (user_id, username, first_name))
+        conn.commit()
+
+
+def set_admin(user_id: int, is_admin: bool = True) -> None:
+    with get_connection() as conn:
+        conn.execute("""
+            INSERT INTO users (user_id, is_admin, last_seen)
+            VALUES (?, ?, datetime('now'))
+            ON CONFLICT(user_id) DO UPDATE SET is_admin = excluded.is_admin
+        """, (user_id, 1 if is_admin else 0))
+        conn.commit()
 
 
 def is_admin(user_id: int) -> bool:
-    """آیا کاربر ادمین است؟"""
     with get_connection() as conn:
         row = conn.execute(
-            "SELECT is_admin FROM users WHERE user_id=?", (user_id,)
+            "SELECT is_admin FROM users WHERE user_id = ?", (user_id,)
         ).fetchone()
     return bool(row and row["is_admin"])
 
+# Admin Lists
+def list_admins() -> list[sqlite3.Row]:
+    with get_connection() as conn:
+        return conn.execute(
+            "SELECT user_id, username, first_name FROM users WHERE is_admin = 1 "
+            "ORDER BY last_seen DESC"
+        ).fetchall()
 
-def get_user_lang(user_id: int) -> str:
-    """زبان کاربر — در stub همیشه 'fa' برمی‌گردد."""
-    return "fa"
+
+def get_user_lang(user_id: int) -> Optional[str]:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT lang FROM users WHERE user_id = ?", (user_id,)
+        ).fetchone()
+    return row["lang"] if row and row["lang"] else None
+
+
+def set_user_lang(user_id: int, lang: str) -> None:
+    if lang not in VALID_ISO_639_1:
+        return
+    with get_connection() as conn:
+        conn.execute("""
+            INSERT INTO users (user_id, lang, last_seen)
+            VALUES (?, ?, datetime('now'))
+            ON CONFLICT(user_id) DO UPDATE SET lang = excluded.lang
+        """, (user_id, lang))
+        conn.commit()
+
+# ── Pending Resources (Phase 1: Foundation) ───────────────────────────────────
+#
+# These functions manage the pending_resources table.  A pending resource
+# becomes a real library entry only when published via add_resource().
+# field_number is never assigned here — that happens at publish time.
+
+_PENDING_ALLOWED_FIELDS = {
+    "resource_type", "title", "author", "language", "physics_field",
+    "description", "edition", "year",
+    "doi", "journal", "volume", "issue", "pages", "url", "publication_date",
+    "file_id", "file_name", "file_size",
+    "status",
+}
+
+
+def _validate_pending_fields(
+    resource_type: Optional[str] = None,
+    language: Optional[str] = None,
+    physics_field: Optional[str] = None,
+) -> None:
+    """Raise ValueError for invalid resource_type / language / physics_field.
+
+    Uses the same rules as add_resource() in the existing library system.
+    """
+    if resource_type is not None and resource_type not in ("book", "article"):
+        raise ValueError("resource_type باید 'book' یا 'article' باشد")
+    if language is not None and language not in VALID_ISO_639_1:
+        raise ValueError(f"زبان نامعتبر: '{language}'. کد دو‌حرفی ISO 639-1 وارد کنید (مثلاً fa, en, fr, de, nl)")
+    if physics_field is not None and physics_field not in PHYSICS_FIELDS:
+        raise ValueError(f"فیلد نامعتبر: {physics_field}")
+
+
+def create_pending_resource(
+    title: str,
+    author: str,
+    language: str,
+    physics_field: str,
+    resource_type: str = "book",
+    description: str = "",
+    edition: str = "",
+    year: Optional[int] = None,
+    doi: str = "",
+    journal: str = "",
+    volume: str = "",
+    issue: str = "",
+    pages: str = "",
+    url: str = "",
+    publication_date: str = "",
+) -> int:
+    """Insert a new pending resource (metadata only; no file yet).
+
+    Returns the new pending resource id.
+    Raises ValueError for invalid resource_type, language, or physics_field.
+    """
+    _validate_pending_fields(resource_type, language, physics_field)
+
+    with get_connection() as conn:
+        cur = conn.execute("""
+            INSERT INTO pending_resources
+                (resource_type, title, author, language, physics_field,
+                 description, edition, year,
+                 doi, journal, volume, issue, pages, url, publication_date)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """, (
+            resource_type, title, author, language, physics_field,
+            description, edition, year,
+            doi, journal, volume, issue, pages, url, publication_date,
+        ))
+        conn.commit()
+        return cur.lastrowid
+
+
+def bulk_create_pending_resources(rows: list[dict]) -> list[int]:
+    """Insert multiple pending resources atomically inside one transaction.
+
+    *rows* is a list of kwargs dicts, each valid for create_pending_resource().
+    All validation is performed before any INSERT; if any row is invalid the
+    entire batch is rejected with ValueError and nothing is written.
+    On a database error mid-insert the transaction is rolled back automatically
+    (sqlite3 context manager) and the exception is re-raised.
+
+    Returns the list of new pending resource ids in the same order as *rows*.
+    Existing create_pending_resource() behaviour is unchanged.
+    """
+    if not rows:
+        return []
+
+    # Validate every row first — no DB work yet.
+    for i, row in enumerate(rows):
+        _validate_pending_fields(
+            resource_type=row.get("resource_type"),
+            language=row.get("language"),
+            physics_field=row.get("physics_field"),
+        )
+        if not row.get("title"):
+            raise ValueError(f"row {i}: title is required")
+        if not row.get("author"):
+            raise ValueError(f"row {i}: author is required")
+
+    # Single connection — sqlite3's context manager issues COMMIT on __exit__
+    # and ROLLBACK on exception, giving us true atomicity.
+    ids: list[int] = []
+    with get_connection() as conn:
+        for row in rows:
+            cur = conn.execute("""
+                INSERT INTO pending_resources
+                    (resource_type, title, author, language, physics_field,
+                     description, edition, year,
+                     doi, journal, volume, issue, pages, url, publication_date)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """, (
+                row.get("resource_type", "book"),
+                row["title"],
+                row["author"],
+                row["language"],
+                row["physics_field"],
+                row.get("description", ""),
+                row.get("edition", ""),
+                row.get("year"),
+                row.get("doi", ""),
+                row.get("journal", ""),
+                row.get("volume", ""),
+                row.get("issue", ""),
+                row.get("pages", ""),
+                row.get("url", ""),
+                row.get("publication_date", ""),
+            ))
+            ids.append(cur.lastrowid)
+        conn.commit()
+    return ids
+
+
+def get_pending_resource(pending_id: int) -> Optional[sqlite3.Row]:
+    """Return a single pending resource row by its internal id, or None."""
+    with get_connection() as conn:
+        return conn.execute(
+            "SELECT * FROM pending_resources WHERE id = ?", (pending_id,)
+        ).fetchone()
+
+
+def update_pending_resource(pending_id: int, **kwargs) -> bool:
+    """Update allowed metadata fields on a pending resource.
+
+    Returns True if a row was updated, False if the id was not found or no
+    valid fields were supplied.  Raises ValueError for constraint violations.
+    """
+    fields = {k: v for k, v in kwargs.items() if k in _PENDING_ALLOWED_FIELDS}
+    if not fields:
+        return False
+
+    # Validate constrained fields if they are being changed
+    _validate_pending_fields(
+        resource_type=fields.get("resource_type"),
+        language=fields.get("language"),
+        physics_field=fields.get("physics_field"),
+    )
+
+    fields["updated_at"] = datetime.utcnow().isoformat()
+    set_clause = ", ".join(f"{k} = ?" for k in fields)
+    values = list(fields.values()) + [pending_id]
+
+    with get_connection() as conn:
+        cur = conn.execute(
+            f"UPDATE pending_resources SET {set_clause} WHERE id = ?", values
+        )
+        conn.commit()
+        return cur.rowcount > 0
+
+
+def delete_pending_resource(pending_id: int) -> bool:
+    """Delete a pending resource row.  Returns True if a row was deleted."""
+    with get_connection() as conn:
+        cur = conn.execute(
+            "DELETE FROM pending_resources WHERE id = ?", (pending_id,)
+        )
+        conn.commit()
+        return cur.rowcount > 0
+
+
+def list_pending_resources(
+    status: str = "",
+    resource_type: str = "",
+    physics_field: str = "",
+    language: str = "",
+    query: str = "",
+    limit: int = 20,
+    offset: int = 0,
+) -> list[sqlite3.Row]:
+    """Return pending resources filtered by optional criteria.
+
+    Filters are ANDed together.  *query* does a case-insensitive substring
+    match across title and author (same lightweight approach as search_books).
+    Results are ordered newest-first (created_at DESC).
+    """
+    conditions: list[str] = []
+    params: list = []
+
+    if status:
+        conditions.append("status = ?")
+        params.append(status)
+    if resource_type:
+        conditions.append("resource_type = ?")
+        params.append(resource_type)
+    if physics_field:
+        conditions.append("physics_field = ?")
+        params.append(physics_field)
+    if language:
+        conditions.append("language = ?")
+        params.append(language)
+    if query:
+        like = f"%{query}%"
+        conditions.append("(title LIKE ? OR author LIKE ?)")
+        params += [like, like]
+
+    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+
+    sql = f"""
+        SELECT * FROM pending_resources
+        {where}
+        ORDER BY created_at DESC
+        LIMIT ? OFFSET ?
+    """
+    params += [limit, offset]
+
+    with get_connection() as conn:
+        return conn.execute(sql, params).fetchall()
+
+
+def attach_pending_file(
+    pending_id: int,
+    file_id: str,
+    file_name: str,
+    file_size: int,
+) -> bool:
+    """Record the Telegram file details on a pending resource and advance its
+    status to 'file_received' (unless it was already published/rejected).
+
+    Returns True if the row was updated.
+    """
+    with get_connection() as conn:
+        # Only advance status when the resource is still pending
+        cur = conn.execute("""
+            UPDATE pending_resources
+            SET file_id    = ?,
+                file_name  = ?,
+                file_size  = ?,
+                status     = CASE
+                                 WHEN status = 'pending' THEN 'file_received'
+                                 ELSE status
+                             END,
+                updated_at = ?
+            WHERE id = ?
+        """, (file_id, file_name, file_size, datetime.utcnow().isoformat(), pending_id))
+        conn.commit()
+        return cur.rowcount > 0
+
+
+def update_pending_status(pending_id: int, status: str) -> bool:
+    """Set the status of a pending resource explicitly.
+
+    Valid values: 'pending', 'file_received', 'published', 'rejected'.
+    Returns True if the row was updated, raises ValueError for unknown status.
+    """
+    valid = {"pending", "file_received", "published", "rejected"}
+    if status not in valid:
+        raise ValueError(f"وضعیت نامعتبر: {status!r}. مقادیر مجاز: {valid}")
+
+    with get_connection() as conn:
+        cur = conn.execute(
+            "UPDATE pending_resources SET status = ?, updated_at = ? WHERE id = ?",
+            (status, datetime.utcnow().isoformat(), pending_id),
+        )
+        conn.commit()
+        return cur.rowcount > 0
+
+
+def find_library_duplicates(
+    resource_type: str,
+    title: str,
+    author: str,
+    doi: str = "",
+) -> list:
+    """Search the main library (books table) for possible duplicates.
+
+    A duplicate is detected when:
+      - DOI matches exactly (if doi is non-empty), OR
+      - title AND author are similar (case-insensitive substring match on
+        first 40 chars of each field — enough to catch minor spelling diffs).
+
+    Returns a list of matching sqlite3.Row objects (usually 0 or 1 item).
+    """
+    conditions: list[str] = []
+    params: list = []
+
+    if doi:
+        conditions.append("(doi = ? AND doi != '')")
+        params.append(doi)
+
+    title_prefix  = title[:40].lower()
+    author_prefix = author[:40].lower()
+    conditions.append(
+        "(LOWER(SUBSTR(title, 1, 40)) = ? AND LOWER(SUBSTR(author, 1, 40)) = ?)"
+    )
+    params += [title_prefix, author_prefix]
+
+    where = "WHERE resource_type = ? AND (" + " OR ".join(conditions) + ")"
+    all_params = [resource_type] + params
+
+    with get_connection() as conn:
+        return conn.execute(
+            f"SELECT * FROM books {where} LIMIT 5",
+            all_params,
+        ).fetchall()
+
+
+def publish_pending_resource(pending_id: int, added_by: Optional[int] = None) -> int:
+    """Atomically publish a pending resource into the main library.
+
+    Steps:
+      1. Fetch and validate the pending row (must be status='file_received'
+         and have a non-empty file_id).
+      2. Insert into the books table via add_resource() so that field_number
+         is assigned correctly.
+      3. Mark the pending row as 'published'.
+
+    Returns the new library resource id (books.id).
+    Raises ValueError if the resource is not ready to publish or not found.
+    Raises RuntimeError on unexpected database errors.
+    """
+    row = get_pending_resource(pending_id)
+    if not row:
+        raise ValueError(f"منبع در انتظار با شناسه {pending_id} پیدا نشد.")
+
+    if row["status"] == "published":
+        raise ValueError("این منبع قبلاً منتشر شده است.")
+
+    if row["status"] != "file_received":
+        raise ValueError(
+            f"منبع هنوز آماده انتشار نیست (وضعیت: {row['status']})."
+        )
+
+    if not row["file_id"]:
+        raise ValueError("فایل منبع هنوز آپلود نشده است.")
+
+    # Insert into the main library using the existing add_resource() path
+    # so that field_number is assigned atomically.
+    new_id = add_resource(
+        title            = row["title"],
+        author           = row["author"],
+        language         = row["language"],
+        physics_field    = row["physics_field"],
+        resource_type    = row["resource_type"],
+        file_id          = row["file_id"],
+        file_name        = row["file_name"] or "",
+        file_size        = row["file_size"] or 0,
+        description      = row["description"] or "",
+        edition          = row["edition"] or "",
+        year             = row["year"],
+        added_by         = added_by,
+        doi              = row["doi"] or "",
+        journal          = row["journal"] or "",
+        volume           = row["volume"] or "",
+        issue            = row["issue"] or "",
+        pages            = row["pages"] or "",
+        url              = row["url"] or "",
+        publication_date = row["publication_date"] or "",
+    )
+
+    # Mark the pending row as published so it cannot be published twice.
+    update_pending_status(pending_id, "published")
+
+    return new_id
+
+
+# TEST
+if __name__ == "__main__":
+    import tempfile, os as _os
+    _tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    _tmp.close()
+    DB_PATH = _tmp.name
+    init_db()
+
+    bid = add_book(
+        title="Principles of Quantum Mechanics",
+        author="R. Shankar",
+        language="en",
+        physics_field="quantum_mechanics",
+        file_id="BQACAgIAAxkBAAIBhGV...",  
+        file_name="shankar_qm.pdf",
+        file_size=15_000_000,
+        description="یکی از بهترین رفرنس‌های مکانیک کوانتومی",
+        edition="2nd",
+        year=1994,
+        added_by=123456789,
+    )
+    print(f"[+] کتاب اضافه شد | id={bid}")
+
+    bid2 = add_book(
+        title="مکانیک کوانتومی",
+        author="گریفیتس | ترجمه: احمدی",
+        language="fa",
+        physics_field="quantum_mechanics",
+        file_id="BQACAgIAAxkBAAIBhGW...",
+        file_name="griffiths_fa.pdf",
+        file_size=12_000_000,
+    )
+    print(f"[+] کتاب فارسی اضافه شد | id={bid2}")
+
+    # search test
+    results = search_books(query="Quantum")
+    print(f"\n[سرچ 'Quantum'] → {len(results)} نتیجه")
+    for r in results:
+        print(f"  • {r['title']} | {r['author']} | {r['language']}")
+
+    results2 = search_books(physics_field="quantum_mechanics", language="fa")
+    print(f"\n[فیلتر: quantum_mechanics + فارسی] → {len(results2)} نتیجه")
+
+    # download test
+    record_download(bid, user_id=111)
+    record_download(bid, user_id=222)
+    record_download(bid2, user_id=111)
+
+    print(f"\n[آمار کتاب {bid}]:", get_book_stats(bid))
+
+    # stats test
+    stats = get_library_stats()
+    print(f"\n[آمار کلی] {stats}")
+
+    # admin test
+    upsert_user(123456789, username="admin_user", first_name="علی")
+    set_admin(123456789, True)
+    print(f"\n[ادمین؟] {is_admin(123456789)}")
+
+    print("\n✅ همه تست‌ها با موفقیت اجرا شدند.")
+    _os.unlink(_tmp.name)
