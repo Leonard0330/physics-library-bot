@@ -14,7 +14,7 @@ analytics_dashboard.py — داشبورد Analytics در Telegram
   - Missed-window recovery: اگر ربات در پنجره ۰۸:۰۰ خاموش بود،
     اولین بار که بعد از آن ساعت راه‌اندازی می‌شود گزارش ارسال می‌کند
 
-TimeZone:
+Time Zone:
   - پیش‌فرض: UTC
   - قابل تغییر از طریق REPORTING_TZ (نام IANA مانند 'Asia/Tehran')
   - تمام timestamps در دیتابیس UTC هستند
