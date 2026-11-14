@@ -309,7 +309,8 @@ def init_db() -> None:
                 first_name  TEXT,
                 last_seen   TEXT NOT NULL DEFAULT (datetime('now')),
                 is_admin    INTEGER NOT NULL DEFAULT 0,
-                lang        TEXT
+                lang        TEXT,
+                created_at  TEXT
             )
         """)
 
@@ -458,6 +459,59 @@ def init_db() -> None:
         _load_field_caches(conn)
     print(f"[DB] دیتابیس آماده شد: {DB_PATH}")
     _migrate_db()
+
+
+def _ensure_analytics_schema(conn) -> None:
+    """Create/upgrade everything analytics.py reads: users.created_at and the
+    analytics_events table. Idempotent; called from BOTH init_db() and
+    _migrate_db() so it also runs after a backup restore (which only calls
+    _migrate_db) and on databases created before analytics existed."""
+    tables = {r[0] for r in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+
+    if "users" in tables:
+        ucols = {r["name"] for r in conn.execute("PRAGMA table_info(users)")}
+        if "created_at" not in ucols:
+            # ALTER TABLE cannot add a non-constant default, so plain nullable TEXT.
+            conn.execute("ALTER TABLE users ADD COLUMN created_at TEXT")
+            print("[DB] Migration applied: users.created_at column added.")
+        if "last_seen" not in ucols:
+            conn.execute("ALTER TABLE users ADD COLUMN last_seen TEXT")
+            conn.execute("UPDATE users SET last_seen = datetime('now') WHERE last_seen IS NULL")
+            print("[DB] Migration applied: users.last_seen column added.")
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS analytics_events (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_type  TEXT    NOT NULL,
+            user_id     INTEGER,
+            resource_id INTEGER,
+            extra       TEXT,
+            created_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_ae_type_time ON analytics_events(event_type, created_at)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_ae_user ON analytics_events(user_id)")
+
+    # Backfill created_at for legacy users from the earliest hard evidence we
+    # have of them existing. Users with no evidence stay NULL on purpose:
+    # stamping them "now" would make every old user look like a new signup.
+    if "users" in tables:
+        evidence = []
+        for tbl, col in (("download_logs", "downloaded_at"), ("bookmarks", "saved_at"),
+                         ("ratings", "updated_at"), ("subscriptions", "subscribed_at")):
+            if tbl in tables:
+                evidence.append(f"SELECT user_id, {col} AS ts FROM {tbl} WHERE {col} IS NOT NULL")
+        if evidence:
+            conn.execute(f"""
+                UPDATE users SET created_at = (
+                    SELECT MIN(ts) FROM ({' UNION ALL '.join(evidence)}) e
+                    WHERE e.user_id = users.user_id)
+                WHERE created_at IS NULL
+                  AND EXISTS (SELECT 1 FROM ({' UNION ALL '.join(evidence)}) e
+                              WHERE e.user_id = users.user_id)
+            """)
+    conn.commit()
 
 
 def _disable_foreign_keys(conn) -> None:
@@ -861,6 +915,9 @@ def _migrate_db() -> None:
                 conn.execute("PRAGMA legacy_alter_table = OFF")
                 conn.execute("PRAGMA foreign_keys = ON")
 
+        # ── Migration 9: analytics schema (users.created_at + analytics_events) ──
+        _ensure_analytics_schema(conn)
+
         # ── Future migrations go here ──────────────────────────────────────────
         # Example pattern:
         #   pending_cols = {r["name"] for r in conn.execute("PRAGMA table_info(pending_resources)")}
@@ -881,7 +938,7 @@ def _auto_migrate_if_needed() -> None:
             tables = {r[0] for r in conn.execute(
                 "SELECT name FROM sqlite_master WHERE type='table'"
             ).fetchall()}
-            if "pending_resources" not in tables:
+            if "users" not in tables or "books" not in tables:
                 return  # init_db بعداً همه چیز رو می‌سازه
         _migrate_db()
     except Exception:
@@ -2407,8 +2464,8 @@ def get_library_stats() -> dict:
 def upsert_user(user_id: int, username: str = "", first_name: str = "") -> None:
     with get_connection() as conn:
         conn.execute("""
-            INSERT INTO users (user_id, username, first_name, last_seen)
-            VALUES (?, ?, ?, datetime('now'))
+            INSERT INTO users (user_id, username, first_name, last_seen, created_at)
+            VALUES (?, ?, ?, datetime('now'), datetime('now'))
             ON CONFLICT(user_id) DO UPDATE SET
                 username   = excluded.username,
                 first_name = excluded.first_name,
@@ -2420,8 +2477,8 @@ def upsert_user(user_id: int, username: str = "", first_name: str = "") -> None:
 def set_admin(user_id: int, is_admin: bool = True) -> None:
     with get_connection() as conn:
         conn.execute("""
-            INSERT INTO users (user_id, is_admin, last_seen)
-            VALUES (?, ?, datetime('now'))
+            INSERT INTO users (user_id, is_admin, last_seen, created_at)
+            VALUES (?, ?, datetime('now'), datetime('now'))
             ON CONFLICT(user_id) DO UPDATE SET is_admin = excluded.is_admin
         """, (user_id, 1 if is_admin else 0))
         conn.commit()
@@ -2456,8 +2513,8 @@ def set_user_lang(user_id: int, lang: str) -> None:
         return
     with get_connection() as conn:
         conn.execute("""
-            INSERT INTO users (user_id, lang, last_seen)
-            VALUES (?, ?, datetime('now'))
+            INSERT INTO users (user_id, lang, last_seen, created_at)
+            VALUES (?, ?, datetime('now'), datetime('now'))
             ON CONFLICT(user_id) DO UPDATE SET lang = excluded.lang
         """, (user_id, lang))
         conn.commit()

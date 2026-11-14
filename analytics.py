@@ -175,39 +175,31 @@ def log_bot_error(user_id: Optional[int], handler: str, error_msg: str = "") -> 
 def get_user_stats() -> dict:
     """
     آمار کلی کاربران.
-    Returns:
-        total_users, users_with_created_at, users_never_searched,
-        users_searched_at_least_once
+    total_users همیشه از جدول users می‌آید (همان تعریف database.get_library_stats)،
+    و خطا در بخش‌های analytics باعث صفر شدن آن نمی‌شود.
     """
+    out = {"total_users": 0, "users_with_created_at": 0,
+           "users_searched_at_least_once": 0, "users_never_searched": 0}
     try:
         with database.get_connection() as conn:
-            total = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
-
-            # کاربرانی که created_at دارند (بعد از migration)
-            with_created = conn.execute(
-                "SELECT COUNT(*) FROM users WHERE created_at IS NOT NULL"
-            ).fetchone()[0]
-
-            # کاربرانی که حداقل یک بار جستجو کرده‌اند
-            searched = conn.execute(
-                """
-                SELECT COUNT(DISTINCT user_id)
-                FROM analytics_events
-                WHERE event_type = 'search_submitted'
-                """
-            ).fetchone()[0]
-
-            never_searched = total - searched
-
-        return {
-            "total_users": total,
-            "users_with_created_at": with_created,
-            "users_searched_at_least_once": searched,
-            "users_never_searched": never_searched,
-        }
+            out["total_users"] = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+            try:
+                out["users_with_created_at"] = conn.execute(
+                    "SELECT COUNT(*) FROM users WHERE created_at IS NOT NULL"
+                ).fetchone()[0]
+            except Exception as exc:
+                logger.error("[analytics] get_user_stats(created_at) failed: %s", exc)
+            try:
+                out["users_searched_at_least_once"] = conn.execute(
+                    "SELECT COUNT(DISTINCT user_id) FROM analytics_events "
+                    "WHERE event_type = 'search_submitted'"
+                ).fetchone()[0]
+            except Exception as exc:
+                logger.error("[analytics] get_user_stats(events) failed: %s", exc)
+        out["users_never_searched"] = max(0, out["total_users"] - out["users_searched_at_least_once"])
     except Exception as exc:
         logger.error("[analytics] get_user_stats failed: %s", exc)
-        return {}
+    return out
 
 
 def get_new_users(period: str = "day", n: int = 30) -> list[dict]:
