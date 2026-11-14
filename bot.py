@@ -78,7 +78,7 @@ def _row_get(row, key: str, default=None):
         return default
 
 database.init_db()
-analytics_dashboard.start_daily_report_scheduler(bot)
+# scheduler حذف شد — گزارش از داشبورد analytics on-demand ارسال می‌شود
 
 
 user_langs: dict[int, str] = {}

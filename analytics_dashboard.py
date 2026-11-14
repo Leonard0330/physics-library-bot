@@ -5,6 +5,18 @@ analytics_dashboard.py — داشبورد Analytics در Telegram
 تمام منطق محاسبات از analytics.py خوانده می‌شود.
 تمام callback‌ها با prefix "adm_anl:" هستند تا با سایر callback‌های ادمین تداخل نداشته باشند.
 
+ساختار منو:
+  📊 داشبورد Analytics
+    ├── 🔭 خلاصه کلی
+    ├── 👥 آمار کاربران
+    │     └── [فیلتر بازه زمانی]
+    ├── 🔍 آمار جستجو
+    │     └── [فیلتر بازه زمانی]
+    ├── 📥 آمار تحویل
+    │     └── [فیلتر بازه زمانی]
+    ├── 🔄 Retention
+    └── 📈 رشد
+
 گزارش روزانه خودکار:
   - ساعت قابل تنظیم (پیش‌فرض: ۰۸:۰۰ UTC)
   - Idempotency پایدار از طریق جدول daily_report_log در SQLite
@@ -14,7 +26,7 @@ analytics_dashboard.py — داشبورد Analytics در Telegram
   - Missed-window recovery: اگر ربات در پنجره ۰۸:۰۰ خاموش بود،
     اولین بار که بعد از آن ساعت راه‌اندازی می‌شود گزارش ارسال می‌کند
 
-Time Zone:
+تایم‌زون:
   - پیش‌فرض: UTC
   - قابل تغییر از طریق REPORTING_TZ (نام IANA مانند 'Asia/Tehran')
   - تمام timestamps در دیتابیس UTC هستند
@@ -22,9 +34,7 @@ Time Zone:
 """
 
 import logging
-import threading
-import time
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from typing import Optional
 
 from telebot import types
@@ -33,89 +43,141 @@ import analytics
 
 logger = logging.getLogger(__name__)
 
-# ساعت ارسال گزارش روزانه (در REPORTING_TZ)
-DAILY_REPORT_HOUR: int = 8
-DAILY_REPORT_MINUTE: int = 0
+# ═══════════════════════════════════════════════════════════════════════════════
+# رشته‌های رابط کاربری — دو زبانه
+# ═══════════════════════════════════════════════════════════════════════════════
+
+STRINGS: dict[str, dict[str, str]] = {
+    # ── period labels ──────────────────────────────────────────────────────────
+    "period_today":   {"fa": "امروز",        "en": "Today"},
+    "period_week":    {"fa": "۷ روز اخیر",   "en": "Last 7 days"},
+    "period_month":   {"fa": "۳۰ روز اخیر",  "en": "Last 30 days"},
+    "period_quarter": {"fa": "۹۰ روز اخیر",  "en": "Last 90 days"},
+    "period_all":     {"fa": "کل تاریخ",     "en": "All time"},
+    # ── growth period labels ───────────────────────────────────────────────────
+    "growth_day":     {"fa": "روزانه",        "en": "Daily"},
+    "growth_week":    {"fa": "هفتگی",         "en": "Weekly"},
+    "growth_month":   {"fa": "ماهانه",        "en": "Monthly"},
+    # ── main menu buttons ──────────────────────────────────────────────────────
+    "btn_overview":   {"fa": "📊 خلاصه کلی",  "en": "📊 Overview"},
+    "btn_users":      {"fa": "👥 کاربران",     "en": "👥 Users"},
+    "btn_search":     {"fa": "🔍 جستجو",       "en": "🔍 Search"},
+    "btn_delivery":   {"fa": "📥 تحویل فایل", "en": "📥 File Delivery"},
+    "btn_retention":  {"fa": "🔄 Retention",   "en": "🔄 Retention"},
+    "btn_growth":     {"fa": "📈 رشد",         "en": "📈 Growth"},
+    "btn_back_panel": {"fa": "🔙 بازگشت به پنل", "en": "🔙 Back to Panel"},
+    "btn_refresh":    {"fa": "🔄 بروزرسانی",   "en": "🔄 Refresh"},
+    "btn_dashboard":  {"fa": "🔙 داشبورد",     "en": "🔙 Dashboard"},
+    "btn_today_report": {"fa": "📋 گزارش امروز", "en": "📋 Today's Report"},
+    # ── period filter button labels ────────────────────────────────────────────
+    "btn_today":      {"fa": "امروز",          "en": "Today"},
+    "btn_7d":         {"fa": "۷ روز",          "en": "7 days"},
+    "btn_30d":        {"fa": "۳۰ روز",         "en": "30 days"},
+    "btn_90d":        {"fa": "۹۰ روز",         "en": "90 days"},
+    "btn_all":        {"fa": "همه",            "en": "All"},
+    # ── section headers ────────────────────────────────────────────────────────
+    "header_overview":  {"fa": "📊 داشبورد Analytics — خلاصه کلی",   "en": "📊 Analytics Dashboard — Overview"},
+    "header_users":     {"fa": "👥 آمار کاربران",                     "en": "👥 User Stats"},
+    "header_search":    {"fa": "🔍 آمار جستجو",                       "en": "🔍 Search Stats"},
+    "header_delivery":  {"fa": "📥 آمار تحویل فایل",                  "en": "📥 File Delivery Stats"},
+    "header_retention": {"fa": "🔄 Retention کاربران",                "en": "🔄 User Retention"},
+    "header_growth":    {"fa": "📈 رشد — نمای",                       "en": "📈 Growth —"},
+    "header_daily":     {"fa": "📋 گزارش روزانه",                     "en": "📋 Daily Report"},
+    # ── dashboard entry message ────────────────────────────────────────────────
+    "dashboard_title":  {"fa": "📊 داشبورد Analytics",                "en": "📊 Analytics Dashboard"},
+    "dashboard_prompt": {"fa": "یک بخش را انتخاب کنید:",             "en": "Select a section:"},
+    # ── overview fields ────────────────────────────────────────────────────────
+    "ov_users_section":   {"fa": "👥 کاربران",        "en": "👥 Users"},
+    "ov_total_reg":       {"fa": "کل ثبت‌نام‌شده",    "en": "Total registered"},
+    "ov_new_today":       {"fa": "جدید امروز",        "en": "New today"},
+    "ov_new_7d":          {"fa": "جدید ۷ روز",        "en": "New (7d)"},
+    "ov_new_30d":         {"fa": "جدید ۳۰ روز",       "en": "New (30d)"},
+    "ov_active_today":    {"fa": "فعال امروز",         "en": "Active today"},
+    "ov_active_7d":       {"fa": "فعال ۷ روز",         "en": "Active (7d)"},
+    "ov_active_30d":      {"fa": "فعال ۳۰ روز",        "en": "Active (30d)"},
+    "ov_search_section":  {"fa": "🔍 جستجو",           "en": "🔍 Search"},
+    "ov_total_searches":  {"fa": "کل جستجوها",         "en": "Total searches"},
+    "ov_success_rate":    {"fa": "نرخ موفقیت",         "en": "Success rate"},
+    "ov_delivery_section":{"fa": "📥 تحویل فایل",      "en": "📥 File Delivery"},
+    "ov_total_requests":  {"fa": "کل درخواست‌ها",      "en": "Total requests"},
+    # ── user stats fields ──────────────────────────────────────────────────────
+    "us_total":           {"fa": "کل کاربران ثبت‌شده",  "en": "Total registered"},
+    "us_new":             {"fa": "کاربران جدید",         "en": "New users"},
+    "us_active":          {"fa": "کاربران فعال",         "en": "Active users"},
+    "us_behaviour":       {"fa": "📊 رفتار جستجو",       "en": "📊 Search Behaviour"},
+    "us_since":           {"fa": "از تاریخ راه‌اندازی analytics", "en": "since analytics launch"},
+    "us_at_least_one":    {"fa": "حداقل یک جستجو",       "en": "At least one search"},
+    "us_never":           {"fa": "هرگز جستجو نکرده",     "en": "Never searched"},
+    "us_conversion":      {"fa": "نرخ تبدیل جستجو",      "en": "Search conversion"},
+    "us_note1":           {"fa": "⚠️ نرخ تبدیل = کاربران با حداقل یک جستجوی ثبت‌شده ÷ کل کاربران.",
+                           "en": "⚠️ Conversion rate = users with ≥1 logged search ÷ total users."},
+    "us_note2":           {"fa": "کاربران قدیمی‌تر از راه‌اندازی analytics به صورت خودکار «جستجو‌نکرده» محسوب نمی‌شوند.",
+                           "en": "Users predating analytics launch are not auto-counted as non-searchers."},
+    "us_note3_prefix":    {"fa": "کاربران با تاریخ ثبت‌نام معتبر:",
+                           "en": "Users with valid registration date:"},
+    # ── search stats fields ───────────────────────────────────────────────────
+    "ss_submitted":       {"fa": "کل جستجوهای ارسال‌شده",      "en": "Total submitted"},
+    "ss_completed":       {"fa": "جستجوهای موفق (نتیجه داشت)", "en": "Successful (with results)"},
+    "ss_no_results":      {"fa": "جستجو بدون نتیجه",           "en": "No results"},
+    "ss_errors":          {"fa": "خطای فنی جستجو",             "en": "Technical errors"},
+    "ss_unique":          {"fa": "کاربران یکتای جستجوکننده",   "en": "Unique searchers"},
+    "ss_avg":             {"fa": "میانگین جستجو per کاربر",    "en": "Avg searches per user"},
+    "ss_rate":            {"fa": "نرخ موفقیت جستجو",           "en": "Search success rate"},
+    # ── delivery stats fields ─────────────────────────────────────────────────
+    "ds_requested":       {"fa": "کل درخواست‌های دانلود",  "en": "Total download requests"},
+    "ds_sent":            {"fa": "تحویل موفق",              "en": "Successful deliveries"},
+    "ds_failed":          {"fa": "تحویل ناموفق",            "en": "Failed deliveries"},
+    "ds_rate":            {"fa": "نرخ موفقیت تحویل",        "en": "Delivery success rate"},
+    # ── retention ─────────────────────────────────────────────────────────────
+    "ret_no_data":        {"fa": "داده کافی وجود ندارد",    "en": "Insufficient data"},
+    "ret_day1":           {"fa": "روز ۱",   "en": "Day 1"},
+    "ret_day7":           {"fa": "روز ۷",   "en": "Day 7"},
+    "ret_day30":          {"fa": "روز ۳۰",  "en": "Day 30"},
+    "ret_note1":          {"fa": "تعریف: کاربری retained محسوب می‌شود که در روز X ± ۱۲ ساعت پس از ثبت‌نام، حداقل یک رویداد داشته باشد.",
+                           "en": "Definition: a user is retained if they had at least one event within day X ± 12 hours of registration."},
+    "ret_note2":          {"fa": "cohort‌های ناقص (کمتر از X روز گذشته) در محاسبه نهایی حذف می‌شوند.",
+                           "en": "Incomplete cohorts (less than X days elapsed) are excluded from the final calculation."},
+    "ret_note3":          {"fa": "فقط کاربران ثبت‌شده بعد از راه‌اندازی analytics واجد شرایط هستند.",
+                           "en": "Only users registered after analytics launch are eligible."},
+    # ── growth ────────────────────────────────────────────────────────────────
+    "growth_no_data":     {"fa": "داده کافی برای نمایش وجود ندارد.", "en": "Not enough data to display."},
+    "growth_new":         {"fa": "جدید",   "en": "New"},
+    "growth_active":      {"fa": "فعال",   "en": "Active"},
+    # ── daily report ─────────────────────────────────────────────────────────
+    "dr_users":           {"fa": "👥 کاربران",        "en": "👥 Users"},
+    "dr_new":             {"fa": "جدید",              "en": "New"},
+    "dr_active":          {"fa": "فعال",              "en": "Active"},
+    "dr_search":          {"fa": "🔍 جستجو",          "en": "🔍 Search"},
+    "dr_total":           {"fa": "کل جستجو",          "en": "Total searches"},
+    "dr_searchers":       {"fa": "کاربران جستجوکننده","en": "Searchers"},
+    "dr_with_results":    {"fa": "با نتیجه",          "en": "With results"},
+    "dr_no_results":      {"fa": "بدون نتیجه",        "en": "No results"},
+    "dr_errors":          {"fa": "خطای فنی",          "en": "Errors"},
+    "dr_delivery":        {"fa": "📥 تحویل فایل",     "en": "📥 File Delivery"},
+    "dr_success":         {"fa": "تحویل موفق",        "en": "Successful"},
+    "dr_failed":          {"fa": "تحویل ناموفق",      "en": "Failed"},
+    "dr_delta_note":      {"fa": "↑↓ تفاوت نسبت به دیروز | ═ بدون تغییر",
+                           "en": "↑↓ vs yesterday | ═ no change"},
+    # ── error ─────────────────────────────────────────────────────────────────
+    "error_occurred":     {"fa": "⚠️ خطایی رخ داد.", "en": "⚠️ An error occurred."},
+}
+
+
+def _t(uid: int, key: str) -> str:
+    """زبان کاربر را از دیتابیس می‌خواند و رشته متناسب را برمی‌گرداند."""
+    lang = database.get_user_lang(uid) or "fa"
+    entry = STRINGS.get(key, {})
+    return entry.get(lang) or entry.get("fa", key)
+
 
 # تایم‌زون گزارش‌دهی — نام IANA یا 'UTC'
-# برای تغییر: REPORTING_TZ = 'Asia/Tehran'
+# برای تغییر: REPORTING_TZ_NAME = 'Asia/Tehran'
 # پیش‌فرض UTC: تمام مرزهای روزانه UTC هستند
 REPORTING_TZ_NAME: str = "UTC"
 
-# ── Callback prefix 
+# ── Callback prefix
 PREFIX = "adm_anl"
 
-# ── Scheduler guard: just one instance scheduler 
-_scheduler_started = False
-_scheduler_lock = threading.Lock()
-
-# ── Idempotency lock
-_daily_report_lock = threading.Lock()
-
-
-
-# part0: Persistent idempotency — daily_report_log table
-
-def _init_report_log_table() -> None:
-
-    try:
-        with database.get_connection() as conn:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS daily_report_log (
-                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                    report_date TEXT    NOT NULL,
-                    admin_id    INTEGER NOT NULL,
-                    status      TEXT    NOT NULL CHECK(status IN ('sent','failed','pending')),
-                    sent_at     TEXT    NOT NULL,
-                    UNIQUE(report_date, admin_id)
-                )
-            """)
-            # Migration: اگر جدول قدیمی بدون 'pending' وجود دارد، آن را بازسازی کن.
-            # CREATE TABLE IF NOT EXISTS جدول موجود را تغییر نمی‌دهد، پس
-            # با یک INSERT آزمایشی بررسی می‌کنیم آیا 'pending' مجاز است.
-            try:
-                conn.execute(
-                    "INSERT INTO daily_report_log "
-                    "(report_date, admin_id, status, sent_at) "
-                    "VALUES ('__schema_check__', 0, 'pending', datetime('now'))"
-                )
-                conn.execute(
-                    "DELETE FROM daily_report_log "
-                    "WHERE report_date='__schema_check__'"
-                )
-            except Exception:
-                # جدول قدیمی 'pending' را نمی‌پذیرد → بازسازی با حفظ داده
-                logger.info(
-                    "[dashboard] Migrating daily_report_log to support 'pending' status."
-                )
-                conn.execute(
-                    "ALTER TABLE daily_report_log RENAME TO daily_report_log_v1"
-                )
-                conn.execute("""
-                    CREATE TABLE daily_report_log (
-                        id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                        report_date TEXT    NOT NULL,
-                        admin_id    INTEGER NOT NULL,
-                        status      TEXT    NOT NULL
-                            CHECK(status IN ('sent','failed','pending')),
-                        sent_at     TEXT    NOT NULL,
-                        UNIQUE(report_date, admin_id)
-                    )
-                """)
-                conn.execute("""
-                    INSERT INTO daily_report_log
-                        (id, report_date, admin_id, status, sent_at)
-                    SELECT id, report_date, admin_id, status, sent_at
-                    FROM daily_report_log_v1
-                """)
-                conn.execute("DROP TABLE daily_report_log_v1")
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_report_log_date "
-                "ON daily_report_log(report_date)"
-            )
-            conn.commit()
-    except Exception as exc:
-        logger.error("[dashboard] _init_report_log_table failed: %s", exc)
 
 
 def _get_reporting_tz():
@@ -146,113 +208,7 @@ def _report_date_for_now() -> str:
     return datetime.now(tz).strftime("%Y-%m-%d")
 
 
-def _report_already_sent(report_date: str, admin_id: int) -> bool:
-
-    try:
-        with database.get_connection() as conn:
-            row = conn.execute(
-                "SELECT 1 FROM daily_report_log "
-                "WHERE report_date=? AND admin_id=? AND status IN ('sent','pending')",
-                (report_date, admin_id),
-            ).fetchone()
-        return row is not None
-    except Exception as exc:
-        logger.error("[dashboard] _report_already_sent check failed: %s", exc)
-        # در صورت خطای دیتابیس، احتیاطاً True برمی‌گردیم تا از ارسال تکراری
-        # جلوگیری شود — بهتر از ارسال تکراری است.
-        return True
-
-
-def _try_claim_report_send(report_date: str, admin_id: int) -> bool:
-
-    now_iso = datetime.now(timezone.utc).isoformat()
-    try:
-        with database.get_connection() as conn:
-            # autocommit غیرفعال — تراکنش دستی
-            conn.isolation_level = None
-            conn.execute("BEGIN IMMEDIATE")
-            try:
-                row = conn.execute(
-                    "SELECT status FROM daily_report_log "
-                    "WHERE report_date=? AND admin_id=?",
-                    (report_date, admin_id),
-                ).fetchone()
-
-                if row is not None:
-                    status = row["status"]
-                    if status in ("sent", "pending"):
-                        # قبلاً ارسال شده یا process دیگری در حال ارسال است
-                        conn.execute("ROLLBACK")
-                        return False
-                    # status == 'failed': retry مجاز — ارتقا به 'pending'
-                    conn.execute(
-                        "UPDATE daily_report_log SET status='pending', sent_at=? "
-                        "WHERE report_date=? AND admin_id=?",
-                        (now_iso, report_date, admin_id),
-                    )
-                else:
-                    # اولین تلاش: درج با وضعیت 'pending'
-                    conn.execute(
-                        "INSERT INTO daily_report_log "
-                        "(report_date, admin_id, status, sent_at) "
-                        "VALUES (?, ?, 'pending', ?)",
-                        (report_date, admin_id, now_iso),
-                    )
-                conn.execute("COMMIT")
-                return True
-            except Exception:
-                try:
-                    conn.execute("ROLLBACK")
-                except Exception:
-                    pass
-                raise
-    except Exception as exc:
-        logger.error(
-            "[dashboard] _try_claim_report_send failed (date=%s admin=%s): %s",
-            report_date, admin_id, exc,
-        )
-        # در صورت خطای دیتابیس: احتیاطاً ارسال نکن
-        return False
-
-
-def _mark_report_sent(report_date: str, admin_id: int, status: str) -> None:
-    """
-    ثبت وضعیت delivery گزارش در daily_report_log.
-    از INSERT OR REPLACE استفاده می‌کند تا retry بتواند 'failed' را به 'sent' تبدیل کند.
-    """
-    now_iso = datetime.now(timezone.utc).isoformat()
-    try:
-        with database.get_connection() as conn:
-            conn.execute(
-                """INSERT INTO daily_report_log (report_date, admin_id, status, sent_at)
-                   VALUES (?, ?, ?, ?)
-                   ON CONFLICT(report_date, admin_id)
-                   DO UPDATE SET status=excluded.status, sent_at=excluded.sent_at
-                """,
-                (report_date, admin_id, status, now_iso),
-            )
-            conn.commit()
-    except Exception as exc:
-        logger.error(
-            "[dashboard] _mark_report_sent failed (date=%s admin=%s status=%s): %s",
-            report_date, admin_id, status, exc,
-        )
-
-
-def _any_report_attempted(report_date: str) -> bool:
-    try:
-        with database.get_connection() as conn:
-            row = conn.execute(
-                "SELECT 1 FROM daily_report_log WHERE report_date=? LIMIT 1",
-                (report_date,),
-            ).fetchone()
-        return row is not None
-    except Exception as exc:
-        logger.error("[dashboard] _any_report_attempted check failed: %s", exc)
-        return False
-
-
-# part1:text makers
+# part1: text makers
 
 def _pct(value: Optional[float], suffix: str = "%") -> str:
     """فرمت درصد با مقدار پیش‌فرض برای None."""
@@ -283,16 +239,16 @@ def _delta(current: int, previous: int) -> str:
     return " ═"
 
 
-def _period_label(period_key: str) -> str:
-    """برچسب فارسی برای هر بازه زمانی."""
-    labels = {
-        "today":   "امروز / Today",
-        "week":    "۷ روز اخیر / Last 7 days",
-        "month":   "۳۰ روز اخیر / Last 30 days",
-        "quarter": "۹۰ روز اخیر / Last 90 days",
-        "all":     "کل تاریخ / All time",
+def _period_label(period_key: str, uid: int) -> str:
+    """برچسب بازه زمانی بر اساس زبان کاربر."""
+    key_map = {
+        "today":   "period_today",
+        "week":    "period_week",
+        "month":   "period_month",
+        "quarter": "period_quarter",
+        "all":     "period_all",
     }
-    return labels.get(period_key, period_key)
+    return _t(uid, key_map.get(period_key, "period_all"))
 
 
 def _safe_div(a: int, b: int) -> float:
@@ -301,7 +257,7 @@ def _safe_div(a: int, b: int) -> float:
 
 # Brief Report:
 
-def _build_overview_text() -> str:
+def _build_overview_text(uid: int) -> str:
     """متن بخش خلاصه کلی."""
     u  = analytics.get_user_stats()
     au_today = analytics.get_active_users_in_period(days=1)
@@ -312,32 +268,33 @@ def _build_overview_text() -> str:
     nu_month = analytics.get_new_users_in_period(days=30)
     s  = analytics.get_search_stats()
     d  = analytics.get_delivery_stats()
+    T  = lambda k: _t(uid, k)
 
     lines = [
-        "📊 <b>داشبورد Analytics — خلاصه کلی / Overview</b>\n",
-        "👥 <b>کاربران / Users</b>",
-        f"  کل ثبت‌نام‌شده / Total registered:  <b>{_n(u.get('total_users'))}</b>",
-        f"  جدید امروز / New today:              <b>{_n(nu_today)}</b>",
-        f"  جدید ۷ روز / New (7d):               <b>{_n(nu_week)}</b>",
-        f"  جدید ۳۰ روز / New (30d):             <b>{_n(nu_month)}</b>",
-        f"  فعال امروز / Active today:           <b>{_n(au_today)}</b>",
-        f"  فعال ۷ روز / Active (7d):            <b>{_n(au_week)}</b>",
-        f"  فعال ۳۰ روز / Active (30d):          <b>{_n(au_month)}</b>",
+        f"<b>{T('header_overview')}</b>\n",
+        f"<b>{T('ov_users_section')}</b>",
+        f"  {T('ov_total_reg')}:    <b>{_n(u.get('total_users'))}</b>",
+        f"  {T('ov_new_today')}:    <b>{_n(nu_today)}</b>",
+        f"  {T('ov_new_7d')}:       <b>{_n(nu_week)}</b>",
+        f"  {T('ov_new_30d')}:      <b>{_n(nu_month)}</b>",
+        f"  {T('ov_active_today')}: <b>{_n(au_today)}</b>",
+        f"  {T('ov_active_7d')}:    <b>{_n(au_week)}</b>",
+        f"  {T('ov_active_30d')}:   <b>{_n(au_month)}</b>",
         "",
-        "🔍 <b>جستجو / Search</b>",
-        f"  کل جستجوها / Total searches:         <b>{_n(s.get('total_submitted'))}</b>",
-        f"  نرخ موفقیت / Success rate:           <b>{_pct(s.get('conversion_rate_pct'))}</b>",
+        f"<b>{T('ov_search_section')}</b>",
+        f"  {T('ov_total_searches')}: <b>{_n(s.get('total_submitted'))}</b>",
+        f"  {T('ov_success_rate')}:   <b>{_pct(s.get('conversion_rate_pct'))}</b>",
         "",
-        "📥 <b>تحویل فایل / File Delivery</b>",
-        f"  کل درخواست‌ها / Total requests:      <b>{_n(d.get('total_requested'))}</b>",
-        f"  نرخ موفقیت / Success rate:           <b>{_pct(d.get('success_rate_pct'))}</b>",
+        f"<b>{T('ov_delivery_section')}</b>",
+        f"  {T('ov_total_requests')}: <b>{_n(d.get('total_requested'))}</b>",
+        f"  {T('ov_success_rate')}:   <b>{_pct(d.get('success_rate_pct'))}</b>",
     ]
     return "\n".join(lines)
 
 
 # User Statistics
 
-def _build_user_stats_text(period_key: str = "all") -> str:
+def _build_user_stats_text(period_key: str = "all", uid: int = 0) -> str:
     u = analytics.get_user_stats()
     days_map = {"today": 1, "week": 7, "month": 30, "quarter": 90}
     days = days_map.get(period_key)
@@ -350,28 +307,29 @@ def _build_user_stats_text(period_key: str = "all") -> str:
     never       = u.get("users_never_searched", 0)
     with_hist   = u.get("users_with_created_at", 0)
     conv        = _safe_div(searched, total)
+    T           = lambda k: _t(uid, k)
 
     lines = [
-        f"👥 <b>آمار کاربران / User Stats — {_period_label(period_key)}</b>\n",
-        f"کل کاربران ثبت‌شده / Total registered:   <b>{_n(total)}</b>",
-        f"کاربران جدید / New users:                <b>{_n(nu)}</b>",
-        f"کاربران فعال / Active users:             <b>{_n(au)}</b>",
+        f"<b>{T('header_users')} — {_period_label(period_key, uid)}</b>\n",
+        f"{T('us_total')}:  <b>{_n(total)}</b>",
+        f"{T('us_new')}:    <b>{_n(nu)}</b>",
+        f"{T('us_active')}: <b>{_n(au)}</b>",
         "",
-        "📊 <b>رفتار جستجو / Search Behaviour</b> <i>(از راه‌اندازی analytics / since analytics launch)</i>",
-        f"حداقل یک جستجو / At least one search:   <b>{_n(searched)}</b>",
-        f"هرگز جستجو نکرده / Never searched:       <b>{_n(never)}</b>",
-        f"نرخ تبدیل جستجو / Search conversion:    <b>{_pct(conv)}</b>",
+        f"<b>{T('us_behaviour')}</b> <i>({T('us_since')})</i>",
+        f"{T('us_at_least_one')}: <b>{_n(searched)}</b>",
+        f"{T('us_never')}:        <b>{_n(never)}</b>",
+        f"{T('us_conversion')}:   <b>{_pct(conv)}</b>",
         "",
-        f"<i>⚠️ نرخ تبدیل / Conversion rate = users with ≥1 logged search ÷ total users.</i>",
-        f"<i>کاربران قدیمی‌تر از راه‌اندازی analytics به صورت خودکار «جستجو‌نکرده» محسوب نمی‌شوند / Users predating analytics are not auto-counted as non-searchers.</i>",
-        f"<i>کاربران با تاریخ ثبت‌نام معتبر / Users with valid registration date: {_n(with_hist)}</i>",
+        f"<i>{T('us_note1')}</i>",
+        f"<i>{T('us_note2')}</i>",
+        f"<i>{T('us_note3_prefix')} {_n(with_hist)}</i>",
     ]
     return "\n".join(lines)
 
 
 # Search Stats:
 
-def _build_search_stats_text(period_key: str = "all") -> str:
+def _build_search_stats_text(period_key: str = "all", uid: int = 0) -> str:
     days_map = {"today": 1, "week": 7, "month": 30, "quarter": 90}
     days = days_map.get(period_key)
     s = analytics.get_search_stats_in_period(days=days)
@@ -382,104 +340,107 @@ def _build_search_stats_text(period_key: str = "all") -> str:
     errors      = s.get("total_errors", 0)
     unique      = s.get("unique_searchers", 0)
     avg         = round(submitted / unique, 1) if unique else 0
+    T           = lambda k: _t(uid, k)
 
     lines = [
-        f"🔍 <b>آمار جستجو / Search Stats — {_period_label(period_key)}</b>\n",
-        f"کل جستجوهای ارسال‌شده / Total submitted:    <b>{_n(submitted)}</b>",
-        f"جستجوهای موفق / Successful (with results):  <b>{_n(completed)}</b>",
-        f"جستجو بدون نتیجه / No results:              <b>{_n(no_results)}</b>",
-        f"خطای فنی جستجو / Technical errors:          <b>{_n(errors)}</b>",
-        f"کاربران یکتای جستجوکننده / Unique searchers:<b>{_n(unique)}</b>",
-        f"میانگین جستجو per کاربر / Avg per user:     <b>{avg}</b>",
-        f"نرخ موفقیت جستجو / Search success rate:     <b>{_pct(s.get('conversion_rate_pct'))}</b>",
+        f"<b>{T('header_search')} — {_period_label(period_key, uid)}</b>\n",
+        f"{T('ss_submitted')}:  <b>{_n(submitted)}</b>",
+        f"{T('ss_completed')}: <b>{_n(completed)}</b>",
+        f"{T('ss_no_results')}: <b>{_n(no_results)}</b>",
+        f"{T('ss_errors')}:     <b>{_n(errors)}</b>",
+        f"{T('ss_unique')}:     <b>{_n(unique)}</b>",
+        f"{T('ss_avg')}:        <b>{avg}</b>",
+        f"{T('ss_rate')}:       <b>{_pct(s.get('conversion_rate_pct'))}</b>",
     ]
     return "\n".join(lines)
 
 
 # ── آمار تحویل فایل 
 
-def _build_delivery_stats_text(period_key: str = "all") -> str:
+def _build_delivery_stats_text(period_key: str = "all", uid: int = 0) -> str:
     days_map = {"today": 1, "week": 7, "month": 30, "quarter": 90}
     days = days_map.get(period_key)
     d = analytics.get_delivery_stats_in_period(days=days)
+    T = lambda k: _t(uid, k)
 
     lines = [
-        f"📥 <b>آمار تحویل فایل / File Delivery Stats — {_period_label(period_key)}</b>\n",
-        f"کل درخواست‌های دانلود / Total download requests: <b>{_n(d.get('total_requested'))}</b>",
-        f"تحویل موفق / Successful deliveries:              <b>{_n(d.get('total_sent'))}</b>",
-        f"تحویل ناموفق / Failed deliveries:               <b>{_n(d.get('total_failed'))}</b>",
-        f"نرخ موفقیت تحویل / Delivery success rate:       <b>{_pct(d.get('success_rate_pct'))}</b>",
+        f"<b>{T('header_delivery')} — {_period_label(period_key, uid)}</b>\n",
+        f"{T('ds_requested')}: <b>{_n(d.get('total_requested'))}</b>",
+        f"{T('ds_sent')}:      <b>{_n(d.get('total_sent'))}</b>",
+        f"{T('ds_failed')}:    <b>{_n(d.get('total_failed'))}</b>",
+        f"{T('ds_rate')}:      <b>{_pct(d.get('success_rate_pct'))}</b>",
     ]
     return "\n".join(lines)
 
 
 # ── Retention 
 
-def _build_retention_text() -> str:
+def _build_retention_text(uid: int = 0) -> str:
     r1  = analytics.get_retention_cohort(1)
     r7  = analytics.get_retention_cohort(7)
     r30 = analytics.get_retention_cohort(30)
+    T   = lambda k: _t(uid, k)
 
     def _fmt_cohort(r: dict, label: str) -> str:
         eligible = r.get("eligible_users", 0)
         retained = r.get("retained_users", 0)
         rate     = r.get("retention_rate_pct")
-        note     = r.get("note", "")
         if eligible == 0:
-            return f"{label}: <i>داده کافی وجود ندارد / Insufficient data</i>"
+            return f"{label}: <i>{T('ret_no_data')}</i>"
         return (
             f"{label}: <b>{_pct(rate)}</b>"
-            f"  <i>({_n(retained)} از {_n(eligible)})</i>"
+            f"  <i>({_n(retained)} / {_n(eligible)})</i>"
         )
 
     lines = [
-        "🔄 <b>Retention کاربران / User Retention</b>\n",
-        _fmt_cohort(r1,  "روز ۱  (Day 1) "),
-        _fmt_cohort(r7,  "روز ۷  (Day 7) "),
-        _fmt_cohort(r30, "روز ۳۰ (Day 30)"),
+        f"<b>{T('header_retention')}</b>\n",
+        _fmt_cohort(r1,  T("ret_day1")),
+        _fmt_cohort(r7,  T("ret_day7")),
+        _fmt_cohort(r30, T("ret_day30")),
         "",
-        "<i>تعریف / Definition: کاربری retained محسوب می‌شود که در روز X ± ۱۲ ساعت پس از ثبت‌نام، حداقل یک رویداد داشته باشد / A user is retained if they had at least one event within day X ± 12 hours of registration.</i>",
-        "<i>cohort‌های ناقص حذف می‌شوند / Incomplete cohorts (less than X days elapsed) are excluded from the final calculation.</i>",
-        f"<i>فقط کاربران ثبت‌شده بعد از راه‌اندازی analytics واجد شرایط هستند / Only users registered after analytics launch are eligible.</i>",
+        f"<i>{T('ret_note1')}</i>",
+        f"<i>{T('ret_note2')}</i>",
+        f"<i>{T('ret_note3')}</i>",
     ]
     return "\n".join(lines)
 
 
 # ── growth
 
-def _build_growth_text(period: str = "day") -> str:
-    period_labels = {"day": "روزانه / Daily", "week": "هفتگی / Weekly", "month": "ماهانه / Monthly"}
+def _build_growth_text(period: str = "day", uid: int = 0) -> str:
+    period_key_map = {"day": "growth_day", "week": "growth_week", "month": "growth_month"}
     n_map = {"day": 14, "week": 8, "month": 6}
     n = n_map.get(period, 14)
+    T = lambda k: _t(uid, k)
 
     rows = analytics.get_new_users(period=period, n=n)
     act  = analytics.get_active_users(period=period, n=n)
 
-    # ایجاد dict برای lookup سریع
     act_map = {r["period"]: r["active_users"] for r in act}
 
-    label = period_labels.get(period, period)
-    lines = [f"📈 <b>رشد / Growth — نمای {label}</b>\n"]
+    label = T(period_key_map.get(period, "growth_day"))
+    lines = [f"<b>{T('header_growth')} {label}</b>\n"]
 
     if not rows:
-        lines.append("<i>داده کافی برای نمایش وجود ندارد / Not enough data to display.</i>")
+        lines.append(f"<i>{T('growth_no_data')}</i>")
         return "\n".join(lines)
 
-    for r in rows[-10:]:      # حداکثر ۱۰ ردیف آخر
+    for r in rows[-10:]:
         p     = r["period"]
         new_u = r["new_users"]
         act_u = act_map.get(p, 0)
-        lines.append(f"<code>{p}</code>  جدید/New: <b>{_n(new_u)}</b>  فعال/Active: <b>{_n(act_u)}</b>")
+        lines.append(f"<code>{p}</code>  {T('growth_new')}: <b>{_n(new_u)}</b>  {T('growth_active')}: <b>{_n(act_u)}</b>")
 
     return "\n".join(lines)
 
 
 # ── Daily Report
 
-def _build_daily_report_text(report_date: str) -> str:
+def _build_daily_report_text(report_date: str, uid: int = 0) -> str:
     """
     ساخت متن گزارش روزانه برای یک تاریخ مشخص.
     report_date: 'YYYY-MM-DD' UTC
+    uid: شناسه ادمین دریافت‌کننده — زبان گزارش بر اساس زبان او تنظیم می‌شود.
     """
     # days=1, offset_days=0  → [now-1d, now)      = امروز (۲۴ ساعت اخیر)
     # days=1, offset_days=1  → [now-2d, now-1d)   = دیروز (۲۴ ساعت معادل)
@@ -506,24 +467,26 @@ def _build_daily_report_text(report_date: str) -> str:
     y_sent = yest_d.get("total_sent", 0)
     t_fail = today_d.get("total_failed", 0)
 
+    T = lambda k: _t(uid, k)
+
     lines = [
-        f"📋 <b>گزارش روزانه / Daily Report — {report_date} UTC</b>\n",
-        "👥 <b>کاربران / Users</b>",
-        f"  جدید / New:          <b>{_n(nu_today)}</b>{_delta(nu_today, nu_yest)}",
-        f"  فعال / Active:       <b>{_n(au_today)}</b>{_delta(au_today, au_yest)}",
+        f"<b>{T('header_daily')} — {report_date} UTC</b>\n",
+        f"<b>{T('dr_users')}</b>",
+        f"  {T('dr_new')}:    <b>{_n(nu_today)}</b>{_delta(nu_today, nu_yest)}",
+        f"  {T('dr_active')}: <b>{_n(au_today)}</b>{_delta(au_today, au_yest)}",
         "",
-        "🔍 <b>جستجو / Search</b>",
-        f"  کل جستجو / Total:          <b>{_n(t_sub)}</b>{_delta(t_sub, y_sub)}",
-        f"  جستجوکنندگان / Searchers:  <b>{_n(t_uniq)}</b>",
-        f"  با نتیجه / With results:   <b>{_n(t_comp)}</b>{_delta(t_comp, y_comp)}",
-        f"  بدون نتیجه / No results:   <b>{_n(t_no)}</b>",
-        f"  خطای فنی / Errors:         <b>{_n(t_err)}</b>",
+        f"<b>{T('dr_search')}</b>",
+        f"  {T('dr_total')}:       <b>{_n(t_sub)}</b>{_delta(t_sub, y_sub)}",
+        f"  {T('dr_searchers')}:   <b>{_n(t_uniq)}</b>",
+        f"  {T('dr_with_results')}: <b>{_n(t_comp)}</b>{_delta(t_comp, y_comp)}",
+        f"  {T('dr_no_results')}:  <b>{_n(t_no)}</b>",
+        f"  {T('dr_errors')}:      <b>{_n(t_err)}</b>",
         "",
-        "📥 <b>تحویل فایل / File Delivery</b>",
-        f"  تحویل موفق / Successful:   <b>{_n(t_sent)}</b>{_delta(t_sent, y_sent)}",
-        f"  تحویل ناموفق / Failed:     <b>{_n(t_fail)}</b>",
+        f"<b>{T('dr_delivery')}</b>",
+        f"  {T('dr_success')}: <b>{_n(t_sent)}</b>{_delta(t_sent, y_sent)}",
+        f"  {T('dr_failed')}:  <b>{_n(t_fail)}</b>",
         "",
-        f"<i>↑↓ تفاوت نسبت به دیروز / vs yesterday | ═ بدون تغییر / no change</i>",
+        f"<i>{T('dr_delta_note')}</i>",
     ]
     return "\n".join(lines)
 
@@ -531,35 +494,40 @@ def _build_daily_report_text(report_date: str) -> str:
 # part2: Keyboard سازنده‌ها
 
 
-def analytics_main_keyboard() -> types.InlineKeyboardMarkup:
+def analytics_main_keyboard(uid: int = 0) -> types.InlineKeyboardMarkup:
+    T  = lambda k: _t(uid, k)
     mk = types.InlineKeyboardMarkup(row_width=2)
     mk.add(
-        types.InlineKeyboardButton("🔭 خلاصه کلی / Overview",    callback_data=f"{PREFIX}:overview"),
-        types.InlineKeyboardButton("👥 کاربران / Users",          callback_data=f"{PREFIX}:users:all"),
+        types.InlineKeyboardButton(T("btn_overview"),   callback_data=f"{PREFIX}:overview"),
+        types.InlineKeyboardButton(T("btn_users"),      callback_data=f"{PREFIX}:users:all"),
     )
     mk.add(
-        types.InlineKeyboardButton("🔍 جستجو / Search",           callback_data=f"{PREFIX}:search:all"),
-        types.InlineKeyboardButton("📥 تحویل / Delivery",         callback_data=f"{PREFIX}:delivery:all"),
+        types.InlineKeyboardButton(T("btn_search"),     callback_data=f"{PREFIX}:search:all"),
+        types.InlineKeyboardButton(T("btn_delivery"),   callback_data=f"{PREFIX}:delivery:all"),
     )
     mk.add(
-        types.InlineKeyboardButton("🔄 Retention",                callback_data=f"{PREFIX}:retention"),
-        types.InlineKeyboardButton("📈 رشد / Growth",             callback_data=f"{PREFIX}:growth:day"),
+        types.InlineKeyboardButton(T("btn_retention"),  callback_data=f"{PREFIX}:retention"),
+        types.InlineKeyboardButton(T("btn_growth"),     callback_data=f"{PREFIX}:growth:day"),
     )
     mk.add(
-        types.InlineKeyboardButton("🔙 بازگشت / Back to Panel",   callback_data="adm_open_panel"),
+        types.InlineKeyboardButton(T("btn_today_report"), callback_data=f"{PREFIX}:today_report"),
+    )
+    mk.add(
+        types.InlineKeyboardButton(T("btn_back_panel"), callback_data="adm_open_panel"),
     )
     return mk
 
 
-def period_filter_keyboard(section: str, current: str = "all") -> types.InlineKeyboardMarkup:
+def period_filter_keyboard(section: str, current: str = "all", uid: int = 0) -> types.InlineKeyboardMarkup:
     """کیبورد انتخاب بازه زمانی برای هر بخش."""
+    T  = lambda k: _t(uid, k)
     mk = types.InlineKeyboardMarkup(row_width=3)
     periods = [
-        ("today",   "امروز / Today"),
-        ("week",    "۷ روز / 7d"),
-        ("month",   "۳۰ روز / 30d"),
-        ("quarter", "۹۰ روز / 90d"),
-        ("all",     "همه / All"),
+        ("today",   T("btn_today")),
+        ("week",    T("btn_7d")),
+        ("month",   T("btn_30d")),
+        ("quarter", T("btn_90d")),
+        ("all",     T("btn_all")),
     ]
     buttons = []
     for key, label in periods:
@@ -572,15 +540,20 @@ def period_filter_keyboard(section: str, current: str = "all") -> types.InlineKe
         )
     mk.add(*buttons)
     mk.add(
-        types.InlineKeyboardButton("🔄 بروزرسانی / Refresh", callback_data=f"{PREFIX}:{section}:{current}"),
-        types.InlineKeyboardButton("🔙 داشبورد / Dashboard", callback_data=f"{PREFIX}:main"),
+        types.InlineKeyboardButton(T("btn_refresh"),   callback_data=f"{PREFIX}:{section}:{current}"),
+        types.InlineKeyboardButton(T("btn_dashboard"), callback_data=f"{PREFIX}:main"),
     )
     return mk
 
 
-def growth_period_keyboard(current: str = "day") -> types.InlineKeyboardMarkup:
+def growth_period_keyboard(current: str = "day", uid: int = 0) -> types.InlineKeyboardMarkup:
+    T  = lambda k: _t(uid, k)
     mk = types.InlineKeyboardMarkup(row_width=3)
-    periods = [("day", "روزانه / Daily"), ("week", "هفتگی / Weekly"), ("month", "ماهانه / Monthly")]
+    periods = [
+        ("day",   T("growth_day")),
+        ("week",  T("growth_week")),
+        ("month", T("growth_month")),
+    ]
     buttons = []
     for key, label in periods:
         mark = "●" if key == current else ""
@@ -592,17 +565,18 @@ def growth_period_keyboard(current: str = "day") -> types.InlineKeyboardMarkup:
         )
     mk.add(*buttons)
     mk.add(
-        types.InlineKeyboardButton("🔄 بروزرسانی / Refresh", callback_data=f"{PREFIX}:growth:{current}"),
-        types.InlineKeyboardButton("🔙 داشبورد / Dashboard", callback_data=f"{PREFIX}:main"),
+        types.InlineKeyboardButton(T("btn_refresh"),   callback_data=f"{PREFIX}:growth:{current}"),
+        types.InlineKeyboardButton(T("btn_dashboard"), callback_data=f"{PREFIX}:main"),
     )
     return mk
 
 
-def back_to_main_keyboard() -> types.InlineKeyboardMarkup:
+def back_to_main_keyboard(uid: int = 0) -> types.InlineKeyboardMarkup:
+    T  = lambda k: _t(uid, k)
     mk = types.InlineKeyboardMarkup()
     mk.add(
-        types.InlineKeyboardButton("🔄 بروزرسانی / Refresh", callback_data=f"{PREFIX}:overview"),
-        types.InlineKeyboardButton("🔙 داشبورد / Dashboard", callback_data=f"{PREFIX}:main"),
+        types.InlineKeyboardButton(T("btn_refresh"),   callback_data=f"{PREFIX}:overview"),
+        types.InlineKeyboardButton(T("btn_dashboard"), callback_data=f"{PREFIX}:main"),
     )
     return mk
 
@@ -611,12 +585,12 @@ def back_to_main_keyboard() -> types.InlineKeyboardMarkup:
 # بخش سوم: Entry points (فراخوانی از admin.py)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def show_analytics_main(bot, chat_id: int):
+def show_analytics_main(bot, chat_id: int, uid: int = 0):
     """نمایش منوی اصلی داشبورد analytics."""
     bot.send_message(
         chat_id,
-        "📊 <b>داشبورد Analytics / Analytics Dashboard</b>\nیک بخش را انتخاب کنید / Select a section:",
-        reply_markup=analytics_main_keyboard(),
+        f"<b>{_t(uid, 'dashboard_title')}</b>\n{_t(uid, 'dashboard_prompt')}",
+        reply_markup=analytics_main_keyboard(uid),
         parse_mode="HTML",
     )
 
@@ -642,36 +616,40 @@ def handle_analytics_callback(bot, callback: types.CallbackQuery) -> bool:
         bot.answer_callback_query(callback.id)
 
         if section == "main":
-            _edit_or_send(bot, callback, "📊 <b>داشبورد Analytics / Analytics Dashboard</b>\nیک بخش را انتخاب کنید / Select a section:",
-                          analytics_main_keyboard())
+            _edit_or_send(bot, callback,
+                          f"<b>{_t(uid, 'dashboard_title')}</b>\n{_t(uid, 'dashboard_prompt')}",
+                          analytics_main_keyboard(uid))
 
         elif section == "overview":
-            text = _build_overview_text()
-            _edit_or_send(bot, callback, text, back_to_main_keyboard())
+            text = _build_overview_text(uid)
+            _edit_or_send(bot, callback, text, back_to_main_keyboard(uid))
 
         elif section == "users":
             period = parts[1] if len(parts) > 1 else "all"
-            text   = _build_user_stats_text(period)
-            _edit_or_send(bot, callback, text, period_filter_keyboard("users", period))
+            text   = _build_user_stats_text(period, uid)
+            _edit_or_send(bot, callback, text, period_filter_keyboard("users", period, uid))
 
         elif section == "search":
             period = parts[1] if len(parts) > 1 else "all"
-            text   = _build_search_stats_text(period)
-            _edit_or_send(bot, callback, text, period_filter_keyboard("search", period))
+            text   = _build_search_stats_text(period, uid)
+            _edit_or_send(bot, callback, text, period_filter_keyboard("search", period, uid))
 
         elif section == "delivery":
             period = parts[1] if len(parts) > 1 else "all"
-            text   = _build_delivery_stats_text(period)
-            _edit_or_send(bot, callback, text, period_filter_keyboard("delivery", period))
+            text   = _build_delivery_stats_text(period, uid)
+            _edit_or_send(bot, callback, text, period_filter_keyboard("delivery", period, uid))
 
         elif section == "retention":
-            text = _build_retention_text()
-            _edit_or_send(bot, callback, text, back_to_main_keyboard())
+            text = _build_retention_text(uid)
+            _edit_or_send(bot, callback, text, back_to_main_keyboard(uid))
 
         elif section == "growth":
             period = parts[1] if len(parts) > 1 else "day"
-            text   = _build_growth_text(period)
-            _edit_or_send(bot, callback, text, growth_period_keyboard(period))
+            text   = _build_growth_text(period, uid)
+            _edit_or_send(bot, callback, text, growth_period_keyboard(period, uid))
+
+        elif section == "today_report":
+            send_report_to_admin(bot, uid)
 
         else:
             return False
@@ -681,7 +659,7 @@ def handle_analytics_callback(bot, callback: types.CallbackQuery) -> bool:
     except Exception as exc:
         logger.error("[dashboard] handle_analytics_callback error (data=%s): %s", data, exc)
         try:
-            bot.answer_callback_query(callback.id, "⚠️ خطایی رخ داد / An error occurred.")
+            bot.answer_callback_query(callback.id, _t(uid, "error_occurred"))
         except Exception:
             pass
         return True
@@ -715,159 +693,16 @@ def _edit_or_send(bot, callback: types.CallbackQuery, text: str,
 # بخش چهارم: گزارش روزانه خودکار
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def _get_admin_chat_ids() -> list[int]:
-    """لیست chat_id ادمین‌های فعال از دیتابیس."""
-    try:
-        rows = database.list_admins()
-        return [r["user_id"] for r in rows]
-    except Exception as exc:
-        logger.error("[dashboard] _get_admin_chat_ids failed: %s", exc)
-        return []
 
-
-def send_daily_report(bot, force: bool = False) -> bool:
+def send_report_to_admin(bot, uid: int) -> None:
     """
-    ارسال گزارش روزانه به همه ادمین‌ها با idempotency پایدار.
-
-    الگوریتم (با رفع race condition):
-      1. تاریخ گزارش را در REPORTING_TZ تعیین کن.
-      2. برای هر ادمین، رزرو اتمیک با _try_claim_report_send انجام بده.
-         این عملیات از BEGIN IMMEDIATE SQLite استفاده می‌کند و در سطح
-         cross-process (نه فقط cross-thread) ایمن است.
-      3. فقط ادمین‌هایی که رزرو موفق دارند پیام دریافت می‌کنند.
-      4. وضعیت هر delivery را در daily_report_log ثبت کن.
-      5. شکست یک ادمین ادمین‌های دیگر را متوقف نمی‌کند.
-
-    تضمین تحویل:
-      در شرایط عادی (بدون network timeout): حداکثر یک پیام به هر ادمین.
-      در صورت network timeout: ممکن است Telegram پیام را پذیرفته باشد.
-      Exactly-once در مقابل network failure بدون idempotency key تضمین‌شدنی
-      نیست. اما race condition بین چندین process به طور کامل رفع شده است.
-
-    force=True: idempotency را نادیده بگیر (فقط برای تست)
-    Returns: True اگر حداقل یک پیام ارسال شد.
+    ارسال گزارش امروز به یک ادمین مشخص — on-demand، بدون scheduler.
+    از داشبورد analytics با کلیک دکمه «گزارش امروز» فراخوانی می‌شود.
     """
     report_date = _report_date_for_now()
-    text        = _build_daily_report_text(report_date)
-    admin_ids   = _get_admin_chat_ids()
-    sent_count  = 0
-    skip_count  = 0
-
-    for admin_id in admin_ids:
-        if not force:
-            # رزرو اتمیک: از race condition بین process‌ها جلوگیری می‌کند
-            if not _try_claim_report_send(report_date, admin_id):
-                skip_count += 1
-                logger.debug(
-                    "[dashboard] Daily report already claimed/delivered to admin %s for %s, skipping.",
-                    admin_id, report_date,
-                )
-                continue
-
-        try:
-            bot.send_message(admin_id, text, parse_mode="HTML")
-            _mark_report_sent(report_date, admin_id, "sent")
-            sent_count += 1
-        except Exception as exc:
-            logger.error(
-                "[dashboard] Failed to send daily report to admin %s for %s: %s",
-                admin_id, report_date, exc,
-            )
-            # ثبت failure تا بتوان بعداً retry کرد
-            _mark_report_sent(report_date, admin_id, "failed")
-
-    logger.info(
-        "[dashboard] Daily report %s: sent=%d skipped=%d failed=%d total_admins=%d.",
-        report_date, sent_count, skip_count,
-        len(admin_ids) - sent_count - skip_count, len(admin_ids),
-    )
-    return sent_count > 0
-
-
-def _should_send_now(now_local: datetime) -> bool:
-    """
-    آیا الان وقت ارسال گزارش روزانه است؟
-    پنجره: [DAILY_REPORT_HOUR:DAILY_REPORT_MINUTE, +1 دقیقه)
-    """
-    return (
-        now_local.hour   == DAILY_REPORT_HOUR and
-        now_local.minute == DAILY_REPORT_MINUTE
-    )
-
-
-def _daily_report_scheduler(bot) -> None:
-    """
-    Loop اصلی scheduler گزارش روزانه.
-    در یک daemon thread مستقل اجرا می‌شود.
-    هر ۶۰ ثانیه چک می‌کند که آیا وقت ارسال رسیده.
-
-    سیاست missed window:
-      اگر ربات در لحظه ۰۸:۰۰ خاموش بود و بعد از آن راه‌اندازی شود،
-      اولین چرخه که ساعت از DAILY_REPORT_HOUR گذشته باشد و هنوز هیچ
-      تلاشی برای آن روز ثبت نشده باشد، گزارش ارسال می‌شود.
-      این رفتار یک‌بار در هر روز اتفاق می‌افتد.
-
-    تایم‌زون:
-      بررسی ساعت بر اساس REPORTING_TZ_NAME انجام می‌شود.
-      مرزهای روزانه از همان تایم‌زون تبعیت می‌کنند.
-    """
-    tz = _get_reporting_tz()
-    logger.info(
-        "[dashboard] Daily report scheduler started (send at %02d:%02d %s).",
-        DAILY_REPORT_HOUR, DAILY_REPORT_MINUTE, REPORTING_TZ_NAME,
-    )
-
-    while True:
-        try:
-            now_local   = datetime.now(tz)
-            report_date = now_local.strftime("%Y-%m-%d")
-
-            # حالت ۱: دقیقاً در پنجره ارسال هستیم
-            if _should_send_now(now_local):
-                send_daily_report(bot)
-
-            # حالت ۲: missed window — ربات بعد از ساعت ارسال راه‌اندازی شد
-            elif (now_local.hour > DAILY_REPORT_HOUR or
-                  (now_local.hour == DAILY_REPORT_HOUR and
-                   now_local.minute > DAILY_REPORT_MINUTE)):
-                if not _any_report_attempted(report_date):
-                    logger.info(
-                        "[dashboard] Missed window for %s — sending catch-up report.",
-                        report_date,
-                    )
-                    send_daily_report(bot)
-
-        except Exception as exc:
-            logger.error("[dashboard] Scheduler loop error: %s", exc)
-
-        time.sleep(60)
-
-
-def start_daily_report_scheduler(bot) -> None:
-    """
-    راه‌اندازی thread گزارش روزانه.
-    ایمن در برابر فراخوانی چندباره — فقط یک thread ایجاد می‌شود.
-    حتی اگر این تابع چندبار (از چند thread) فراخوانی شود، تنها یک
-    scheduler thread در حال اجرا خواهد بود.
-    """
-    global _scheduler_started
-
-    # اطمینان از وجود جدول idempotency قبل از راه‌اندازی scheduler
-    _init_report_log_table()
-
-    with _scheduler_lock:
-        if _scheduler_started:
-            logger.warning(
-                "[dashboard] start_daily_report_scheduler called more than once — ignored."
-            )
-            return
-        _scheduler_started = True
-
-    t = threading.Thread(
-        target=_daily_report_scheduler,
-        args=(bot,),
-        daemon=True,
-        name="daily-report-scheduler",
-    )
-    t.start()
-    logger.info("[dashboard] Daily report scheduler thread started.")
+    text = _build_daily_report_text(report_date, uid=uid)
+    try:
+        bot.send_message(uid, text, parse_mode="HTML")
+        logger.info("[dashboard] On-demand report sent to admin %s for %s.", uid, report_date)
+    except Exception as exc:
+        logger.error("[dashboard] Failed to send on-demand report to admin %s: %s", uid, exc)
