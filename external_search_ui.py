@@ -48,6 +48,7 @@ PAGES_MAX = 300           # cached result pages (needed for details/back without
 ABSTRACT_MAX = 2500
 DETAIL_AUTHORS_MAX = 12
 SAFE_LEN = 3900            # Telegram limit is 4096; keep a margin
+SIGNATURE = "\n\n@PhysisLib_Bot"      # same stamp bot.py puts under every library file
 CANCEL_LABELS = {"❌ لغو", "❌ Cancel"}
 
 BUTTON_LABEL = {"fa": "🌍 جست‌وجوی خارجی", "en": "🌍 External Search"}
@@ -642,7 +643,7 @@ def _pdf_caption(r) -> str:
         cap += f"\n🆔 <code>{_e(r.identifier)}</code>"
     if r.landing_page_url:
         cap += f"\n🔗 {_e(r.landing_page_url)}"
-    return cap[:1024]
+    return cap[:1024 - len(SIGNATURE)] + SIGNATURE
 
 
 def _pdf_job(chat_id: int, user, key, r, status_id: int) -> None:
