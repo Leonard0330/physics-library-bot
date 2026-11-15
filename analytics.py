@@ -94,6 +94,13 @@ def _write_event(
                 """,
                 (event_type, user_id, resource_id, extra_json),
             )
+            # هر رویداد کاربر = فعالیت؛ last_seen فقط در /start به‌روز می‌شد و
+            # کاربرانی که فقط جستجو/دانلود (محلی یا External) می‌کردند «فعال» شمرده نمی‌شدند.
+            if user_id is not None and event_type != "bot_error":
+                conn.execute(
+                    "UPDATE users SET last_seen = datetime('now') WHERE user_id = ?",
+                    (user_id,),
+                )
             conn.commit()
     except Exception as exc:
         logger.error("[analytics] _write_event failed (type=%s uid=%s): %s",

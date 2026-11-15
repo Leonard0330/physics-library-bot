@@ -238,7 +238,7 @@ def _emit(event: str, user, **extra) -> None:
     try:
         _on_event(event, user.id, extra or None)
     except Exception:  # noqa: BLE001
-        log.debug("external search: on_event failed", exc_info=True)
+        log.warning("external search: on_event failed (event=%s)", event, exc_info=True)
 
 
 def _tx(key: str, lang: str, **kw) -> str:

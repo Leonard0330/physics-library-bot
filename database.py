@@ -2461,8 +2461,12 @@ def get_library_stats() -> dict:
 
 # user management
 
-def upsert_user(user_id: int, username: str = "", first_name: str = "") -> None:
+def upsert_user(user_id: int, username: str = "", first_name: str = "") -> bool:
+    """True اگر کاربر همین الان برای اولین بار ثبت شد (قبلاً هیچ ردیفی نداشت)."""
     with get_connection() as conn:
+        existed = conn.execute(
+            "SELECT 1 FROM users WHERE user_id = ?", (user_id,)
+        ).fetchone() is not None
         conn.execute("""
             INSERT INTO users (user_id, username, first_name, last_seen, created_at)
             VALUES (?, ?, ?, datetime('now'), datetime('now'))
@@ -2472,6 +2476,7 @@ def upsert_user(user_id: int, username: str = "", first_name: str = "") -> None:
                 last_seen  = datetime('now')
         """, (user_id, username, first_name))
         conn.commit()
+    return not existed
 
 
 def set_admin(user_id: int, is_admin: bool = True) -> None:

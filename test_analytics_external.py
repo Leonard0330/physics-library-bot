@@ -7,9 +7,9 @@ os.environ["DB_PATH"] = os.path.join(tempfile.mkdtemp(), "t.db")
 import database
 database.DB_PATH = os.environ["DB_PATH"]
 with database.get_connection() as c:
-    c.execute("CREATE TABLE users (user_id INTEGER PRIMARY KEY, created_at TEXT, last_seen TEXT, language TEXT)")
+    c.execute("CREATE TABLE users (user_id INTEGER PRIMARY KEY, username TEXT, first_name TEXT, lang TEXT, is_admin INTEGER DEFAULT 0, created_at TEXT, last_seen TEXT)")
     database._ensure_analytics_schema(c)
-    c.execute("INSERT INTO users(user_id, created_at, last_seen) VALUES (1, datetime('now','-3 days'), datetime('now'))")
+    c.execute("INSERT INTO users(user_id, created_at, last_seen) VALUES (1, datetime('now','-3 days'), datetime('now','-10 days'))")
     c.commit()
 
 import analytics
@@ -48,6 +48,16 @@ def test_ext_events_counted():
     assert analytics.get_summary_report()["external"]["total_submitted"] == 1
 
 
+def test_ext_event_marks_user_active():
+    # کاربر ۱ ده روز پیش last_seen داشت؛ رویداد ext_* در تست اول او را فعال کرده است
+    assert analytics.get_active_users_in_period(days=1) == 1
+
+
+def test_upsert_user_returns_is_new():
+    assert database.upsert_user(777, username="a", first_name="b") is True
+    assert database.upsert_user(777, username="a", first_name="b") is False
+
+
 def test_dashboard_texts_include_ext():
     import analytics_dashboard as dash
     dash._t = lambda uid, key: dash.STRINGS.get(key, {}).get("en", key)
@@ -58,5 +68,7 @@ def test_dashboard_texts_include_ext():
 
 if __name__ == "__main__":
     test_ext_events_counted()
+    test_ext_event_marks_user_active()
+    test_upsert_user_returns_is_new()
     test_dashboard_texts_include_ext()
     print("OK")
