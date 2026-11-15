@@ -6,6 +6,7 @@ import database
 import admin
 import analytics
 import analytics_dashboard
+import external_search_ui as ext_ui
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
@@ -806,6 +807,7 @@ BTN = {
     "browse":  {"fa": "📂 کتابخانه",           "en": "📂 Browse"},
     "about":   {"fa": "ℹ️ درباره",         "en": "ℹ️ About"},
     "lang":    {"fa": "🌐 English",        "en": "🌐 فارسی"},
+    "ext_search": ext_ui.BUTTON_LABEL,   # External Search (separate from local search)
 
     # Browse sub-menu inline buttons
     "b_books":    {"fa": "📘 کتاب‌ها",        "en": "📕 Books"},
@@ -893,6 +895,7 @@ def main_keyboard(user: types.User) -> types.ReplyKeyboardMarkup:
         types.KeyboardButton(btn(user, "search")),
         types.KeyboardButton(btn(user, "browse")),
     )
+    kb.add(types.KeyboardButton(btn(user, "ext_search")))
     kb.add(
         types.KeyboardButton(BTN["my_bookmarks"][lang]),
         types.KeyboardButton(BTN["my_history"][lang]),
@@ -1140,6 +1143,13 @@ def _contact_known_labels() -> set:
     return labels
 
 
+# External Search (Telegram UI layer; core lives in the independent external_search package)
+ext_ui.init(bot, get_lang, main_keyboard, cancel_keyboard,
+            is_menu_label=lambda s: s in _contact_known_labels(),
+            # ext_* analytics events (own names; local search_*/file_* stats stay untouched)
+            on_event=lambda ev, uid, extra=None: analytics.log_event(ev, user_id=uid, extra=extra))
+
+
 def _forward_contact_to_admins(message: types.Message) -> int:
     """Send the user's message to every admin independently. Returns #successes."""
     user = message.from_user
@@ -1207,6 +1217,7 @@ def send_home(chat_id: int, user: types.User):
     uid = user.id
     waiting_contact.discard(uid)
     waiting_search_lang.discard(uid)
+    ext_ui.clear(uid)
     browse_submenu_type.pop(uid, None)
     user_menu_state.pop(uid, None)
     bot.send_message(
@@ -1266,6 +1277,12 @@ def cancel_command(message: types.Message):
         bot.send_message(message.chat.id, t(message.from_user, "contact_cancelled"),
                          reply_markup=about_reply_keyboard(message.from_user))
         return
+    if ext_ui.is_waiting(message.from_user.id) and user_menu_state.get(message.from_user.id) != "admin":
+        ext_ui.clear(message.from_user.id)
+        bot.send_message(message.chat.id,
+                         "↩️ لغو شد." if get_lang(message.from_user) == "fa" else "↩️ Cancelled.",
+                         reply_markup=main_keyboard(message.from_user))
+        return
     admin.handle_cancel_command(bot, message)
 
 
@@ -1324,6 +1341,7 @@ def text_handler(message: types.Message):
     if text in (BTN["back"]["fa"], BTN["back"]["en"]):
         waiting_contact.discard(uid)
         waiting_search.discard(uid)
+        ext_ui.clear(uid)
         if user_menu_state.get(uid) == "admin" and admin.is_admin(uid):
             # Admin "Manage Admins" → Back uses the same label as the user Back.
             admin.handle_admin_text(bot, message)
@@ -1371,6 +1389,12 @@ def text_handler(message: types.Message):
             return
 
     if admin.handle_admin_text(bot, message):
+        return
+
+    # External Search: query entry. If a local-search flow is active it takes over.
+    if uid in waiting_search or uid in waiting_search_lang:
+        ext_ui.clear(uid)
+    elif ext_ui.handle_text(message):
         return
 
     # custom language code entry for search filter
@@ -1436,6 +1460,11 @@ def text_handler(message: types.Message):
         # Search keeps its own flow (cancel keyboard + waiting_search)
         search_filters.pop(uid, None)
         _send_search_filter_panel(message.chat.id, user)
+
+    elif text == btn(user, "ext_search"):
+        # External Search keeps its own flow (inline type picker + ext_ui state)
+        waiting_search.discard(uid)
+        ext_ui.start(message.chat.id, user)
 
     elif text == btn(user, "browse"):
         # Switch Reply Keyboard to Browse submenu (no new content message)

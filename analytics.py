@@ -15,6 +15,18 @@ analytics.py — سیستم ردیابی رویداد و گزارش‌دهی آ�
   file_sent             — فایل موفقیت‌آمیز تحویل داده شد
   file_send_failed      — ارسال فایل با خطا مواجه شد
   bot_error             — خطای مهم در handler‌های ربات
+
+رویدادهای External Search (arXiv) — نام‌های جدا با پیشوند ext_ تا آمار جستجو و
+تحویل فایل محلی (search_* / file_*) دست‌نخورده بماند. متن جستجو ذخیره نمی‌شود.
+  ext_search_submitted  — کاربر عبارت جستجوی خارجی ارسال کرد       extra: field
+  ext_search_completed  — جستجو نتیجه داشت                         extra: field, result_count
+  ext_search_no_results — جستجو نتیجه نداشت                        extra: field
+  ext_search_error      — خطای فنی (timeout/شبکه/پاسخ نامعتبر)     extra: field, kind, paged
+  ext_details_viewed    — صفحه‌ی جزئیات یک نتیجه باز شد            extra: source
+  ext_pdf_requested     — درخواست PDF پذیرفته شد                   extra: source
+  ext_pdf_sent          — PDF معتبر ارسال شد                       extra: source
+  ext_pdf_failed        — دانلود/اعتبارسنجی/ارسال PDF ناموفق بود   extra: source, reason
+(این رویدادها resource_id ندارند؛ فقط برای فعالیت کاربر در get_daily_activity و retention شمرده می‌شوند.)
 """
 
 import json
@@ -608,6 +620,52 @@ def get_delivery_stats_in_period(days: Optional[int] = None,
         }
     except Exception as exc:
         logger.error("[analytics] get_delivery_stats_in_period failed: %s", exc)
+        return {}
+
+
+EXT_EVENT_TYPES = (
+    "ext_search_submitted", "ext_search_completed", "ext_search_no_results", "ext_search_error",
+    "ext_details_viewed", "ext_pdf_requested", "ext_pdf_sent", "ext_pdf_failed",
+)
+
+
+def get_external_search_stats_in_period(days: Optional[int] = None,
+                                        offset_days: int = 0) -> dict:
+    """
+    آمار External Search در یک بازه زمانی (days=None → تمام تاریخ).
+    فقط رویدادهای ext_* را می‌شمارد و با آمار جستجوی محلی قاطی نمی‌شود.
+    """
+    try:
+        with database.get_connection() as conn:
+            where, params = _period_where("created_at", days, offset_days)
+            marks = ",".join("?" for _ in EXT_EVENT_TYPES)
+            rows = conn.execute(
+                f"SELECT event_type, COUNT(*) AS n FROM analytics_events "
+                f"WHERE event_type IN ({marks}) {where} GROUP BY event_type",
+                [*EXT_EVENT_TYPES, *params],
+            ).fetchall()
+            unique = conn.execute(
+                f"SELECT COUNT(DISTINCT user_id) FROM analytics_events "
+                f"WHERE event_type='ext_search_submitted' {where}", params
+            ).fetchone()[0]
+        c = {r["event_type"]: r["n"] for r in rows}
+        submitted, completed = c.get("ext_search_submitted", 0), c.get("ext_search_completed", 0)
+        requested, sent = c.get("ext_pdf_requested", 0), c.get("ext_pdf_sent", 0)
+        return {
+            "total_submitted":   submitted,
+            "total_completed":   completed,
+            "total_no_results":  c.get("ext_search_no_results", 0),
+            "total_errors":      c.get("ext_search_error", 0),
+            "unique_searchers":  unique,
+            "details_viewed":    c.get("ext_details_viewed", 0),
+            "pdf_requested":     requested,
+            "pdf_sent":          sent,
+            "pdf_failed":        c.get("ext_pdf_failed", 0),
+            "search_success_rate_pct": round(completed / submitted * 100, 1) if submitted else 0.0,
+            "pdf_success_rate_pct":    round(sent / requested * 100, 1) if requested else 0.0,
+        }
+    except Exception as exc:
+        logger.error("[analytics] get_external_search_stats_in_period failed: %s", exc)
         return {}
 
 

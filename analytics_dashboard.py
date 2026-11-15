@@ -7,12 +7,14 @@ analytics_dashboard.py — داشبورد Analytics در Telegram
 
 ساختار منو:
   📊 داشبورد Analytics
-    ├── 🔭 خلاصه کلی
+    ├── 📊 خلاصه کلی
     ├── 👥 آمار کاربران
     │     └── [فیلتر بازه زمانی]
     ├── 🔍 آمار جستجو
     │     └── [فیلتر بازه زمانی]
     ├── 📥 آمار تحویل
+    │     └── [فیلتر بازه زمانی]
+    ├── 🌍 جست‌وجوی خارجی (arXiv: جست‌وجو، جزئیات، PDF)
     │     └── [فیلتر بازه زمانی]
     ├── 🔄 Retention
     └── 📈 رشد
@@ -58,6 +60,7 @@ STRINGS: dict[str, dict[str, str]] = {
     "btn_users":      {"fa": "👥 کاربران",     "en": "👥 Users"},
     "btn_search":     {"fa": "🔍 جستجو",       "en": "🔍 Search"},
     "btn_delivery":   {"fa": "📥 تحویل فایل", "en": "📥 File Delivery"},
+    "btn_external":   {"fa": "🌍 جست‌وجوی خارجی", "en": "🌍 External Search"},
     "btn_retention":  {"fa": "🔄 Retention",   "en": "🔄 Retention"},
     "btn_growth":     {"fa": "📈 رشد",         "en": "📈 Growth"},
     "btn_back_panel": {"fa": "🔙 بازگشت به پنل", "en": "🔙 Back to Panel"},
@@ -75,6 +78,7 @@ STRINGS: dict[str, dict[str, str]] = {
     "header_users":     {"fa": "👥 آمار کاربران",                     "en": "👥 User Stats"},
     "header_search":    {"fa": "🔍 آمار جستجو",                       "en": "🔍 Search Stats"},
     "header_delivery":  {"fa": "📥 آمار تحویل فایل",                  "en": "📥 File Delivery Stats"},
+    "header_external":  {"fa": "🌍 آمار جست‌وجوی خارجی",               "en": "🌍 External Search Stats"},
     "header_retention": {"fa": "🔄 Retention کاربران",                "en": "🔄 User Retention"},
     "header_growth":    {"fa": "📈 رشد — نمای",                       "en": "📈 Growth —"},
     "header_daily":     {"fa": "📋 گزارش روزانه",                     "en": "📋 Daily Report"},
@@ -123,6 +127,21 @@ STRINGS: dict[str, dict[str, str]] = {
     "ds_sent":            {"fa": "تحویل موفق",              "en": "Successful deliveries"},
     "ds_failed":          {"fa": "تحویل ناموفق",            "en": "Failed deliveries"},
     "ds_rate":            {"fa": "نرخ موفقیت تحویل",        "en": "Delivery success rate"},
+    # ── external search fields ────────────────────────────────────────────────
+    "es_submitted":       {"fa": "کل جست‌وجوهای ارسال‌شده",   "en": "Total submitted"},
+    "es_completed":       {"fa": "جست‌وجوهای موفق (نتیجه داشت)", "en": "Successful (with results)"},
+    "es_no_results":      {"fa": "جست‌وجو بدون نتیجه",         "en": "No results"},
+    "es_errors":          {"fa": "خطای فنی جست‌وجو",           "en": "Technical errors"},
+    "es_unique":          {"fa": "کاربران یکتای جست‌وجوکننده", "en": "Unique searchers"},
+    "es_rate":            {"fa": "نرخ موفقیت جست‌وجو",         "en": "Search success rate"},
+    "es_details":         {"fa": "جزئیات بازشده",              "en": "Details opened"},
+    "es_pdf_section":     {"fa": "📄 PDF",                      "en": "📄 PDF"},
+    "es_pdf_requested":   {"fa": "درخواست PDF",                 "en": "PDF requests"},
+    "es_pdf_sent":        {"fa": "ارسال موفق",                  "en": "Sent"},
+    "es_pdf_failed":      {"fa": "ارسال ناموفق",                "en": "Failed"},
+    "es_pdf_rate":        {"fa": "نرخ موفقیت PDF",              "en": "PDF success rate"},
+    "es_note":            {"fa": "ℹ️ جدا از آمار جستجو و تحویل فایل کتابخانه‌ی محلی؛ متن جست‌وجو ذخیره نمی‌شود.",
+                           "en": "ℹ️ Separate from local library search and delivery stats; query text is not stored."},
     # ── retention ─────────────────────────────────────────────────────────────
     "ret_no_data":        {"fa": "داده کافی وجود ندارد",    "en": "Insufficient data"},
     "ret_day1":           {"fa": "روز ۱",   "en": "Day 1"},
@@ -368,6 +387,34 @@ def _build_delivery_stats_text(period_key: str = "all", uid: int = 0) -> str:
     return "\n".join(lines)
 
 
+# ── External Search
+
+def _build_external_stats_text(period_key: str = "all", uid: int = 0) -> str:
+    days_map = {"today": 1, "week": 7, "month": 30, "quarter": 90}
+    s = analytics.get_external_search_stats_in_period(days=days_map.get(period_key))
+    T = lambda k: _t(uid, k)
+
+    lines = [
+        f"<b>{T('header_external')} — {_period_label(period_key, uid)}</b>\n",
+        f"{T('es_submitted')}:  <b>{_n(s.get('total_submitted'))}</b>",
+        f"{T('es_completed')}: <b>{_n(s.get('total_completed'))}</b>",
+        f"{T('es_no_results')}: <b>{_n(s.get('total_no_results'))}</b>",
+        f"{T('es_errors')}:     <b>{_n(s.get('total_errors'))}</b>",
+        f"{T('es_unique')}:     <b>{_n(s.get('unique_searchers'))}</b>",
+        f"{T('es_rate')}:       <b>{_pct(s.get('search_success_rate_pct'))}</b>",
+        f"{T('es_details')}:    <b>{_n(s.get('details_viewed'))}</b>",
+        "",
+        f"<b>{T('es_pdf_section')}</b>",
+        f"  {T('es_pdf_requested')}: <b>{_n(s.get('pdf_requested'))}</b>",
+        f"  {T('es_pdf_sent')}:      <b>{_n(s.get('pdf_sent'))}</b>",
+        f"  {T('es_pdf_failed')}:    <b>{_n(s.get('pdf_failed'))}</b>",
+        f"  {T('es_pdf_rate')}:      <b>{_pct(s.get('pdf_success_rate_pct'))}</b>",
+        "",
+        f"<i>{T('es_note')}</i>",
+    ]
+    return "\n".join(lines)
+
+
 # ── Retention 
 
 def _build_retention_text(uid: int = 0) -> str:
@@ -499,6 +546,9 @@ def analytics_main_keyboard(uid: int = 0) -> types.InlineKeyboardMarkup:
     mk.add(
         types.InlineKeyboardButton(T("btn_search"),     callback_data=f"{PREFIX}:search:all"),
         types.InlineKeyboardButton(T("btn_delivery"),   callback_data=f"{PREFIX}:delivery:all"),
+    )
+    mk.add(
+        types.InlineKeyboardButton(T("btn_external"),   callback_data=f"{PREFIX}:ext:all"),
     )
     mk.add(
         types.InlineKeyboardButton(T("btn_retention"),  callback_data=f"{PREFIX}:retention"),
@@ -633,6 +683,11 @@ def handle_analytics_callback(bot, callback: types.CallbackQuery) -> bool:
             period = parts[1] if len(parts) > 1 else "all"
             text   = _build_delivery_stats_text(period, uid)
             _edit_or_send(bot, callback, text, period_filter_keyboard("delivery", period, uid))
+
+        elif section == "ext":
+            period = parts[1] if len(parts) > 1 else "all"
+            text   = _build_external_stats_text(period, uid)
+            _edit_or_send(bot, callback, text, period_filter_keyboard("ext", period, uid))
 
         elif section == "retention":
             text = _build_retention_text(uid)
