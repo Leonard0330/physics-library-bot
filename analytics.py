@@ -191,7 +191,8 @@ def get_user_stats() -> dict:
     و خطا در بخش‌های analytics باعث صفر شدن آن نمی‌شود.
     """
     out = {"total_users": 0, "users_with_created_at": 0,
-           "users_searched_at_least_once": 0, "users_never_searched": 0}
+           "users_searched_at_least_once": 0, "users_never_searched": 0,
+           "users_searched_external": 0}
     try:
         with database.get_connection() as conn:
             out["total_users"] = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
@@ -208,6 +209,13 @@ def get_user_stats() -> dict:
                 ).fetchone()[0]
             except Exception as exc:
                 logger.error("[analytics] get_user_stats(events) failed: %s", exc)
+            try:
+                out["users_searched_external"] = conn.execute(
+                    "SELECT COUNT(DISTINCT user_id) FROM analytics_events "
+                    "WHERE event_type = 'ext_search_submitted'"
+                ).fetchone()[0]
+            except Exception as exc:
+                logger.error("[analytics] get_user_stats(ext) failed: %s", exc)
         out["users_never_searched"] = max(0, out["total_users"] - out["users_searched_at_least_once"])
     except Exception as exc:
         logger.error("[analytics] get_user_stats failed: %s", exc)
@@ -365,6 +373,8 @@ def get_daily_activity(n_days: int = 30) -> list[dict]:
                     strftime('%Y-%m-%d', created_at) AS day,
                     COUNT(CASE WHEN event_type='search_submitted'  THEN 1 END) AS searches,
                     COUNT(CASE WHEN event_type='file_sent'         THEN 1 END) AS deliveries,
+                    COUNT(CASE WHEN event_type='ext_search_submitted' THEN 1 END) AS ext_searches,
+                    COUNT(CASE WHEN event_type='ext_pdf_sent'      THEN 1 END) AS ext_pdfs,
                     COUNT(DISTINCT CASE WHEN user_id IS NOT NULL   THEN user_id END) AS active_users
                 FROM analytics_events
                 WHERE datetime(created_at) >= datetime('now', ?)
@@ -378,6 +388,8 @@ def get_daily_activity(n_days: int = 30) -> list[dict]:
                 "day": r["day"],
                 "searches": r["searches"],
                 "deliveries": r["deliveries"],
+                "ext_searches": r["ext_searches"],
+                "ext_pdfs": r["ext_pdfs"],
                 "active_users": r["active_users"],
             }
             for r in rows
@@ -718,6 +730,7 @@ def get_summary_report() -> dict:
         "users": get_user_stats(),
         "searches": get_search_stats(),
         "deliveries": get_delivery_stats(),
+        "external": get_external_search_stats_in_period(),
         "retention": {
             "day1":  get_retention_cohort(1),
             "day7":  get_retention_cohort(7),

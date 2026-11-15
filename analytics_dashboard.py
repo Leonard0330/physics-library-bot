@@ -97,6 +97,8 @@ STRINGS: dict[str, dict[str, str]] = {
     "ov_search_section":  {"fa": "🔍 جستجو",           "en": "🔍 Search"},
     "ov_total_searches":  {"fa": "کل جستجوها",         "en": "Total searches"},
     "ov_success_rate":    {"fa": "نرخ موفقیت",         "en": "Success rate"},
+    "ov_ext_section":     {"fa": "🌍 جست‌وجوی خارجی", "en": "🌍 External Search"},
+    "ov_ext_pdf_sent":    {"fa": "PDF ارسال‌شده",       "en": "PDFs sent"},
     "ov_delivery_section":{"fa": "📥 تحویل فایل",      "en": "📥 File Delivery"},
     "ov_total_requests":  {"fa": "کل درخواست‌ها",      "en": "Total requests"},
     # ── user stats fields ──────────────────────────────────────────────────────
@@ -167,6 +169,9 @@ STRINGS: dict[str, dict[str, str]] = {
     "dr_with_results":    {"fa": "با نتیجه",          "en": "With results"},
     "dr_no_results":      {"fa": "بدون نتیجه",        "en": "No results"},
     "dr_errors":          {"fa": "خطای فنی",          "en": "Errors"},
+    "dr_ext":             {"fa": "🌍 جست‌وجوی خارجی", "en": "🌍 External Search"},
+    "dr_ext_pdf":         {"fa": "PDF ارسال‌شده",       "en": "PDFs sent"},
+    "us_ext_searched":    {"fa": "جست‌وجوی خارجی (کاربر یکتا)", "en": "External search (unique users)"},
     "dr_delivery":        {"fa": "📥 تحویل فایل",     "en": "📥 File Delivery"},
     "dr_success":         {"fa": "تحویل موفق",        "en": "Successful"},
     "dr_failed":          {"fa": "تحویل ناموفق",      "en": "Failed"},
@@ -282,6 +287,7 @@ def _build_overview_text(uid: int) -> str:
     nu_month = analytics.get_new_users_in_period(days=30)
     s  = analytics.get_search_stats()
     d  = analytics.get_delivery_stats()
+    x  = analytics.get_external_search_stats_in_period()
     T  = lambda k: _t(uid, k)
 
     lines = [
@@ -302,6 +308,11 @@ def _build_overview_text(uid: int) -> str:
         f"<b>{T('ov_delivery_section')}</b>",
         f"  {T('ov_total_requests')}: <b>{_n(d.get('total_requested'))}</b>",
         f"  {T('ov_success_rate')}:   <b>{_pct(d.get('success_rate_pct'))}</b>",
+        "",
+        f"<b>{T('ov_ext_section')}</b>",
+        f"  {T('ov_total_searches')}: <b>{_n(x.get('total_submitted'))}</b>",
+        f"  {T('ov_success_rate')}:   <b>{_pct(x.get('search_success_rate_pct'))}</b>",
+        f"  {T('ov_ext_pdf_sent')}:   <b>{_n(x.get('pdf_sent'))}</b>",
     ]
     return "\n".join(lines)
 
@@ -332,6 +343,7 @@ def _build_user_stats_text(period_key: str = "all", uid: int = 0) -> str:
         f"<b>{T('us_behaviour')}</b> <i>({T('us_since')})</i>",
         f"{T('us_at_least_one')}: <b>{_n(searched)}</b>",
         f"{T('us_never')}:        <b>{_n(never)}</b>",
+        f"{T('us_ext_searched')}: <b>{_n(u.get('users_searched_external'))}</b>",
         f"{T('us_conversion')}:   <b>{_pct(conv)}</b>",
         "",
         f"<i>{T('us_note1')}</i>",
@@ -493,6 +505,9 @@ def _build_daily_report_text(report_date: str, uid: int = 0) -> str:
     today_d = analytics.get_delivery_stats_in_period(days=1)
     yest_d  = analytics.get_delivery_stats_in_period(days=1, offset_days=1)
 
+    today_x = analytics.get_external_search_stats_in_period(days=1)
+    yest_x  = analytics.get_external_search_stats_in_period(days=1, offset_days=1)
+
     nu_today = analytics.get_new_users_in_period(days=1)
     nu_yest  = analytics.get_new_users_in_period(days=1, offset_days=1)
     au_today = analytics.get_active_users_in_period(days=1)
@@ -527,6 +542,13 @@ def _build_daily_report_text(report_date: str, uid: int = 0) -> str:
         f"<b>{T('dr_delivery')}</b>",
         f"  {T('dr_success')}: <b>{_n(t_sent)}</b>{_delta(t_sent, y_sent)}",
         f"  {T('dr_failed')}:  <b>{_n(t_fail)}</b>",
+        "",
+        f"<b>{T('dr_ext')}</b>",
+        f"  {T('dr_total')}:       <b>{_n(today_x.get('total_submitted'))}</b>{_delta(today_x.get('total_submitted', 0), yest_x.get('total_submitted', 0))}",
+        f"  {T('dr_searchers')}:   <b>{_n(today_x.get('unique_searchers'))}</b>",
+        f"  {T('dr_with_results')}: <b>{_n(today_x.get('total_completed'))}</b>",
+        f"  {T('dr_errors')}:      <b>{_n(today_x.get('total_errors'))}</b>",
+        f"  {T('dr_ext_pdf')}:     <b>{_n(today_x.get('pdf_sent'))}</b>{_delta(today_x.get('pdf_sent', 0), yest_x.get('pdf_sent', 0))}",
         "",
         f"<i>{T('dr_delta_note')}</i>",
     ]
