@@ -5,7 +5,8 @@ Telegram. The package itself stays Telegram-free. bot.py calls into this module
 through a few hooks (see init/start/handle_text/clear); no provider-specific logic
 lives here.
 
-Callback data namespace: ``xs:`` (``xs:t:<field>``, ``xs:p:<token>:<page>``,
+The source/search-type menu is a reply keyboard (bottom, like the main menu); results use inline buttons.
+Callback data namespace: ``xs:`` (``xs:p:<token>:<page>``,
 ``xs:d:<token>:<page>:<idx>`` details, ``xs:b:<token>:<page>`` back to the list,
 ``xs:f:<token>:<page>:<idx>`` send PDF, ``xs:n`` no-op, ``xs:new``).
 Usage events go through an injected ``on_event(event, user_id, extra)`` hook (bot.py wires it to
@@ -20,6 +21,7 @@ import html
 import itertools
 import logging
 import math
+import re
 import secrets
 import tempfile
 import threading
@@ -50,6 +52,8 @@ DETAIL_AUTHORS_MAX = 12
 SAFE_LEN = 3900            # Telegram limit is 4096; keep a margin
 SIGNATURE = "\n\n@PhysisLib_Bot"      # same stamp bot.py puts under every library file
 CANCEL_LABELS = {"❌ لغو", "❌ Cancel"}
+BACK_LABELS = {"◀️ بازگشت", "◀️ Back"}
+_MARK = re.compile(r"^(?:✅|⬜)\s*")
 
 BUTTON_LABEL = {"fa": "🌍 جست‌وجوی خارجی", "en": "🌍 External Search"}
 
@@ -70,6 +74,8 @@ TX = {
     "all_sources": {"fa": "همه", "en": "All"},
     "btn_menu_back": {"fa": "◀️ بازگشت", "en": "◀️ Back"},
     "btn_cancel": {"fa": "❌ لغو", "en": "❌ Cancel"},
+    "pick_hint": {"fa": "از دکمه‌های پایین صفحه استفاده کن 👇", "en": "Please use the buttons below 👇"},
+    "sel_now": {"fa": "📚 منابع فعلی: {sources}", "en": "📚 Current sources: {sources}"},
     "ask_title": {
         "fa": "📖 عنوان مقاله را وارد کن.\nعبارت <b>دقیقاً به همان ترتیب</b> در عنوان جست‌وجو می‌شود.\nℹ️ محتوای این منابع عمدتاً انگلیسی است؛ عبارت را به انگلیسی بنویس.",
         "en": "📖 Enter the paper title.\nThe phrase is matched <b>exactly, in that word order</b>, within titles.\nℹ️ Content is mostly English; type your query in English.",
@@ -192,6 +198,7 @@ _on_event: Optional[Callable] = None
 _pdf_submit: Callable = None       # separate pool: slow PDF downloads must not starve searches
 
 _waiting: Dict[int, SearchField] = {}                 # uid -> chosen field, awaiting query text
+_menu: set = set()                                    # uids looking at the source/type menu
 _sel: Dict[int, set] = {}                             # uid -> chosen providers (empty = all)
 _ctx: "OrderedDict[str, tuple]" = OrderedDict()       # token -> (query, field value)
 _ctx_lock = threading.Lock()
@@ -221,6 +228,7 @@ def init(bot, get_lang: Callable, main_keyboard: Callable, cancel_keyboard: Call
     _pdf_submit = pdf_submit or (_submit if submit else
                                  ThreadPoolExecutor(max_workers=2, thread_name_prefix="xs-pdf").submit)
     _waiting.clear()
+    _menu.clear()
     _sel.clear()
     with _ctx_lock:
         _ctx.clear()
@@ -263,10 +271,11 @@ def _source_label(name: str) -> str:
 # ── state API used by bot.py ────────────────────────────────────────────────
 def clear(uid: int) -> None:
     _waiting.pop(uid, None)
+    _menu.discard(uid)
 
 
 def is_waiting(uid: int) -> bool:
-    return uid in _waiting
+    return uid in _waiting or uid in _menu
 
 
 def _providers_of(uid: int):
@@ -274,63 +283,96 @@ def _providers_of(uid: int):
     return sorted(sel) if sel else None
 
 
-def _picker(user, lang: str):
-    """(text, inline markup) of the source/type picker, or None if no provider is available."""
+def _names() -> list:
     try:
-        names = _mgr().available(Capability.SEARCH)
+        return _mgr().available(Capability.SEARCH)
     except Exception:
         log.exception("external search manager unavailable")
-        names = []
-    if not names:
-        return None
-    sel = _sel.setdefault(user.id, set())
-    sel.intersection_update(names)
-    return _tx("pick", lang), _type_keyboard(lang, names, sel)
+        return []
 
 
-def start(chat_id: int, user) -> None:
-    """Entry point from the main-menu button: show the source + search-type picker."""
-    clear(user.id)
-    lang = _get_lang(user)
-    picker = _picker(user, lang)
-    if picker is None:
-        _bot.send_message(chat_id, _tx("unavailable", lang), reply_markup=_main_keyboard(user))
-        return
-    _bot.send_message(chat_id, picker[0], parse_mode="HTML", reply_markup=picker[1])
-
-
-def _type_keyboard(lang: str, names, selected) -> types.InlineKeyboardMarkup:
-    mk = types.InlineKeyboardMarkup()
-    btns = [types.InlineKeyboardButton(("✅ " if not selected else "⬜ ") + _tx("all_sources", lang),
-                                       callback_data=f"{PREFIX}s:all")]
-    btns += [types.InlineKeyboardButton(("✅ " if n in selected else "⬜ ") + _source_label(n),
-                                        callback_data=f"{PREFIX}s:{n}") for n in names]
-    for i in range(0, len(btns), 3):
-        mk.row(*btns[i:i + 3])
-    mk.row(*[types.InlineKeyboardButton(FIELD_LABELS[f][lang], callback_data=f"{PREFIX}t:{f.value}")
-             for f in (SearchField.TITLE, SearchField.AUTHOR, SearchField.KEYWORD)])
+def _menu_keyboard(lang: str, names, selected) -> types.ReplyKeyboardMarkup:
+    """Bottom (reply) keyboard: source toggles, search types, cancel."""
+    mk = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    toggles = [("✅ " if not selected else "⬜ ") + _tx("all_sources", lang)]
+    toggles += [("✅ " if n in selected else "⬜ ") + _source_label(n) for n in names]
+    for i in range(0, len(toggles), 3):
+        mk.row(*toggles[i:i + 3])
+    mk.row(*[FIELD_LABELS[f][lang] for f in (SearchField.TITLE, SearchField.AUTHOR, SearchField.KEYWORD)])
+    mk.row(_tx("btn_cancel", lang))
     return mk
 
 
-def _ask_markup(lang: str) -> types.InlineKeyboardMarkup:
-    mk = types.InlineKeyboardMarkup()
-    mk.row(types.InlineKeyboardButton(_tx("btn_menu_back", lang), callback_data=f"{PREFIX}h"),
-           types.InlineKeyboardButton(_tx("btn_cancel", lang), callback_data=f"{PREFIX}x"))
+def _ask_keyboard(lang: str) -> types.ReplyKeyboardMarkup:
+    mk = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    mk.row(_tx("btn_menu_back", lang), _tx("btn_cancel", lang))
     return mk
+
+
+def _sources_text(uid: int, lang: str) -> str:
+    sel = _providers_of(uid)
+    return ", ".join(_source_label(n) for n in sel) if sel else _tx("all_sources", lang)
 
 
 def _sources_line(uid: int, lang: str) -> str:
-    sel = _providers_of(uid)
-    names = ", ".join(_source_label(n) for n in sel) if sel else _tx("all_sources", lang)
-    return f"\n\n{_tx('ask_sources', lang)}: {_e(names)}"
+    return f"\n\n{_tx('ask_sources', lang)}: {_e(_sources_text(uid, lang))}"
+
+
+def _open_menu(chat_id: int, user, lang: str) -> None:
+    clear(user.id)
+    names = _names()
+    if not names:
+        _bot.send_message(chat_id, _tx("unavailable", lang), reply_markup=_main_keyboard(user))
+        return
+    sel = _sel.setdefault(user.id, set())
+    sel.intersection_update(names)
+    _menu.add(user.id)
+    _bot.send_message(chat_id, _tx("pick", lang), parse_mode="HTML",
+                      reply_markup=_menu_keyboard(lang, names, sel))
+
+
+def start(chat_id: int, user) -> None:
+    """Entry point from the main-menu button: show the source + search-type menu
+    (a reply keyboard at the bottom, like the main menu)."""
+    _open_menu(chat_id, user, _get_lang(user))
+
+
+def _menu_text(user, lang: str, chat_id: int, text: str) -> bool:
+    """A text message while the source/type menu is shown (always consumed)."""
+    uid = user.id
+    names = _names()
+    sel = _sel.setdefault(uid, set())
+    sel.intersection_update(names)
+    field = next((f for f in FIELD_LABELS if FIELD_LABELS[f][lang] == text), None)
+    if field is not None:
+        _menu.discard(uid)
+        _waiting[uid] = field
+        _bot.send_message(chat_id, _tx(f"ask_{field.value}", lang) + _sources_line(uid, lang),
+                          parse_mode="HTML", reply_markup=_ask_keyboard(lang))
+        return True
+    bare = _MARK.sub("", text).strip()
+    if bare == _tx("all_sources", lang):
+        sel.clear()
+    else:
+        name = next((n for n in names if _source_label(n) == bare), None)
+        if name is None:
+            _bot.send_message(chat_id, _tx("pick_hint", lang), reply_markup=_menu_keyboard(lang, names, sel))
+            return True
+        sel.symmetric_difference_update({name})
+        if sel >= set(names):              # everything ticked == "All"
+            sel.clear()
+    _bot.send_message(chat_id, _tx("sel_now", lang, sources=_e(_sources_text(uid, lang))),
+                      parse_mode="HTML", reply_markup=_menu_keyboard(lang, names, sel))
+    return True
 
 
 def handle_text(message) -> bool:
     """Called by bot.py's text handler. Returns True if the message was consumed."""
     user = message.from_user
     uid = user.id
+    in_menu = uid in _menu
     field = _waiting.get(uid)
-    if field is None:
+    if not in_menu and field is None:
         return False
     text = (message.text or "").strip()
     lang = _get_lang(user)
@@ -342,11 +384,16 @@ def handle_text(message) -> bool:
     if _is_menu_label(text):
         clear(uid)           # another menu button: leave this flow, let bot.py handle it
         return False
+    if in_menu:
+        return _menu_text(user, lang, chat_id, text)
+    if text in BACK_LABELS:
+        _open_menu(chat_id, user, lang)
+        return True
     if len(text) > MAX_QUERY_LEN:
-        _bot.send_message(chat_id, _tx("too_long", lang, n=MAX_QUERY_LEN), reply_markup=_cancel_keyboard(user))
+        _bot.send_message(chat_id, _tx("too_long", lang, n=MAX_QUERY_LEN), reply_markup=_ask_keyboard(lang))
         return True
     if not any(ch.isalnum() for ch in text):
-        _bot.send_message(chat_id, _tx("invalid", lang), reply_markup=_cancel_keyboard(user))
+        _bot.send_message(chat_id, _tx("invalid", lang), reply_markup=_ask_keyboard(lang))
         return True
     clear(uid)
     _emit("ext_search_submitted", user, field=field.value)
@@ -365,40 +412,7 @@ def _callback(c) -> None:
     parts = (c.data or "").split(":")
     try:
         action = parts[1]
-        if action == "t" and len(parts) == 3:
-            field = SearchField(parts[2])
-            _bot.answer_callback_query(c.id)
-            _waiting[user.id] = field
-            _show(c.message.chat.id, c.message.message_id,
-                  _tx(f"ask_{field.value}", lang) + _sources_line(user.id, lang), _ask_markup(lang))
-        elif action == "s" and len(parts) == 3:
-            names = _mgr().available(Capability.SEARCH)
-            sel = _sel.setdefault(user.id, set())
-            if parts[2] == "all":
-                sel.clear()
-            elif parts[2] in names:
-                sel.symmetric_difference_update({parts[2]})
-                if sel >= set(names):          # everything ticked == "All"
-                    sel.clear()
-            else:
-                raise ValueError("bad provider")
-            _bot.answer_callback_query(c.id)
-            try:
-                _bot.edit_message_reply_markup(c.message.chat.id, c.message.message_id,
-                                               reply_markup=_type_keyboard(lang, names, sel))
-            except Exception:  # noqa: BLE001 - "message is not modified"
-                pass
-        elif action == "h" and len(parts) == 2:        # back to the picker
-            clear(user.id)
-            _bot.answer_callback_query(c.id)
-            picker = _picker(user, lang)
-            if picker:
-                _show(c.message.chat.id, c.message.message_id, picker[0], picker[1])
-        elif action == "x" and len(parts) == 2:        # cancel
-            clear(user.id)
-            _bot.answer_callback_query(c.id)
-            _show(c.message.chat.id, c.message.message_id, _tx("cancelled", lang), _new_search_markup(lang))
-        elif action == "p" and len(parts) == 4:
+        if action == "p" and len(parts) == 4:
             page = int(parts[3])
             ctx = _ctx_get(parts[2])
             if page < 1:
@@ -539,7 +553,7 @@ def _report_error(chat_id, user, lang, exc, message_id, field, is_new) -> None:
             except Exception:  # noqa: BLE001
                 pass
             _waiting[user.id] = field
-            _bot.send_message(chat_id, _tx("invalid", lang), reply_markup=_cancel_keyboard(user))
+            _bot.send_message(chat_id, _tx("invalid", lang), reply_markup=_ask_keyboard(lang))
         else:
             _bot.send_message(chat_id, _tx("invalid", lang))
         return
