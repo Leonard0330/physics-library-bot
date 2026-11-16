@@ -63,9 +63,13 @@ FIELD_LABELS = {
 
 TX = {
     "pick": {
-        "fa": "🌍 <b>جست‌وجوی خارجی</b>\nمنابع: {sources}\nاین جست‌وجو جدا از کتابخانه‌ی محلی است.\n\nنوع جست‌وجو را انتخاب کن:",
-        "en": "🌍 <b>External Search</b>\nSources: {sources}\nThis is separate from the local library search.\n\nChoose the search type:",
+        "fa": "🌍 <b>جست‌وجوی خارجی</b>\nمنبع (یا منابع) را با دکمه‌ها انتخاب کن؛ پیش‌فرض «همه» است.\nاین جست‌وجو جدا از کتابخانه‌ی محلی است.\n\nسپس نوع جست‌وجو را انتخاب کن:",
+        "en": "🌍 <b>External Search</b>\nPick one or more sources with the buttons; the default is “All”.\nThis is separate from the local library search.\n\nThen choose the search type:",
     },
+    "ask_sources": {"fa": "📚 منابع", "en": "📚 Sources"},
+    "all_sources": {"fa": "همه", "en": "All"},
+    "btn_menu_back": {"fa": "◀️ بازگشت", "en": "◀️ Back"},
+    "btn_cancel": {"fa": "❌ لغو", "en": "❌ Cancel"},
     "ask_title": {
         "fa": "📖 عنوان مقاله را وارد کن.\nعبارت <b>دقیقاً به همان ترتیب</b> در عنوان جست‌وجو می‌شود.\nℹ️ محتوای این منابع عمدتاً انگلیسی است؛ عبارت را به انگلیسی بنویس.",
         "en": "📖 Enter the paper title.\nThe phrase is matched <b>exactly, in that word order</b>, within titles.\nℹ️ Content is mostly English; type your query in English.",
@@ -188,6 +192,7 @@ _on_event: Optional[Callable] = None
 _pdf_submit: Callable = None       # separate pool: slow PDF downloads must not starve searches
 
 _waiting: Dict[int, SearchField] = {}                 # uid -> chosen field, awaiting query text
+_sel: Dict[int, set] = {}                             # uid -> chosen providers (empty = all)
 _ctx: "OrderedDict[str, tuple]" = OrderedDict()       # token -> (query, field value)
 _ctx_lock = threading.Lock()
 _ctx_counter = itertools.count(1)
@@ -216,6 +221,7 @@ def init(bot, get_lang: Callable, main_keyboard: Callable, cancel_keyboard: Call
     _pdf_submit = pdf_submit or (_submit if submit else
                                  ThreadPoolExecutor(max_workers=2, thread_name_prefix="xs-pdf").submit)
     _waiting.clear()
+    _sel.clear()
     with _ctx_lock:
         _ctx.clear()
         _pages.clear()
@@ -263,27 +269,60 @@ def is_waiting(uid: int) -> bool:
     return uid in _waiting
 
 
-def start(chat_id: int, user) -> None:
-    """Entry point from the main-menu button: show the search-type picker."""
-    clear(user.id)
-    lang = _get_lang(user)
+def _providers_of(uid: int):
+    sel = _sel.get(uid)
+    return sorted(sel) if sel else None
+
+
+def _picker(user, lang: str):
+    """(text, inline markup) of the source/type picker, or None if no provider is available."""
     try:
         names = _mgr().available(Capability.SEARCH)
     except Exception:
         log.exception("external search manager unavailable")
         names = []
     if not names:
+        return None
+    sel = _sel.setdefault(user.id, set())
+    sel.intersection_update(names)
+    return _tx("pick", lang), _type_keyboard(lang, names, sel)
+
+
+def start(chat_id: int, user) -> None:
+    """Entry point from the main-menu button: show the source + search-type picker."""
+    clear(user.id)
+    lang = _get_lang(user)
+    picker = _picker(user, lang)
+    if picker is None:
         _bot.send_message(chat_id, _tx("unavailable", lang), reply_markup=_main_keyboard(user))
         return
-    _bot.send_message(chat_id, _tx("pick", lang, sources=_e(", ".join(_source_label(n) for n in names))),
-                      parse_mode="HTML", reply_markup=_type_keyboard(lang))
+    _bot.send_message(chat_id, picker[0], parse_mode="HTML", reply_markup=picker[1])
 
 
-def _type_keyboard(lang: str) -> types.InlineKeyboardMarkup:
+def _type_keyboard(lang: str, names, selected) -> types.InlineKeyboardMarkup:
     mk = types.InlineKeyboardMarkup()
+    btns = [types.InlineKeyboardButton(("✅ " if not selected else "⬜ ") + _tx("all_sources", lang),
+                                       callback_data=f"{PREFIX}s:all")]
+    btns += [types.InlineKeyboardButton(("✅ " if n in selected else "⬜ ") + _source_label(n),
+                                        callback_data=f"{PREFIX}s:{n}") for n in names]
+    for i in range(0, len(btns), 3):
+        mk.row(*btns[i:i + 3])
     mk.row(*[types.InlineKeyboardButton(FIELD_LABELS[f][lang], callback_data=f"{PREFIX}t:{f.value}")
              for f in (SearchField.TITLE, SearchField.AUTHOR, SearchField.KEYWORD)])
     return mk
+
+
+def _ask_markup(lang: str) -> types.InlineKeyboardMarkup:
+    mk = types.InlineKeyboardMarkup()
+    mk.row(types.InlineKeyboardButton(_tx("btn_menu_back", lang), callback_data=f"{PREFIX}h"),
+           types.InlineKeyboardButton(_tx("btn_cancel", lang), callback_data=f"{PREFIX}x"))
+    return mk
+
+
+def _sources_line(uid: int, lang: str) -> str:
+    sel = _providers_of(uid)
+    names = ", ".join(_source_label(n) for n in sel) if sel else _tx("all_sources", lang)
+    return f"\n\n{_tx('ask_sources', lang)}: {_e(names)}"
 
 
 def handle_text(message) -> bool:
@@ -311,10 +350,11 @@ def handle_text(message) -> bool:
         return True
     clear(uid)
     _emit("ext_search_submitted", user, field=field.value)
-    token = _ctx_put(text, field)
+    providers = _providers_of(uid)
+    token = _ctx_put(text, field, providers)
     # Restores the main reply keyboard; results then replace this placeholder via edit.
     placeholder = _bot.send_message(chat_id, _tx("searching", lang), reply_markup=_main_keyboard(user))
-    _submit(_search_job, chat_id, user, token, text, field, 1, placeholder.message_id, True)
+    _submit(_search_job, chat_id, user, token, text, field, 1, placeholder.message_id, True, providers)
     return True
 
 
@@ -329,8 +369,35 @@ def _callback(c) -> None:
             field = SearchField(parts[2])
             _bot.answer_callback_query(c.id)
             _waiting[user.id] = field
-            _bot.send_message(c.message.chat.id, _tx(f"ask_{field.value}", lang),
-                              parse_mode="HTML", reply_markup=_cancel_keyboard(user))
+            _show(c.message.chat.id, c.message.message_id,
+                  _tx(f"ask_{field.value}", lang) + _sources_line(user.id, lang), _ask_markup(lang))
+        elif action == "s" and len(parts) == 3:
+            names = _mgr().available(Capability.SEARCH)
+            sel = _sel.setdefault(user.id, set())
+            if parts[2] == "all":
+                sel.clear()
+            elif parts[2] in names:
+                sel.symmetric_difference_update({parts[2]})
+                if sel >= set(names):          # everything ticked == "All"
+                    sel.clear()
+            else:
+                raise ValueError("bad provider")
+            _bot.answer_callback_query(c.id)
+            try:
+                _bot.edit_message_reply_markup(c.message.chat.id, c.message.message_id,
+                                               reply_markup=_type_keyboard(lang, names, sel))
+            except Exception:  # noqa: BLE001 - "message is not modified"
+                pass
+        elif action == "h" and len(parts) == 2:        # back to the picker
+            clear(user.id)
+            _bot.answer_callback_query(c.id)
+            picker = _picker(user, lang)
+            if picker:
+                _show(c.message.chat.id, c.message.message_id, picker[0], picker[1])
+        elif action == "x" and len(parts) == 2:        # cancel
+            clear(user.id)
+            _bot.answer_callback_query(c.id)
+            _show(c.message.chat.id, c.message.message_id, _tx("cancelled", lang), _new_search_markup(lang))
         elif action == "p" and len(parts) == 4:
             page = int(parts[3])
             ctx = _ctx_get(parts[2])
@@ -341,7 +408,7 @@ def _callback(c) -> None:
                 return
             _bot.answer_callback_query(c.id)
             _submit(_search_job, c.message.chat.id, user, parts[2], ctx[0], SearchField(ctx[1]),
-                    page, c.message.message_id, False)
+                    page, c.message.message_id, False, ctx[2])
         elif action in ("d", "f") and len(parts) == 5:
             page, idx = int(parts[3]), int(parts[4])
             entry = _pages_get(parts[2], page)
@@ -380,10 +447,10 @@ def _callback(c) -> None:
         _bot.answer_callback_query(c.id)
 
 
-def _ctx_put(query: str, field: SearchField) -> str:
+def _ctx_put(query: str, field: SearchField, providers=None) -> str:
     with _ctx_lock:
         tok = _BOOT + format(next(_ctx_counter), "x")
-        _ctx[tok] = (query, field.value)
+        _ctx[tok] = (query, field.value, providers)
         while len(_ctx) > CTX_MAX:
             _ctx.popitem(last=False)
         return tok
@@ -409,10 +476,10 @@ def _ctx_get(token: str):
 
 # ── search job (runs in worker thread; never blocks telebot handlers) ──────
 def _search_job(chat_id: int, user, token: str, query: str, field: SearchField,
-                page: int, message_id: int, is_new: bool) -> None:
+                page: int, message_id: int, is_new: bool, providers=None) -> None:
     lang = _get_lang(user)
     try:
-        result = asyncio.run(_mgr().search(query, field, page, PAGE_SIZE))
+        result = asyncio.run(_mgr().search(query, field, page, PAGE_SIZE, providers=providers))
     except Exception as exc:  # noqa: BLE001 - every failure becomes a user message
         _report_error(chat_id, user, lang, exc, message_id, field, is_new)
         return
