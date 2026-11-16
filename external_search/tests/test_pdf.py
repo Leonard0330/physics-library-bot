@@ -254,3 +254,15 @@ class ManagerDownload(NoNetwork):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HostSuffixTests(unittest.TestCase):
+    def test_suffix_entries(self):
+        hosts = {"hal.science", ".hal.science"}
+        self.assertTrue(pdfu.host_allowed("hal.science", hosts))
+        self.assertTrue(pdfu.host_allowed("theses.hal.science", hosts))
+        self.assertTrue(pdfu.host_allowed("A.B.HAL.science", hosts))
+        for bad in ("evilhal.science", "hal.science.evil.com", "science", ".hal.science", "", None):
+            self.assertFalse(pdfu.host_allowed(bad, hosts), bad)
+        self.assertFalse(pdfu.host_allowed("theses.hal.science", {"hal.science"}))     # exact entries stay exact
+        self.assertFalse(pdfu.host_allowed("hal.science", {".hal.science"}))           # suffix needs a subdomain

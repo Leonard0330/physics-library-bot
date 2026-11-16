@@ -73,7 +73,13 @@ class ManagerTests(unittest.TestCase):
             run(SearchManager().search("x"))
 
     def test_factory(self):
-        self.assertEqual(build_manager().available(), ["arxiv"])
+        from unittest import mock
+        from external_search import config
+        with mock.patch.object(config, "ADS_API_TOKEN", ""):      # ADS needs a token and is skipped without one
+            self.assertEqual(build_manager().available(), ["arxiv", "zenodo", "hal"])
+        with mock.patch.object(config, "ADS_API_TOKEN", "t"):
+            self.assertEqual(build_manager().available(), ["arxiv", "zenodo", "hal", "ads"])
+        self.assertEqual(build_manager(["arxiv"]).available(), ["arxiv"])
         with self.assertRaises(KeyError):
             build_manager(["nope"])
 
