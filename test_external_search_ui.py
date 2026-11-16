@@ -417,6 +417,36 @@ class DetailsTests(unittest.TestCase):
         self.assertEqual(len(ui._pages), ui.PAGES_MAX)
 
 
+class MultiSourceTests(unittest.TestCase):
+    def test_three_sources_one_page_fits_one_button_row(self):
+        def make(nm):
+            class P(FakeProvider):
+                name = nm
+
+                def search(self, query, field=SearchField.KEYWORD, page=1, page_size=10):
+                    n = min(page_size, 40)
+                    return SearchPage([result(i + 1, title=f"{nm} distinct paper number {i}", source=nm,
+                                              identifier=f"{nm}.{i}", pdf_url=None) for i in range(n)],
+                                      page, page_size, 40, True)
+            return P()
+        bot = FakeBot(); mgr = SearchManager()
+        for p in (make('arxiv'), make('zenodo'), make('hal')):
+            mgr.register(p)
+        ui.init(bot, lambda u: "en", lambda u: "M", lambda u: "C", manager=mgr, submit=lambda fn, *a: fn(*a))
+        ui.start(1, USER)
+        self.assertIn("arXiv, Zenodo, HAL", bot.sent[-1][1])
+        cb(bot, "xs:t:title"); ui.handle_text(msg("some distinct query words"))
+        text, mk = bot.edited[-1][2], bot.edited[-1][3]["reply_markup"]
+        nums = mk.keyboard[1]
+        self.assertLessEqual(len(nums), 8)                      # Telegram: at most 8 buttons per row
+        self.assertEqual(len(nums), 6)                          # ceil(5/3) per source x 3
+        self.assertEqual([b.text for b in nums], ["1", "2", "3", "4", "5", "6"])
+        for name in ("arXiv", "Zenodo", "HAL"):
+            self.assertIn(f"Source: {name}", text)
+        self.assertEqual(ui._pages_get(next(iter(ui._ctx)), 1)[0].page_size, 6)
+        self.assertIn("of 120", text)                           # totals add up across sources
+
+
 class BilingualTests(unittest.TestCase):
     def test_all_texts_have_both_languages_with_same_placeholders(self):
         import re
@@ -626,6 +656,11 @@ class PdfTests(unittest.TestCase):
         self.assertEqual(doc["kw"]["visible_file_name"], "2101.00002v1.pdf")
         self.assertLessEqual(len(doc["kw"]["caption"]), 1024)
         self.assertIn("Paper &lt;2&gt;", doc["kw"]["caption"])
+        self.assertTrue(doc["kw"]["caption"].endswith("\n\n@PhysisLib_Bot"))
+        long = ui._pdf_caption(SearchResult(title="T" * 5000, source="arxiv", identifier="1" * 900,
+                                            landing_page_url="https://arxiv.org/abs/" + "9" * 900))
+        self.assertLessEqual(len(long), 1024)
+        self.assertTrue(long.endswith("@PhysisLib_Bot"))
         self.assertEqual(doc["kw"]["parse_mode"], "HTML")
         self.assertIn("Fetching", self.bot.sent[-1][1])
         self.assertEqual(self.bot.deleted[-1][0], 1)     # status message removed
@@ -643,8 +678,8 @@ class PdfTests(unittest.TestCase):
     def test_error_messages(self):
         def http(code):
             return urllib.error.HTTPError("https://arxiv.org/pdf/x", code, "x", {}, None)
-        cases = ((http(404), "not available on arXiv"), (http(503), "Could not reach arXiv"),
-                 (socket.timeout("t"), "timed out"), (urllib.error.URLError(OSError("x")), "Could not reach arXiv"),
+        cases = ((http(404), "not available at its source"), (http(503), "Could not reach the PDF source"),
+                 (socket.timeout("t"), "timed out"), (urllib.error.URLError(OSError("x")), "Could not reach the PDF source"),
                  (RuntimeError("boom"), "went wrong"))
         for exc, frag in cases:
             self.click(exc=exc)
@@ -680,7 +715,7 @@ class PdfTests(unittest.TestCase):
         page.results[0].pdf_url = "https://example.org/other.pdf"
         self.click()
         self.assertEqual(self.urls, [])
-        self.assertIn("not available on arXiv", self.last_status())
+        self.assertIn("not available at its source", self.last_status())
         self.assertEqual(self.bot.documents, [])
 
     def test_record_without_pdf_link(self):

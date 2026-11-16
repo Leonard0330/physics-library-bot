@@ -53,7 +53,7 @@ CANCEL_LABELS = {"❌ لغو", "❌ Cancel"}
 
 BUTTON_LABEL = {"fa": "🌍 جست‌وجوی خارجی", "en": "🌍 External Search"}
 
-PROVIDER_LABELS = {"arxiv": "arXiv"}     # display names only; fallback is the provider name
+PROVIDER_LABELS = {"arxiv": "arXiv", "zenodo": "Zenodo", "hal": "HAL"}     # display names only; fallback is the provider name
 
 FIELD_LABELS = {
     SearchField.TITLE:   {"fa": "📖 عنوان",    "en": "📖 Title"},
@@ -143,8 +143,8 @@ TX = {
     },
     "pdf_busy": {"fa": "⏳ دریافت این PDF در حال انجام است.", "en": "⏳ This PDF is already being fetched."},
     "pdf_unavailable": {
-        "fa": "⚠️ PDF این مقاله در arXiv در دسترس نیست.",
-        "en": "⚠️ The PDF of this paper is not available on arXiv.",
+        "fa": "⚠️ PDF این مقاله در منبع در دسترس نیست.",
+        "en": "⚠️ The PDF of this paper is not available at its source.",
     },
     "pdf_too_large": {
         "fa": "⚠️ حجم این PDF بیشتر از حد مجاز ارسال است؛ از لینک منبع دریافتش کن.",
@@ -159,8 +159,8 @@ TX = {
         "en": "⚠️ Fetching the PDF timed out. Please try again.",
     },
     "pdf_network": {
-        "fa": "⚠️ اتصال به arXiv برقرار نشد یا سرویس شلوغ است. کمی بعد دوباره امتحان کن.",
-        "en": "⚠️ Could not reach arXiv, or it is busy. Please try again shortly.",
+        "fa": "⚠️ اتصال به منبع PDF برقرار نشد یا سرویس شلوغ است. کمی بعد دوباره امتحان کن.",
+        "en": "⚠️ Could not reach the PDF source, or it is busy. Please try again shortly.",
     },
     "pdf_send_failed": {
         "fa": "⚠️ PDF دریافت شد ولی ارسال آن در تلگرام ناموفق بود. دوباره امتحان کن.",
@@ -605,7 +605,7 @@ def _start_pdf(c, user, lang: str, token: str, page: int, idx: int, r) -> None:
         else:
             reply = None
             _pdf_busy.add(key)
-            _pdf_last[user.id] = now        # failed attempts count too: protects arXiv
+            _pdf_last[user.id] = now        # failed attempts count too: protects the sources
             if len(_pdf_last) > COOLDOWN_MAX_USERS:
                 for uid in [u for u, t in _pdf_last.items() if now - t >= xs_config.PDF_USER_COOLDOWN]:
                     del _pdf_last[uid]
