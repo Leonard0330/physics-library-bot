@@ -426,7 +426,8 @@ class MultiSourceTests(unittest.TestCase):
                 def search(self, query, field=SearchField.KEYWORD, page=1, page_size=10):
                     n = min(page_size, 40)
                     return SearchPage([result(i + 1, title=f"{nm} distinct paper number {i}", source=nm,
-                                              identifier=f"{nm}.{i}", pdf_url=None) for i in range(n)],
+                                              identifier=f"{nm}.{i}", pdf_url=None,
+                                              landing_page_url=f"https://{nm}.example/{i}") for i in range(n)],
                                       page, page_size, 40, True)
             return P()
         bot = FakeBot(); mgr = SearchManager()
@@ -445,6 +446,17 @@ class MultiSourceTests(unittest.TestCase):
             self.assertIn(f"Source: {name}", text)
         self.assertEqual(ui._pages_get(next(iter(ui._ctx)), 1)[0].page_size, 6)
         self.assertIn("of 120", text)                           # totals add up across sources
+
+
+class DateTextTests(unittest.TestCase):
+    def test_year_fallback_for_sources_without_exact_dates(self):
+        r = SearchResult(title="T", source="ads", identifier="2021ApJ...910L...1E", publication_year=2021)
+        self.assertIn("📅 2021", ui._format_item(1, r, "en", True))
+        self.assertIn("Date</b>: 2021", ui.format_details(r, "en"))
+        self.assertIn("NASA ADS", ui._format_item(1, r, "en", True))
+        r.published = date(2021, 3, 4)
+        self.assertIn("2021-03-04", ui.format_details(r, "en"))
+        self.assertNotIn("Date", ui.format_details(SearchResult(title="T", source="ads"), "en"))
 
 
 class BilingualTests(unittest.TestCase):

@@ -53,7 +53,7 @@ CANCEL_LABELS = {"❌ لغو", "❌ Cancel"}
 
 BUTTON_LABEL = {"fa": "🌍 جست‌وجوی خارجی", "en": "🌍 External Search"}
 
-PROVIDER_LABELS = {"arxiv": "arXiv", "zenodo": "Zenodo", "hal": "HAL"}     # display names only; fallback is the provider name
+PROVIDER_LABELS = {"arxiv": "arXiv", "zenodo": "Zenodo", "hal": "HAL", "ads": "NASA ADS"}     # display names only; fallback is the provider name
 
 FIELD_LABELS = {
     SearchField.TITLE:   {"fa": "📖 عنوان",    "en": "📖 Title"},
@@ -528,8 +528,8 @@ def format_details(r, lang: str) -> str:
         if len(r.authors) > DETAIL_AUTHORS_MAX:
             names += " " + _tx("authors_more", lang)
         lines.append(f"{_tx('d_authors', lang)}: {names}")
-    if r.published:
-        lines.append(f"{_tx('d_date', lang)}: {r.published.isoformat()}")
+    if _date_text(r):
+        lines.append(f"{_tx('d_date', lang)}: {_date_text(r)}")
     if r.identifier:
         lines.append(f"{_tx('d_id', lang)}: <code>{_e(r.identifier)}</code>")
     lines.append(f"{_tx('source', lang)}: {_e(_source_label(r.source))}")
@@ -546,6 +546,13 @@ def format_details(r, lang: str) -> str:
     return text[:SAFE_LEN]
 
 
+def _date_text(r) -> Optional[str]:
+    """Full date when known, otherwise just the year (e.g. NASA ADS gives month precision)."""
+    if r.published:
+        return r.published.isoformat()
+    return str(r.publication_year) if r.publication_year else None
+
+
 def _short(s: str, n: int) -> str:
     return s if len(s) <= n else s[: n - 1].rstrip() + "…"
 
@@ -560,8 +567,8 @@ def _format_item(i: int, r, lang: str, compact: bool) -> str:
             names += " " + _tx("authors_more", lang)
         lines.append(f"👤 {names}")
     meta = []
-    if r.published:
-        meta.append(f"📅 {r.published.isoformat()}")
+    if _date_text(r):
+        meta.append(f"📅 {_date_text(r)}")
     if r.identifier:
         meta.append(f"🆔 <code>{_e(r.identifier)}</code>")
     if meta:
