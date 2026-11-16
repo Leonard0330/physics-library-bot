@@ -30,10 +30,18 @@ def safe_filename(identifier: Optional[str], default: str = "paper") -> str:
     return base[:80] + ".pdf"
 
 
+def host_allowed(host: str, allowed_hosts: Collection[str]) -> bool:
+    """Exact match, or suffix match for entries that start with '.' (e.g. '.hal.science'
+    allows 'theses.hal.science' but neither 'hal.science' itself nor 'evilhal.science')."""
+    host = (host or "").lower()
+    return any((host.endswith(h) and len(host) > len(h)) if h.startswith(".") else host == h
+               for h in allowed_hosts)
+
+
 def check_url(url: Optional[str], allowed_hosts: Collection[str]) -> str:
     """Return url if it is https on an allowed host; otherwise raise PdfUnavailableError."""
     parts = urllib.parse.urlsplit(url or "")
-    if parts.scheme != "https" or (parts.hostname or "").lower() not in allowed_hosts:
+    if parts.scheme != "https" or not host_allowed(parts.hostname or "", allowed_hosts):
         raise PdfUnavailableError("PDF link is missing or not on an allowed host")
     return url
 
