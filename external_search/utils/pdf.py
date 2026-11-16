@@ -63,7 +63,7 @@ def _default_opener(allowed_hosts) -> Callable:
 
     def open_(url: str, timeout: float):
         req = urllib.request.Request(url, headers={"User-Agent": config.USER_AGENT,
-                                                   "Accept": "application/pdf"})
+                                                   "Accept": "application/pdf,application/octet-stream;q=0.9,*/*;q=0.8"})
         return op.open(req, timeout=timeout)
     return open_
 
