@@ -1,5 +1,7 @@
 import asyncio
 import logging
+import math
+import re
 from typing import Dict, List, Optional
 
 from . import config
@@ -9,6 +11,55 @@ from .models import AccessStatus, SearchField, SearchPage, SearchResult
 from .utils import pdf as pdf_utils
 
 log = logging.getLogger(__name__)
+
+_NON_ALNUM = re.compile(r"[^a-z0-9]+")
+_ARXIV_URL = re.compile(r"^https://(?:www\.)?arxiv\.org/(?:abs|pdf)/([A-Za-z0-9.\-/]+?)(?:\.pdf)?$")
+
+
+def _dup_keys(r: SearchResult) -> List[str]:
+    """Identity keys used to drop the same paper returned by several providers."""
+    keys = []
+    if r.doi:
+        doi = r.doi.strip().lower()
+        doi = re.sub(r"^(?:https?://(?:dx\.)?doi\.org/|doi:)", "", doi)
+        keys.append("doi:" + doi)
+    if r.source == "arxiv" and r.identifier:
+        keys.append("arxiv:" + re.sub(r"v\d+$", "", r.identifier.lower()))
+    for url in (r.pdf_url, r.landing_page_url):      # any provider linking to the arXiv copy
+        m = _ARXIV_URL.search(url or "")
+        if m:
+            keys.append("arxiv:" + re.sub(r"v\d+$", "", m.group(1).lower()))
+            break
+    title = _NON_ALNUM.sub("", (r.title or "").lower())
+    if len(title) >= 20:                     # short titles are too ambiguous to merge on
+        keys.append("title:" + title)
+    return keys
+
+
+def _has_pdf(r: SearchResult) -> bool:
+    return bool(r.pdf_url) and r.access_status != AccessStatus.CLOSED
+
+
+def _merge(pages: List[List[SearchResult]]) -> List[SearchResult]:
+    """Round-robin interleave (so every provider is represented), dropping duplicates.
+    When a duplicate has a PDF and the kept record has none, the PDF-bearing one wins."""
+    out: List[SearchResult] = []
+    seen: Dict[str, int] = {}
+    for i in range(max((len(p) for p in pages), default=0)):
+        for res in pages:
+            if i >= len(res):
+                continue
+            r = res[i]
+            keys = _dup_keys(r)
+            at = next((seen[k] for k in keys if k in seen), None)
+            if at is None:
+                at = len(out)
+                out.append(r)
+            elif _has_pdf(r) and not _has_pdf(out[at]):
+                out[at] = r
+            for k in keys:
+                seen.setdefault(k, at)
+    return out
 
 
 class SearchManager:
@@ -47,8 +98,11 @@ class SearchManager:
         selected = self._select(providers, Capability.SEARCH)
         if not selected:
             raise ProviderError("no search-capable provider available")
+        # With several providers each one gets a share of the page, so the merged page stays
+        # close to the requested size (the UI shows at most one row of number buttons).
+        per = max(1, math.ceil(page_size / len(selected)))
         outcomes = await asyncio.gather(
-            *(asyncio.to_thread(p.search, query, field, page, page_size) for p in selected),
+            *(asyncio.to_thread(p.search, query, field, page, per) for p in selected),
             return_exceptions=True)
         pages, failures = [], {}
         for p, res in zip(selected, outcomes):
@@ -61,14 +115,14 @@ class SearchManager:
                 pages.append((p, res))
         if not pages:
             raise SearchFailedError(failures)
-        results: List[SearchResult] = []
         for p, pg in pages:
             for r in pg.results:
                 r.source = r.source or p.name
-                results.append(r)
+        results = _merge([pg.results for _, pg in pages])
         totals = [pg.total for _, pg in pages]
         return SearchPage(
-            results=results, page=page, page_size=pages[0][1].page_size,
+            results=results, page=page,
+            page_size=pages[0][1].page_size if len(selected) == 1 else per * len(selected),
             total=None if any(t is None for t in totals) else sum(totals),
             has_next=any(pg.has_next for _, pg in pages),
             errors={n: str(e) for n, e in failures.items()})

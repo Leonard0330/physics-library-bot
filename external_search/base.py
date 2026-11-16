@@ -26,6 +26,12 @@ class BaseProvider(ABC):
     # Hosts from which this provider's own record links may be downloaded as PDF.
     pdf_hosts: frozenset = frozenset()
 
+    @classmethod
+    def configured(cls) -> bool:
+        """False when a required setting (e.g. an API token) is missing; the factory then
+        skips the provider instead of failing."""
+        return True
+
     def supports(self, cap: Capability) -> bool:
         return bool(self.capabilities & cap)
 

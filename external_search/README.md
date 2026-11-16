@@ -49,3 +49,20 @@ UI tests: `python -m unittest test_external_search_ui` (project root).
 `ext_pdf_requested/sent/failed`. They are separate from the local `search_*`/`file_*` events; query text is never stored.
 `analytics.get_external_search_stats_in_period()` feeds the dashboard section `adm_anl:ext:<period>`.
 Tests: `python -m unittest test_analytics_external` (stub database, in-memory SQLite).
+
+## Providers: arXiv, Zenodo, HAL
+`EXT_SEARCH_PROVIDERS` (default `arxiv,zenodo,hal`) selects the providers; a new provider is one file in `providers/` plus one line in `providers/__init__.py`.
+- **Zenodo** (`providers/zenodo.py`): open-access publications with a PDF; PDF only from `zenodo.org`.
+- **HAL** (`providers/hal.py`): open-access documents with a file; PDF only from `hal.science` / `hal.archives-ouvertes.fr` and their subdomains.
+- `pdf_hosts` entries starting with `.` are suffix rules (`.hal.science` matches `theses.hal.science`, not `hal.science` or `evilhal.science`).
+- With several providers the manager splits the page between them (`ceil(page_size / n)` each), interleaves the results and drops duplicates
+  (same DOI, same arXiv id, or same normalized title of 20+ characters); a duplicate that has a PDF replaces one that has none.
+  De-duplication works within a page, not across pages. Totals are the sum of the providers' totals.
+- Fixtures in the Zenodo/HAL tests are modeled on the documented formats, not recorded from the live APIs: do one real search and one PDF per provider after deploying.
+
+## NASA ADS (`providers/ads.py`)
+Needs a free API token: set `ADS_API_TOKEN` (never commit it). Without it the provider is skipped (a warning is logged) and the other sources keep working.
+ADS does not host PDFs: a record gets a PDF button only when ADS lists an arXiv e-print for it, and the PDF is then fetched from arXiv's hosts.
+The token is sent only in the `Authorization` header, requests that carry it never follow redirects, and it is never logged or put in a URL.
+Default ADS quota is 5000 requests/day per token; every search or page turn uses one request (`EXT_SEARCH_PROVIDERS` can drop `ads` to save quota).
+Results from any provider that link to the same arXiv copy are de-duplicated (arXiv id taken from `arxiv.org/abs|pdf/<id>` links).
