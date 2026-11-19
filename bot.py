@@ -114,14 +114,23 @@ _pg_next_id: list[int] = [0]     # mutable counter (list trick avoids nonlocal)
 _PG_STORE_MAX = 500
 
 
+_pg_rev: dict[str, int] = {}     # context string → id (dedupe: same list = same token)
+
+
 def _ctx_save(full_context: str) -> str:
+    # Re-use the existing token for an identical context (prevents store bloat
+    # when the user flips through pages back and forth)
+    cid = _pg_rev.get(full_context)
+    if cid is not None and cid in _pg_store:
+        return f"p{cid}"
     # Evict oldest entry when cap is reached
     if len(_pg_store) >= _PG_STORE_MAX:
         oldest = next(iter(_pg_store))
-        del _pg_store[oldest]
+        _pg_rev.pop(_pg_store.pop(oldest), None)
     cid = _pg_next_id[0]
     _pg_next_id[0] += 1
     _pg_store[cid] = full_context
+    _pg_rev[full_context] = cid
     return f"p{cid}"
 
 
@@ -132,17 +141,101 @@ def _ctx_load(token: str) -> str | None:
     return None  # legacy plain context (should not appear in practice)
 
 
-def _pagination_keyboard(context: str, page: int, has_next: bool) -> types.InlineKeyboardMarkup | None:
-    show_prev = page > 0
-    show_next = has_next
-    if not show_prev and not show_next:
+# ── Text-based result list (bold clickable titles → deep link → card) ─────────
+_BOT_USERNAME: list[str] = []
+
+
+def _bot_username() -> str:
+    if not _BOT_USERNAME:
+        _BOT_USERNAME.append(bot.get_me().username)
+    return _BOT_USERNAME[0]
+
+
+def _res_link(res_id) -> str:
+    """Deep link that opens the resource card (download button included)."""
+    return f"https://t.me/{_bot_username()}?start=res_{res_id}"
+
+
+def _fmt_result_entries(rows, start_index: int = 1, lang: str = "en") -> str:
+    """Numbered result blocks: bold linked title / author / date + id / field."""
+    blocks: list[str] = []
+    for i, res in enumerate(rows, start=start_index):
+        rtype = _row_get(res, "resource_type", "book")
+        icon = "📄" if rtype == "article" else "📘"
+        title = str(_row_get(res, "title", "") or "").strip() or "—"
+        if len(title) > 100:
+            title = title[:99].rstrip() + "…"
+        lines = [f'{i}. {icon} <b><a href="{_res_link(res["id"])}">{_h(title)}</a></b>']
+        author = _row_get(res, "author")
+        if author and str(author).strip():
+            lines.append(f"👤 {_h(str(author).strip()[:60])}")
+        date = _row_get(res, "publication_date") or _row_get(res, "year")
+        meta = []
+        if date:
+            meta.append(f"📅 {_h(date)}")
+        meta.append(f"🆔 <code>{_h(database.get_display_id(res))}</code>")
+        lines.append(" · ".join(meta))
+        fkey = _row_get(res, "physics_field")
+        if fkey and fkey in database.PHYSICS_FIELDS:
+            fa_n, en_n = database.PHYSICS_FIELDS[fkey]
+            lines.append(f"🌌 {_h(fa_n if lang == 'fa' else en_n)}")
+        blocks.append("\n".join(lines))
+    return "\n\n".join(blocks)
+
+
+def _send_or_edit_html(chat_id: int, text: str, markup=None, edit_message_id: int | None = None):
+    kw = dict(parse_mode="HTML", disable_web_page_preview=True, reply_markup=markup)
+    if edit_message_id:
+        try:
+            bot.edit_message_text(text, chat_id=chat_id, message_id=edit_message_id, **kw)
+            return
+        except Exception as exc:
+            if "not modified" in str(exc).lower():
+                return
+    bot.send_message(chat_id, text, **kw)
+
+
+def _count_for_context(list_type: str, arg: str, lf="", ff="", rf="") -> int | None:
+    """Total result count if database.count_resources exists, else None."""
+    fn = getattr(database, "count_resources", None)
+    if fn is None:
+        return None
+    try:
+        if list_type == "searchf":
+            return fn(query=arg.split("|")[0], language=lf, physics_field=ff, resource_type=rf)
+        if list_type == "search":
+            return fn(query=arg)
+        if list_type in ("books", "articles"):
+            return fn(resource_type=list_type[:-1])
+        if list_type == "field":
+            fk, rt = (arg.split("|", 1) + [""])[:2]
+            return fn(physics_field=fk, resource_type=rt or None)
+    except Exception:
+        return None
+    return None
+
+
+def _pagination_keyboard(context: str, page: int, has_next: bool,
+                         pages: int | None = None) -> types.InlineKeyboardMarkup | None:
+    """⏮ ◀️ [n/N] ▶️ ⏭ — first/last only when total page count is known."""
+    if page == 0 and not has_next:
         return None
     token = _ctx_save(context)   # store full context, get short token
+
+    def _b(label: str, target: int) -> types.InlineKeyboardButton:
+        return types.InlineKeyboardButton(label, callback_data=f"page:{token}:{target}")
+
     row = []
-    if show_prev:
-        row.append(types.InlineKeyboardButton("◀️", callback_data=f"page:{token}:{page - 1}"))
-    if show_next:
-        row.append(types.InlineKeyboardButton("▶️", callback_data=f"page:{token}:{page + 1}"))
+    if page > 0:
+        if pages and page > 1:
+            row.append(_b("⏮", 0))
+        row.append(_b("◀️", page - 1))
+    row.append(types.InlineKeyboardButton(
+        f"{page + 1}/{pages}" if pages else str(page + 1), callback_data="noop"))
+    if has_next:
+        row.append(_b("▶️", page + 1))
+        if pages and page < pages - 2:
+            row.append(_b("⏭", pages - 1))
     mk = types.InlineKeyboardMarkup()
     mk.row(*row)
     return mk
@@ -179,8 +272,22 @@ def _send_paginated_list(
     parts = ctx_core.split("|", 1)
     list_type = parts[0]
     arg = parts[1] if len(parts) > 1 else ""
+    q_show, lf, ff, rf = "", "", "", ""
+    total_override: int | None = None
 
-    if list_type == "searchf":
+    if list_type in ("bookmarks", "history"):
+        # Per-user lists: fetched in full and sliced here (they are small)
+        try:
+            if list_type == "bookmarks":
+                all_rows = list(database.get_bookmarks(user.id))
+            else:
+                all_rows = list(database.get_download_history(user.id, limit=200))
+        except Exception as exc:
+            logging.exception("paginated %s: DB error uid=%s: %s", list_type, user.id, exc)
+            all_rows = []
+        total_override = len(all_rows)
+        rows = all_rows[offset:offset + fetch_limit]
+    elif list_type == "searchf":
         # arg format: "<query>|lang:<lf>|field:<ff>|rtype:<rf>"
         parts_f = arg.split("|")
         q_f  = parts_f[0] if parts_f else ""
@@ -194,11 +301,13 @@ def _send_paginated_list(
                 ff = p[6:]
             elif p.startswith("rtype:"):
                 rf = p[6:]
+        q_show = q_f
         rows = database.search_resources(
             query=q_f, language=lf, physics_field=ff,
             resource_type=rf, limit=fetch_limit, offset=offset,
         )
     elif list_type == "search":
+        q_show = arg
         rows = database.search_resources(query=arg, limit=fetch_limit, offset=offset)
     elif list_type == "books":
         rows = database.search_resources(resource_type="book", limit=fetch_limit, offset=offset)
@@ -229,47 +338,55 @@ def _send_paginated_list(
     page_rows = rows[:PAGE_SIZE]
 
     if not page_rows:
-        return  # nothing to show — should not normally happen
+        if page > 0:
+            # e.g. a bookmark was removed and the last page vanished → step back
+            _send_paginated_list(chat_id, user, context, page - 1, header_key, edit_message_id)
+        else:
+            bot.send_message(chat_id, t(user, "no_books"), reply_markup=main_keyboard(user))
+        return
 
     lang = get_lang(user)
-    header = TEXTS[hkey][lang]
-    total_label = f"  [{page * PAGE_SIZE + 1}–{page * PAGE_SIZE + len(page_rows)}]"
-    full_header = header + total_label
+    first = page * PAGE_SIZE + 1
+    last = page * PAGE_SIZE + len(page_rows)
+    total = total_override if total_override is not None else _count_for_context(list_type, arg, lf, ff, rf)
 
-    # Build item buttons
-    mk = types.InlineKeyboardMarkup()
-    for res in page_rows:
-        disp = database.get_display_id(res)
-        rtype_r = res["resource_type"] if "resource_type" in res.keys() else "book"
-        icon = "📄" if rtype_r == "article" else "📘"
-        edition_part = (
-            f" [{res['edition']}]"
-            if rtype_r == "book" and _row_get(res, "edition") and str(res["edition"]).strip()
-            else ""
-        )
-        label = f"{icon} {disp} — {res['title'][:35]}{edition_part}"
-        mk.add(types.InlineKeyboardButton(label, callback_data=f"resinfo:{res['id']}"))
-
-    # Append nav row if needed
-    hkey_stored = _HDR_ENCODE.get(hkey, hkey)  # abbreviate before storing in callback_data
-    full_context = f"{ctx_core}|hdr:{hkey_stored}"
-    nav_mk = _pagination_keyboard(full_context, page, has_next)
-    if nav_mk:
-        for row in nav_mk.keyboard:
-            mk.row(*row)
-
-    if edit_message_id:
-        try:
-            bot.edit_message_text(
-                full_header,
-                chat_id=chat_id,
-                message_id=edit_message_id,
-                reply_markup=mk,
-            )
-        except Exception:
-            bot.send_message(chat_id, full_header, reply_markup=mk)
+    if q_show:
+        head = f"📖 <b>{'جستجو' if lang == 'fa' else 'Search'}:</b> «{_h(q_show)}»"
+        if list_type == "searchf":
+            fparts = []
+            if lf:
+                fparts.append(lf.upper())
+            if ff and ff in database.PHYSICS_FIELDS:
+                fa_n, en_n = database.PHYSICS_FIELDS[ff]
+                fparts.append(fa_n if lang == "fa" else en_n)
+            if rf:
+                fparts.append(("کتاب" if rf == "book" else "مقاله") if lang == "fa"
+                              else ("Book" if rf == "book" else "Article"))
+            if fparts:
+                head += f"\n🔧 {_h(' · '.join(fparts))}"
     else:
-        bot.send_message(chat_id, full_header, reply_markup=mk)
+        head = f"<b>{_h(TEXTS[hkey][lang])}</b>"
+
+    pages = None
+    if total:
+        pages = max(1, -(-total // PAGE_SIZE))
+        if lang == "fa":
+            stat = f"📊 {first}–{last} از {total} نتیجه · صفحه {page + 1}/{pages}"
+        else:
+            stat = f"📊 {first}–{last} of {total} results · page {page + 1}/{pages}"
+    else:
+        stat = (f"📊 {first}–{last} · صفحه {page + 1}" if lang == "fa"
+                else f"📊 {first}–{last} · page {page + 1}")
+
+    hint = ("👆 روی عنوان بزنید تا کارت و دکمه دانلود باز شود"
+            if lang == "fa" else "👆 Tap a title to open its card and download")
+
+    text = f"{head}\n{stat}\n\n{_fmt_result_entries(page_rows, first, lang)}\n\n<i>{hint}</i>"
+
+    hkey_stored = _HDR_ENCODE.get(hkey, hkey)
+    full_context = f"{ctx_core}|hdr:{hkey_stored}"
+    nav_mk = _pagination_keyboard(full_context, page, has_next, pages)
+    _send_or_edit_html(chat_id, text, nav_mk, edit_message_id)
 # End Pagination 
 
 # texts (FA / EN)
@@ -1240,6 +1357,17 @@ def start(message: types.Message):
     # فقط اولین /start به عنوان ثبت‌نام ثبت می‌شود؛
     # /start های بعدی (بازگشت به خانه) با is_new=False لاگ می‌شوند
     analytics.log_user_started(user.id, is_new=is_new)
+
+    # Deep link from search results: /start res_<id>
+    parts = (message.text or "").split(maxsplit=1)
+    if len(parts) == 2 and parts[1].startswith("res_") and parts[1][4:].isdigit():
+        res = database.get_resource(int(parts[1][4:]))
+        if res:
+            send_resource_card(message.chat.id, user, res)
+        else:
+            bot.send_message(message.chat.id, t(user, "book_missing"))
+        return
+
     send_home(message.chat.id, user)
 
 
@@ -1703,28 +1831,18 @@ def handle_search_query(message: types.Message, query: str):
         _nf_mk = types.InlineKeyboardMarkup()
 
         if suggestions:
-            if len(suggestions) == 1:
-                sug_title = suggestions[0]["title"]
-                msg = TEXTS["not_found_suggest"][lang].format(suggestion=sug_title)
-                # Make the suggestion tappable
-                _nf_mk.add(types.InlineKeyboardButton(
-                    f"📘 {sug_title[:45]}",
-                    callback_data=f"resinfo:{suggestions[0]['id']}"
-                ))
+            if lang == "fa":
+                msg = "🔍 نتیجه‌ای پیدا نشد. شاید منظورتان یکی از اینها بوده:\n\n"
             else:
-                if lang == "fa":
-                    lines = ["🔍 نتیجه‌ای پیدا نشد. شاید منظورتان یکی از اینها بوده:"]
-                else:
-                    lines = ["🔍 No results found. Did you mean one of these?"]
-                for s in suggestions:
-                    rtype = s["resource_type"] if "resource_type" in s.keys() else "book"
-                    icon = "📄" if rtype == "article" else "📘"
-                    lines.append(f"  {icon} {s['title'][:50]}")
-                    _nf_mk.add(types.InlineKeyboardButton(
-                        f"{icon} {s['title'][:45]}",
-                        callback_data=f"resinfo:{s['id']}"
-                    ))
-                msg = "\n".join(lines)
+                msg = "🔍 No results found. Did you mean one of these?\n\n"
+            sug_lines = []
+            for i, s_row in enumerate(suggestions, 1):
+                rtype = s_row["resource_type"] if "resource_type" in s_row.keys() else "book"
+                icon = "📄" if rtype == "article" else "📘"
+                sug_lines.append(
+                    f'{i}. {icon} <b><a href="{_res_link(s_row["id"])}">{_h(str(s_row["title"])[:100])}</a></b>'
+                )
+            msg += "\n".join(sug_lines)
         else:
             msg = t(user, "not_found")
 
@@ -1743,7 +1861,8 @@ def handle_search_query(message: types.Message, query: str):
             "🔍 جستجوی مجدد" if lang == "fa" else "🔍 Try Again",
             callback_data="search_again"
         ))
-        bot.send_message(message.chat.id, msg, reply_markup=_nf_mk)
+        bot.send_message(message.chat.id, msg, reply_markup=_nf_mk,
+                         parse_mode="HTML", disable_web_page_preview=True)
         return
 
     # ── analytics: search_completed (جستجو نتیجه داشت) ──────────────────────
@@ -1870,18 +1989,8 @@ def send_book_list(chat_id: int, user: types.User, rows, header_key: str):
     if not rows:
         bot.send_message(chat_id, t(user, "no_books"), reply_markup=main_keyboard(user))
         return
-
     header = TEXTS[header_key][get_lang(user)]
-    markup = types.InlineKeyboardMarkup()
-    for book in rows:
-        disp = database.get_display_id(book)
-        rtype = book["resource_type"] if "resource_type" in book.keys() else "book"
-        icon = "📄" if rtype == "article" else "📕"
-        edition_part = f" [{book['edition']}]" if rtype == "book" and _row_get(book, "edition") and str(book["edition"]).strip() else ""
-        label = f"{icon} {disp} — {book['title'][:35]}{edition_part}"
-        markup.add(types.InlineKeyboardButton(label, callback_data=f"resinfo:{book['id']}"))
-
-    bot.send_message(chat_id, header, reply_markup=markup)
+    _send_or_edit_html(chat_id, f"<b>{_h(header)}</b>\n\n{_fmt_result_entries(rows, 1, get_lang(user))}")
 
 
 def send_resource_list(chat_id: int, user: types.User, rows, header_key: str,
@@ -1893,17 +2002,8 @@ def send_resource_list(chat_id: int, user: types.User, rows, header_key: str,
         _send_paginated_list(chat_id, user, pg_context, page=0, header_key=header_key)
         return
     # legacy flat render (≤20 items, no pagination needed)
-    lang = get_lang(user)
-    header = TEXTS[header_key][lang]
-    markup = types.InlineKeyboardMarkup()
-    for res in rows:
-        disp = database.get_display_id(res)
-        rtype = res["resource_type"] if "resource_type" in res.keys() else "book"
-        icon = "📄" if rtype == "article" else "📕"
-        edition_part = f" [{res['edition']}]" if rtype == "book" and _row_get(res, "edition") and str(res["edition"]).strip() else ""
-        label = f"{icon} {disp} — {res['title'][:35]}{edition_part}"
-        markup.add(types.InlineKeyboardButton(label, callback_data=f"resinfo:{res['id']}"))
-    bot.send_message(chat_id, header, reply_markup=markup)
+    header = TEXTS[header_key][get_lang(user)]
+    _send_or_edit_html(chat_id, f"<b>{_h(header)}</b>\n\n{_fmt_result_entries(rows, 1, get_lang(user))}")
 
 
 # ── Central formatters ────────────────────────────────────────────────────────
@@ -2722,6 +2822,11 @@ def page_callback(callback: types.CallbackQuery):
     )
 
 
+@bot.callback_query_handler(func=lambda c: c.data == "noop")
+def noop_callback(callback: types.CallbackQuery):
+    bot.answer_callback_query(callback.id)
+
+
 # ── Rate callback ─────────────────────────────────────────────────────────────
 @bot.callback_query_handler(func=lambda c: c.data.startswith("rate:"))
 def rate_callback(callback: types.CallbackQuery):
@@ -2908,17 +3013,8 @@ def handle_my_bookmarks(message: types.Message):
         bot.send_message(message.chat.id, TEXTS["bookmarks_empty"][lang],
                          reply_markup=main_keyboard(user))
         return
-    markup = types.InlineKeyboardMarkup()
-    for res in rows:
-        disp = database.get_display_id(res)
-        rtype = res["resource_type"] if "resource_type" in res.keys() else "book"
-        icon = "📄" if rtype == "article" else "📕"
-        markup.add(types.InlineKeyboardButton(
-            f"{icon} {disp} — {res['title'][:35]}",
-            callback_data=f"resinfo:{res['id']}"
-        ))
-    header = f"{TEXTS['bookmarks_header'][lang]} ({len(rows)})"
-    bot.send_message(message.chat.id, header, reply_markup=markup)
+    send_resource_list(message.chat.id, user, rows, header_key="bookmarks_header",
+                       pg_context="bookmarks|")
 
 
 def handle_my_history(message: types.Message):
@@ -2936,17 +3032,8 @@ def handle_my_history(message: types.Message):
         bot.send_message(message.chat.id, TEXTS["history_empty"][lang],
                          reply_markup=main_keyboard(user))
         return
-    markup = types.InlineKeyboardMarkup()
-    for res in rows:
-        disp = database.get_display_id(res)
-        rtype = res["resource_type"] if "resource_type" in res.keys() else "book"
-        icon = "📄" if rtype == "article" else "📕"
-        markup.add(types.InlineKeyboardButton(
-            f"{icon} {disp} — {res['title'][:35]}",
-            callback_data=f"resinfo:{res['id']}"
-        ))
-    header = f"{TEXTS['history_header'][lang]} ({len(rows)})"
-    bot.send_message(message.chat.id, header, reply_markup=markup)
+    send_resource_list(message.chat.id, user, rows, header_key="history_header",
+                       pg_context="history|")
 
 
 
