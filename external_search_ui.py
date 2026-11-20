@@ -5,10 +5,12 @@ Telegram. The package itself stays Telegram-free. bot.py calls into this module
 through a few hooks (see init/start/handle_text/clear); no provider-specific logic
 lives here.
 
-The source/search-type menu is a reply keyboard (bottom, like the main menu); results use inline buttons.
+The source menu is a reply keyboard (bottom, like the main menu): the user ticks sources and simply types
+the query (smart search: title/author/keywords, DOI, arXiv id or link are detected automatically);
+results use inline buttons, with “limit to title/author” refinements.
 Callback data namespace: ``xs:`` (``xs:p:<token>:<page>``,
 ``xs:d:<token>:<page>:<idx>`` details, ``xs:b:<token>:<page>`` back to the list,
-``xs:f:<token>:<page>:<idx>`` send PDF, ``xs:n`` no-op, ``xs:new``).
+``xs:f:<token>:<page>:<idx>`` send PDF, ``xs:r:<token>:<t|a|x>`` limit to title/author or widen to all fields, ``xs:n`` no-op, ``xs:new``).
 Usage events go through an injected ``on_event(event, user_id, extra)`` hook (bot.py wires it to
 analytics); they use their own ``ext_*`` names and never the local ``search_*``/``file_*`` events.
 Query text is never reported, only field, counts and error kinds.
@@ -38,6 +40,7 @@ from external_search import (AccessStatus, Capability, InvalidPdfError, InvalidQ
                              SearchField, SearchManager, SearchPage, build_manager)
 from external_search import config as xs_config
 from external_search.utils.pdf import safe_filename
+from external_search.utils.query import classify_query
 
 log = logging.getLogger(__name__)
 
@@ -52,7 +55,6 @@ DETAIL_AUTHORS_MAX = 12
 SAFE_LEN = 3900            # Telegram limit is 4096; keep a margin
 SIGNATURE = "\n\n@PhysisLib_Bot"      # same stamp bot.py puts under every library file
 CANCEL_LABELS = {"❌ لغو", "❌ Cancel"}
-BACK_LABELS = {"◀️ بازگشت", "◀️ Back"}
 _MARK = re.compile(r"^(?:✅|⬜)\s*")
 
 BUTTON_LABEL = {"fa": "🌍 جست‌وجوی خارجی", "en": "🌍 External Search"}
@@ -63,30 +65,27 @@ FIELD_LABELS = {
     SearchField.TITLE:   {"fa": "📖 عنوان",    "en": "📖 Title"},
     SearchField.AUTHOR:  {"fa": "👤 نویسنده",  "en": "👤 Author"},
     SearchField.KEYWORD: {"fa": "🔑 کلیدواژه", "en": "🔑 Keywords"},
+    SearchField.AUTO:    {"fa": "🔎 جست‌وجوی هوشمند", "en": "🔎 Smart search"},
+    SearchField.DOI:     {"fa": "🔗 DOI", "en": "🔗 DOI"},
+    SearchField.ID:      {"fa": "🆔 شناسه‌ی arXiv", "en": "🆔 arXiv ID"},
 }
 
 TX = {
     "pick": {
-        "fa": "🌍 <b>جست‌وجوی خارجی</b>\nمنبع (یا منابع) را با دکمه‌ها انتخاب کن؛ پیش‌فرض «همه» است.\nاین جست‌وجو جدا از کتابخانه‌ی محلی است.\n\nسپس نوع جست‌وجو را انتخاب کن:",
-        "en": "🌍 <b>External Search</b>\nPick one or more sources with the buttons; the default is “All”.\nThis is separate from the local library search.\n\nThen choose the search type:",
+        "fa": "🌍 <b>جست‌وجوی خارجی</b>\nمنبع (یا منابع) را با دکمه‌ها انتخاب کن؛ پیش‌فرض «همه» است.\nاین جست‌وجو جدا از کتابخانه‌ی محلی است.\n\nسپس مستقیم تایپ کن: عنوان، نام نویسنده، کلیدواژه، DOI، شناسه‌ی arXiv یا لینک arXiv/DOI. نوع ورودی را خودم تشخیص می‌دهم.\nℹ️ محتوای این منابع عمدتاً انگلیسی است؛ عبارت را به انگلیسی بنویس.",
+        "en": "🌍 <b>External Search</b>\nPick one or more sources with the buttons; the default is “All”.\nThis is separate from the local library search.\n\nThen just type: a title, author name, keywords, a DOI, an arXiv ID or an arXiv/DOI link. The input type is detected automatically.\nℹ️ Content is mostly English; type your query in English.",
     },
     "ask_sources": {"fa": "📚 منابع", "en": "📚 Sources"},
     "all_sources": {"fa": "همه", "en": "All"},
-    "btn_menu_back": {"fa": "◀️ بازگشت", "en": "◀️ Back"},
     "btn_cancel": {"fa": "❌ لغو", "en": "❌ Cancel"},
     "pick_hint": {"fa": "از دکمه‌های پایین صفحه استفاده کن 👇", "en": "Please use the buttons below 👇"},
     "sel_now": {"fa": "📚 منابع فعلی: {sources}", "en": "📚 Current sources: {sources}"},
-    "ask_title": {
-        "fa": "📖 عنوان مقاله را وارد کن.\nعبارت <b>دقیقاً به همان ترتیب</b> در عنوان جست‌وجو می‌شود.\nℹ️ محتوای این منابع عمدتاً انگلیسی است؛ عبارت را به انگلیسی بنویس.",
-        "en": "📖 Enter the paper title.\nThe phrase is matched <b>exactly, in that word order</b>, within titles.\nℹ️ Content is mostly English; type your query in English.",
-    },
-    "ask_author": {
-        "fa": "👤 نام نویسنده را وارد کن (مثلاً Albert Einstein).\nنام به‌صورت یک عبارت در فهرست نویسندگان جست‌وجو می‌شود.\nℹ️ نام را به انگلیسی بنویس.",
-        "en": "👤 Enter the author name (e.g. Albert Einstein).\nThe name is matched as a phrase in the author list.\nℹ️ Type the name in English.",
-    },
-    "ask_keyword": {
-        "fa": "🔑 کلیدواژه‌ها را وارد کن (مثلاً dark matter halo).\nفقط مقاله‌هایی نمایش داده می‌شوند که <b>همه‌ی کلمه‌ها</b> را داشته باشند (در عنوان، چکیده و سایر فیلدها).\nℹ️ کلیدواژه‌ها را به انگلیسی بنویس.",
-        "en": "🔑 Enter keywords (e.g. dark matter halo).\nOnly papers containing <b>all words</b> are shown (title, abstract and other fields).\nℹ️ Type keywords in English.",
+    "btn_only_title": {"fa": "📖 محدود به عنوان", "en": "📖 Title only"},
+    "btn_only_author": {"fa": "👤 محدود به نویسنده", "en": "👤 Author only"},
+    "btn_widen": {"fa": "🔎 همه‌ی فیلدها", "en": "🔎 All fields"},
+    "url_unsupported": {
+        "fa": "❗️ این لینک قابل شناسایی نیست. لینک arXiv یا DOI بفرست، یا عنوان/نویسنده/کلیدواژه را تایپ کن:",
+        "en": "❗️ This link is not recognised. Send an arXiv or DOI link, or type a title/author/keywords:",
     },
     "searching": {"fa": "⏳ در حال جست‌وجو…", "en": "⏳ Searching…"},
     "header": {
@@ -100,8 +99,8 @@ TX = {
     "source": {"fa": "📚 منبع", "en": "📚 Source"},
     "authors_more": {"fa": "و دیگران", "en": "et al."},
     "no_results": {
-        "fa": "🔎 نتیجه‌ای پیدا نشد. عبارت را ساده‌تر یا به انگلیسی بنویس، یا نوع جست‌وجو را عوض کن.",
-        "en": "🔎 No results found. Try simpler or English terms, or another search type.",
+        "fa": "🔎 نتیجه‌ای پیدا نشد. عبارت را ساده‌تر یا به انگلیسی بنویس.",
+        "en": "🔎 No results found. Try simpler or English terms.",
     },
     "no_more": {"fa": "🔎 نتیجه‌ی بیشتری در این صفحه نیست.", "en": "🔎 No more results on this page."},
     "invalid": {
@@ -197,8 +196,7 @@ _submit: Callable = None
 _on_event: Optional[Callable] = None
 _pdf_submit: Callable = None       # separate pool: slow PDF downloads must not starve searches
 
-_waiting: Dict[int, SearchField] = {}                 # uid -> chosen field, awaiting query text
-_menu: set = set()                                    # uids looking at the source/type menu
+_menu: set = set()                                    # uids in the search box (source menu + query input)
 _sel: Dict[int, set] = {}                             # uid -> chosen providers (empty = all)
 _ctx: "OrderedDict[str, tuple]" = OrderedDict()       # token -> (query, field value)
 _ctx_lock = threading.Lock()
@@ -227,7 +225,6 @@ def init(bot, get_lang: Callable, main_keyboard: Callable, cancel_keyboard: Call
     _submit = submit or ThreadPoolExecutor(max_workers=4, thread_name_prefix="xs").submit
     _pdf_submit = pdf_submit or (_submit if submit else
                                  ThreadPoolExecutor(max_workers=2, thread_name_prefix="xs-pdf").submit)
-    _waiting.clear()
     _menu.clear()
     _sel.clear()
     with _ctx_lock:
@@ -270,12 +267,11 @@ def _source_label(name: str) -> str:
 
 # ── state API used by bot.py ────────────────────────────────────────────────
 def clear(uid: int) -> None:
-    _waiting.pop(uid, None)
     _menu.discard(uid)
 
 
 def is_waiting(uid: int) -> bool:
-    return uid in _waiting or uid in _menu
+    return uid in _menu
 
 
 def _providers_of(uid: int):
@@ -292,30 +288,19 @@ def _names() -> list:
 
 
 def _menu_keyboard(lang: str, names, selected) -> types.ReplyKeyboardMarkup:
-    """Bottom (reply) keyboard: source toggles, search types, cancel."""
+    """Bottom (reply) keyboard: source toggles and cancel."""
     mk = types.ReplyKeyboardMarkup(resize_keyboard=True)
     toggles = [("✅ " if not selected else "⬜ ") + _tx("all_sources", lang)]
     toggles += [("✅ " if n in selected else "⬜ ") + _source_label(n) for n in names]
     for i in range(0, len(toggles), 3):
         mk.row(*toggles[i:i + 3])
-    mk.row(*[FIELD_LABELS[f][lang] for f in (SearchField.TITLE, SearchField.AUTHOR, SearchField.KEYWORD)])
     mk.row(_tx("btn_cancel", lang))
-    return mk
-
-
-def _ask_keyboard(lang: str) -> types.ReplyKeyboardMarkup:
-    mk = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    mk.row(_tx("btn_menu_back", lang), _tx("btn_cancel", lang))
     return mk
 
 
 def _sources_text(uid: int, lang: str) -> str:
     sel = _providers_of(uid)
     return ", ".join(_source_label(n) for n in sel) if sel else _tx("all_sources", lang)
-
-
-def _sources_line(uid: int, lang: str) -> str:
-    return f"\n\n{_tx('ask_sources', lang)}: {_e(_sources_text(uid, lang))}"
 
 
 def _open_menu(chat_id: int, user, lang: str) -> None:
@@ -332,24 +317,19 @@ def _open_menu(chat_id: int, user, lang: str) -> None:
 
 
 def start(chat_id: int, user) -> None:
-    """Entry point from the main-menu button: show the source + search-type menu
+    """Entry point from the main-menu button: show the source menu
     (a reply keyboard at the bottom, like the main menu)."""
     _open_menu(chat_id, user, _get_lang(user))
 
 
 def _menu_text(user, lang: str, chat_id: int, text: str) -> bool:
-    """A text message while the source/type menu is shown (always consumed)."""
+    """A text message in the search box (always consumed): a source toggle or the query itself."""
     uid = user.id
     names = _names()
     sel = _sel.setdefault(uid, set())
     sel.intersection_update(names)
-    field = next((f for f in FIELD_LABELS if FIELD_LABELS[f][lang] == text), None)
-    if field is not None:
-        _menu.discard(uid)
-        _waiting[uid] = field
-        _bot.send_message(chat_id, _tx(f"ask_{field.value}", lang) + _sources_line(uid, lang),
-                          parse_mode="HTML", reply_markup=_ask_keyboard(lang))
-        return True
+    if not _MARK.match(text):
+        return _run_query(user, lang, chat_id, text, names, sel)
     bare = _MARK.sub("", text).strip()
     if bare == _tx("all_sources", lang):
         sel.clear()
@@ -366,13 +346,40 @@ def _menu_text(user, lang: str, chat_id: int, text: str) -> bool:
     return True
 
 
+def _effective_field(query: str, field: SearchField) -> SearchField:
+    """What the smart search detected (for labels and analytics); other fields stay as chosen."""
+    if field != SearchField.AUTO:
+        return field
+    return {"doi": SearchField.DOI, "arxiv": SearchField.ID}.get(classify_query(query)[0], SearchField.AUTO)
+
+
+def _run_query(user, lang: str, chat_id: int, text: str, names, sel) -> bool:
+    def reject(key, **kw):
+        _bot.send_message(chat_id, _tx(key, lang, **kw), reply_markup=_menu_keyboard(lang, names, sel))
+        return True
+    if len(text) > MAX_QUERY_LEN:
+        return reject("too_long", n=MAX_QUERY_LEN)
+    if not any(ch.isalnum() for ch in text):
+        return reject("invalid")
+    if classify_query(text)[0] == "url":
+        return reject("url_unsupported")
+    uid = user.id
+    clear(uid)
+    field = SearchField.AUTO
+    _emit("ext_search_submitted", user, field=_effective_field(text, field).value)
+    providers = _providers_of(uid)
+    token = _ctx_put(text, field, providers)
+    # Restores the main reply keyboard; results then replace this placeholder via edit.
+    placeholder = _bot.send_message(chat_id, _tx("searching", lang), reply_markup=_main_keyboard(user))
+    _submit(_search_job, chat_id, user, token, text, field, 1, placeholder.message_id, True, providers)
+    return True
+
+
 def handle_text(message) -> bool:
     """Called by bot.py's text handler. Returns True if the message was consumed."""
     user = message.from_user
     uid = user.id
-    in_menu = uid in _menu
-    field = _waiting.get(uid)
-    if not in_menu and field is None:
+    if uid not in _menu:
         return False
     text = (message.text or "").strip()
     lang = _get_lang(user)
@@ -384,25 +391,7 @@ def handle_text(message) -> bool:
     if _is_menu_label(text):
         clear(uid)           # another menu button: leave this flow, let bot.py handle it
         return False
-    if in_menu:
-        return _menu_text(user, lang, chat_id, text)
-    if text in BACK_LABELS:
-        _open_menu(chat_id, user, lang)
-        return True
-    if len(text) > MAX_QUERY_LEN:
-        _bot.send_message(chat_id, _tx("too_long", lang, n=MAX_QUERY_LEN), reply_markup=_ask_keyboard(lang))
-        return True
-    if not any(ch.isalnum() for ch in text):
-        _bot.send_message(chat_id, _tx("invalid", lang), reply_markup=_ask_keyboard(lang))
-        return True
-    clear(uid)
-    _emit("ext_search_submitted", user, field=field.value)
-    providers = _providers_of(uid)
-    token = _ctx_put(text, field, providers)
-    # Restores the main reply keyboard; results then replace this placeholder via edit.
-    placeholder = _bot.send_message(chat_id, _tx("searching", lang), reply_markup=_main_keyboard(user))
-    _submit(_search_job, chat_id, user, token, text, field, 1, placeholder.message_id, True, providers)
-    return True
+    return _menu_text(user, lang, chat_id, text)
 
 
 # ── callbacks ───────────────────────────────────────────────────────────────
@@ -449,7 +438,18 @@ def _callback(c) -> None:
             pg, query, field = entry
             _show(c.message.chat.id, c.message.message_id,
                   format_page(pg, query, SearchField(field), lang),
-                  _page_markup(parts[2], pg, lang))
+                  _page_markup(parts[2], pg, lang, query, SearchField(field)))
+        elif action == "r" and len(parts) == 4 and parts[3] in ("t", "a", "x"):
+            ctx = _ctx_get(parts[2])
+            if ctx is None:
+                _bot.answer_callback_query(c.id, _tx("expired", lang), show_alert=True)
+                return
+            field = {"t": SearchField.TITLE, "a": SearchField.AUTHOR, "x": SearchField.AUTO}[parts[3]]
+            _bot.answer_callback_query(c.id)
+            _emit("ext_search_submitted", user, field=_effective_field(ctx[0], field).value)
+            tok = _ctx_put(ctx[0], field, ctx[2])
+            _submit(_search_job, c.message.chat.id, user, tok, ctx[0], field, 1,
+                    c.message.message_id, True, ctx[2])
         elif action == "n":
             _bot.answer_callback_query(c.id)
         elif action == "new":
@@ -495,21 +495,21 @@ def _search_job(chat_id: int, user, token: str, query: str, field: SearchField,
     try:
         result = asyncio.run(_mgr().search(query, field, page, PAGE_SIZE, providers=providers))
     except Exception as exc:  # noqa: BLE001 - every failure becomes a user message
-        _report_error(chat_id, user, lang, exc, message_id, field, is_new)
+        _report_error(chat_id, user, lang, exc, message_id, _effective_field(query, field), is_new)
         return
     try:
         if is_new:
             _emit("ext_search_no_results" if result.is_empty else "ext_search_completed", user,
-                  field=field.value, **({} if result.is_empty else {"result_count": result.total or len(result.results)}))
+                  field=_effective_field(query, field).value, **({} if result.is_empty else {"result_count": result.total or len(result.results)}))
         if result.is_empty:
             if page == 1:
-                _show(chat_id, message_id, _tx("no_results", lang), _new_search_markup(lang))
+                _show(chat_id, message_id, _tx("no_results", lang), _new_search_markup(lang, token, field))
             else:   # keep the current results (and their buttons) on screen
                 _bot.send_message(chat_id, _tx("no_more", lang))
             return
         _pages_put(token, result, query, field)
         text = format_page(result, query, field, lang)
-        _show(chat_id, message_id, text, _page_markup(token, result, lang))
+        _show(chat_id, message_id, text, _page_markup(token, result, lang, query, field))
     except Exception:
         log.exception("external search: failed to display results")
         _bot.send_message(chat_id, _tx("err_generic", lang))
@@ -552,8 +552,9 @@ def _report_error(chat_id, user, lang, exc, message_id, field, is_new) -> None:
                 _bot.delete_message(chat_id, message_id)
             except Exception:  # noqa: BLE001
                 pass
-            _waiting[user.id] = field
-            _bot.send_message(chat_id, _tx("invalid", lang), reply_markup=_ask_keyboard(lang))
+            _menu.add(user.id)        # back to the search box so the user can retype
+            _bot.send_message(chat_id, _tx("invalid", lang),
+                              reply_markup=_menu_keyboard(lang, _names(), _sel.setdefault(user.id, set())))
         else:
             _bot.send_message(chat_id, _tx("invalid", lang))
         return
@@ -564,13 +565,17 @@ def _report_error(chat_id, user, lang, exc, message_id, field, is_new) -> None:
 
 
 # ── formatting ──────────────────────────────────────────────────────────────
-def _new_search_markup(lang: str) -> types.InlineKeyboardMarkup:
+def _new_search_markup(lang: str, token: Optional[str] = None,
+                       field: Optional[SearchField] = None) -> types.InlineKeyboardMarkup:
     mk = types.InlineKeyboardMarkup()
+    if token and field in (SearchField.TITLE, SearchField.AUTHOR):     # offer to widen a restricted search
+        mk.add(types.InlineKeyboardButton(_tx("btn_widen", lang), callback_data=f"{PREFIX}r:{token}:x"))
     mk.add(types.InlineKeyboardButton(_tx("new_search", lang), callback_data=f"{PREFIX}new"))
     return mk
 
 
-def _page_markup(token: str, page: SearchPage, lang: str) -> types.InlineKeyboardMarkup:
+def _page_markup(token: str, page: SearchPage, lang: str, query: str = "",
+                 field: SearchField = SearchField.AUTO) -> types.InlineKeyboardMarkup:
     mk = types.InlineKeyboardMarkup()
     pages = math.ceil(page.total / page.page_size) if page.total else None
     row = []
@@ -584,6 +589,11 @@ def _page_markup(token: str, page: SearchPage, lang: str) -> types.InlineKeyboar
     mk.row(*[types.InlineKeyboardButton(str(page.start + i + 1),
                                         callback_data=f"{PREFIX}d:{token}:{page.page}:{i}")
              for i in range(len(page.results))])
+    if field in (SearchField.TITLE, SearchField.AUTHOR):
+        mk.add(types.InlineKeyboardButton(_tx("btn_widen", lang), callback_data=f"{PREFIX}r:{token}:x"))
+    elif field == SearchField.AUTO and classify_query(query)[0] == "text":   # not for DOI / arXiv id
+        mk.row(types.InlineKeyboardButton(_tx("btn_only_title", lang), callback_data=f"{PREFIX}r:{token}:t"),
+               types.InlineKeyboardButton(_tx("btn_only_author", lang), callback_data=f"{PREFIX}r:{token}:a"))
     mk.add(types.InlineKeyboardButton(_tx("new_search", lang), callback_data=f"{PREFIX}new"))
     return mk
 
@@ -659,7 +669,7 @@ def _format_item(i: int, r, lang: str, compact: bool) -> str:
 
 
 def format_page(page: SearchPage, query: str, field: SearchField, lang: str) -> str:
-    field_label = FIELD_LABELS[field][lang]
+    field_label = FIELD_LABELS[_effective_field(query, SearchField(field))][lang]
     q = _e(_short(query, 100))
     if page.total:
         pages = math.ceil(page.total / page.page_size)
