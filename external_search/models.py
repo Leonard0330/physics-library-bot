@@ -14,6 +14,9 @@ class SearchField(str, Enum):
     TITLE = "title"
     AUTHOR = "author"
     KEYWORD = "keyword"
+    AUTO = "auto"          # smart search: every field; the manager detects DOI / arXiv id
+    DOI = "doi"
+    ID = "id"              # arXiv identifier
 
 
 @dataclass

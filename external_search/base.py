@@ -25,6 +25,9 @@ class BaseProvider(ABC):
     capabilities: Capability = Capability.NONE
     # Hosts from which this provider's own record links may be downloaded as PDF.
     pdf_hosts: frozenset = frozenset()
+    # Search fields this provider can serve; the manager skips it for any other field.
+    search_fields: frozenset = frozenset({SearchField.TITLE, SearchField.AUTHOR,
+                                          SearchField.KEYWORD, SearchField.AUTO})
 
     @classmethod
     def configured(cls) -> bool:
@@ -34,6 +37,9 @@ class BaseProvider(ABC):
 
     def supports(self, cap: Capability) -> bool:
         return bool(self.capabilities & cap)
+
+    def supports_field(self, field: SearchField) -> bool:
+        return field in self.search_fields
 
     def search(self, query: str, field: SearchField = SearchField.KEYWORD,
                page: int = 1, page_size: int = 10) -> SearchPage:

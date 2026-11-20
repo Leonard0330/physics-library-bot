@@ -9,6 +9,7 @@ from .base import BaseProvider, Capability
 from .errors import PdfUnavailableError, ProviderError, SearchFailedError, UnsupportedOperation
 from .models import AccessStatus, SearchField, SearchPage, SearchResult
 from .utils import pdf as pdf_utils
+from .utils.query import resolve_auto
 
 log = logging.getLogger(__name__)
 
@@ -95,9 +96,15 @@ class SearchManager:
                      providers: Optional[List[str]] = None) -> SearchPage:
         """Raises SearchFailedError if every selected provider fails; otherwise
         partial failures are reported in SearchPage.errors."""
-        selected = self._select(providers, Capability.SEARCH)
-        if not selected:
+        field = SearchField(field)
+        if field == SearchField.AUTO:        # smart search: DOI / arXiv id / link / free text
+            field, query = resolve_auto(query)
+        capable = self._select(providers, Capability.SEARCH)
+        if not capable:
             raise ProviderError("no search-capable provider available")
+        selected = [p for p in capable if p.supports_field(field)]
+        if not selected:                     # e.g. an arXiv id with only Zenodo ticked
+            return SearchPage(results=[], page=page, page_size=page_size, total=0)
         # With several providers each one gets a share of the page, so the merged page stays
         # close to the requested size (the UI shows at most one row of number buttons).
         per = max(1, math.ceil(page_size / len(selected)))
