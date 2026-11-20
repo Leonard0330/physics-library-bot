@@ -57,7 +57,7 @@ SIGNATURE = "\n\n@PhysisLib_Bot"      # same stamp bot.py puts under every libra
 CANCEL_LABELS = {"❌ لغو", "❌ Cancel"}
 _MARK = re.compile(r"^(?:✅|⬜)\s*")
 
-BUTTON_LABEL = {"fa": "🌍 جست‌وجوی خارجی", "en": "🌍 External Search"}
+BUTTON_LABEL = {"fa": "🌍 جستجوی خارجی", "en": "🌍 External Search"}
 
 PROVIDER_LABELS = {"arxiv": "arXiv", "zenodo": "Zenodo", "hal": "HAL", "ads": "NASA ADS"}     # display names only; fallback is the provider name
 
@@ -65,29 +65,29 @@ FIELD_LABELS = {
     SearchField.TITLE:   {"fa": "📖 عنوان",    "en": "📖 Title"},
     SearchField.AUTHOR:  {"fa": "👤 نویسنده",  "en": "👤 Author"},
     SearchField.KEYWORD: {"fa": "🔑 کلیدواژه", "en": "🔑 Keywords"},
-    SearchField.AUTO:    {"fa": "🔎 جست‌وجوی هوشمند", "en": "🔎 Smart search"},
+    SearchField.AUTO:    {"fa": "🔎 جستجوی هوشمند", "en": "🔎 Smart search"},
     SearchField.DOI:     {"fa": "🔗 DOI", "en": "🔗 DOI"},
     SearchField.ID:      {"fa": "🆔 شناسه‌ی arXiv", "en": "🆔 arXiv ID"},
 }
 
 TX = {
     "pick": {
-        "fa": "🌍 <b>جست‌وجوی خارجی</b>\nمنبع (یا منابع) را با دکمه‌ها انتخاب کن؛ پیش‌فرض «همه» است.\nاین جست‌وجو جدا از کتابخانه‌ی محلی است.\n\nسپس مستقیم تایپ کن: عنوان، نام نویسنده، کلیدواژه، DOI، شناسه‌ی arXiv یا لینک arXiv/DOI. نوع ورودی را خودم تشخیص می‌دهم.\nℹ️ محتوای این منابع عمدتاً انگلیسی است؛ عبارت را به انگلیسی بنویس.",
+        "fa": "🌍 <b>جستجوی خارجی</b>\nمنبع (یا منابع) را با دکمه‌ها انتخاب کنید؛ پیش‌فرض «همه» است.\nاین جستجو جدا از کتابخانه‌ی محلی است.\n\nسپس مستقیماً بنویسید: عنوان، نام نویسنده، کلیدواژه، DOI، شناسه‌ی arXiv یا لینک arXiv/DOI. نوع ورودی به‌صورت خودکار تشخیص داده می‌شود.\nℹ️ محتوای این منابع عمدتاً انگلیسی است؛ لطفاً عبارت را به انگلیسی بنویسید.",
         "en": "🌍 <b>External Search</b>\nPick one or more sources with the buttons; the default is “All”.\nThis is separate from the local library search.\n\nThen just type: a title, author name, keywords, a DOI, an arXiv ID or an arXiv/DOI link. The input type is detected automatically.\nℹ️ Content is mostly English; type your query in English.",
     },
     "ask_sources": {"fa": "📚 منابع", "en": "📚 Sources"},
     "all_sources": {"fa": "همه", "en": "All"},
     "btn_cancel": {"fa": "❌ لغو", "en": "❌ Cancel"},
-    "pick_hint": {"fa": "از دکمه‌های پایین صفحه استفاده کن 👇", "en": "Please use the buttons below 👇"},
+    "pick_hint": {"fa": "لطفاً از دکمه‌های پایین صفحه استفاده کنید 👇", "en": "Please use the buttons below 👇"},
     "sel_now": {"fa": "📚 منابع فعلی: {sources}", "en": "📚 Current sources: {sources}"},
     "btn_only_title": {"fa": "📖 محدود به عنوان", "en": "📖 Title only"},
     "btn_only_author": {"fa": "👤 محدود به نویسنده", "en": "👤 Author only"},
     "btn_widen": {"fa": "🔎 همه‌ی فیلدها", "en": "🔎 All fields"},
     "url_unsupported": {
-        "fa": "❗️ این لینک قابل شناسایی نیست. لینک arXiv یا DOI بفرست، یا عنوان/نویسنده/کلیدواژه را تایپ کن:",
+        "fa": "❗️ این لینک قابل شناسایی نیست. لطفاً لینک arXiv یا DOI ارسال کنید، یا عنوان/نویسنده/کلیدواژه را بنویسید:",
         "en": "❗️ This link is not recognised. Send an arXiv or DOI link, or type a title/author/keywords:",
     },
-    "searching": {"fa": "⏳ در حال جست‌وجو…", "en": "⏳ Searching…"},
+    "searching": {"fa": "⏳ در حال جستجو…", "en": "⏳ Searching…"},
     "header": {
         "fa": "🌍 <b>{field}</b>: «{query}»\n📊 {first}–{last} از {total} نتیجه · صفحه {page}/{pages}",
         "en": "🌍 <b>{field}</b>: “{query}”\n📊 {first}–{last} of {total} results · page {page}/{pages}",
@@ -99,42 +99,42 @@ TX = {
     "source": {"fa": "📚 منبع", "en": "📚 Source"},
     "authors_more": {"fa": "و دیگران", "en": "et al."},
     "no_results": {
-        "fa": "🔎 نتیجه‌ای پیدا نشد. عبارت را ساده‌تر یا به انگلیسی بنویس.",
+        "fa": "🔎 نتیجه‌ای پیدا نشد. لطفاً عبارت را ساده‌تر یا به انگلیسی بنویسید.",
         "en": "🔎 No results found. Try simpler or English terms.",
     },
     "no_more": {"fa": "🔎 نتیجه‌ی بیشتری در این صفحه نیست.", "en": "🔎 No more results on this page."},
     "invalid": {
-        "fa": "❗️ عبارت معتبر نیست. حداقل یک حرف یا عدد وارد کن:",
+        "fa": "❗️ عبارت معتبر نیست. حداقل یک حرف یا عدد وارد کنید:",
         "en": "❗️ Invalid query. Enter at least one letter or digit:",
     },
     "too_long": {
-        "fa": "❗️ عبارت خیلی طولانی است (حداکثر {n} نویسه). کوتاه‌تر بنویس:",
+        "fa": "❗️ عبارت خیلی طولانی است (حداکثر {n} نویسه). لطفاً کوتاه‌تر بنویسید:",
         "en": "❗️ Query too long (max {n} characters). Please shorten it:",
     },
     "err_timeout": {
-        "fa": "⚠️ پاسخی از سرویس جست‌وجو نرسید (timeout). کمی بعد دوباره امتحان کن.",
+        "fa": "⚠️ پاسخی از سرویس جستجو نرسید (timeout). لطفاً کمی بعد دوباره تلاش کنید.",
         "en": "⚠️ The search service did not respond in time. Please try again shortly.",
     },
     "err_network": {
-        "fa": "⚠️ اتصال به سرویس جست‌وجو برقرار نشد یا سرویس شلوغ است. کمی بعد دوباره امتحان کن.",
+        "fa": "⚠️ اتصال به سرویس جستجو برقرار نشد یا سرویس شلوغ است. لطفاً کمی بعد دوباره تلاش کنید.",
         "en": "⚠️ Could not reach the search service, or it is busy. Please try again shortly.",
     },
     "err_response": {
-        "fa": "⚠️ سرویس جست‌وجو پاسخ نامعتبری داد. دوباره امتحان کن.",
+        "fa": "⚠️ سرویس جستجو پاسخ نامعتبری داد. لطفاً دوباره تلاش کنید.",
         "en": "⚠️ The search service returned an invalid response. Please try again.",
     },
     "err_generic": {
-        "fa": "⚠️ خطایی در جست‌وجوی خارجی رخ داد. دوباره امتحان کن.",
+        "fa": "⚠️ خطایی در جستجوی خارجی رخ داد. لطفاً دوباره تلاش کنید.",
         "en": "⚠️ Something went wrong with the external search. Please try again.",
     },
     "expired": {
-        "fa": "⏳ این جست‌وجو منقضی شده است. دوباره جست‌وجو کن.",
+        "fa": "⏳ این جستجو منقضی شده است. لطفاً دوباره جستجو کنید.",
         "en": "⏳ This search has expired. Please search again.",
     },
     "cancelled": {"fa": "↩️ لغو شد.", "en": "↩️ Cancelled."},
-    "new_search": {"fa": "🌍 جست‌وجوی جدید", "en": "🌍 New search"},
+    "new_search": {"fa": "🌍 جستجوی جدید", "en": "🌍 New search"},
     "hint_details": {
-        "fa": "ℹ️ برای دیدن جزئیات و دریافت PDF، شماره‌ی نتیجه را بزن.",
+        "fa": "ℹ️ برای دیدن جزئیات و دریافت PDF، شماره‌ی نتیجه را بزنید.",
         "en": "ℹ️ Tap a result number for details and the PDF.",
     },
     "d_authors": {"fa": "👤 <b>نویسندگان</b>", "en": "👤 <b>Authors</b>"},
@@ -147,7 +147,7 @@ TX = {
     "btn_back": {"fa": "◀️ بازگشت به نتایج", "en": "◀️ Back to results"},
     "pdf_wait": {"fa": "⏳ در حال دریافت PDF…", "en": "⏳ Fetching the PDF…"},
     "pdf_cooldown": {
-        "fa": "⏳ چند ثانیه صبر کن و دوباره PDF بخواه ({n} ثانیه).",
+        "fa": "⏳ لطفاً {n} ثانیه صبر کنید و دوباره درخواست PDF بدهید.",
         "en": "⏳ Please wait {n} s before requesting another PDF.",
     },
     "pdf_busy": {"fa": "⏳ دریافت این PDF در حال انجام است.", "en": "⏳ This PDF is already being fetched."},
@@ -156,31 +156,31 @@ TX = {
         "en": "⚠️ The PDF of this paper is not available at its source.",
     },
     "pdf_too_large": {
-        "fa": "⚠️ حجم این PDF بیشتر از حد مجاز ارسال است؛ از لینک منبع دریافتش کن.",
+        "fa": "⚠️ حجم این PDF بیشتر از حد مجاز ارسال است؛ لطفاً آن را از لینک منبع دریافت کنید.",
         "en": "⚠️ This PDF is larger than the allowed size; please open it from the source link.",
     },
     "pdf_invalid": {
-        "fa": "⚠️ فایل دریافتی PDF معتبر نبود، بنابراین ارسال نشد. بعداً دوباره امتحان کن.",
+        "fa": "⚠️ فایل دریافتی PDF معتبر نبود، بنابراین ارسال نشد. لطفاً بعداً دوباره تلاش کنید.",
         "en": "⚠️ The downloaded file was not a valid PDF, so it was not sent. Please try again later.",
     },
     "pdf_timeout": {
-        "fa": "⚠️ دریافت PDF بیش از حد طول کشید (timeout). دوباره امتحان کن.",
+        "fa": "⚠️ دریافت PDF بیش از حد طول کشید (timeout). لطفاً دوباره تلاش کنید.",
         "en": "⚠️ Fetching the PDF timed out. Please try again.",
     },
     "pdf_network": {
-        "fa": "⚠️ اتصال به منبع PDF برقرار نشد یا سرویس شلوغ است. کمی بعد دوباره امتحان کن.",
+        "fa": "⚠️ اتصال به منبع PDF برقرار نشد یا سرویس شلوغ است. لطفاً کمی بعد دوباره تلاش کنید.",
         "en": "⚠️ Could not reach the PDF source, or it is busy. Please try again shortly.",
     },
     "pdf_send_failed": {
-        "fa": "⚠️ PDF دریافت شد ولی ارسال آن در تلگرام ناموفق بود. دوباره امتحان کن.",
+        "fa": "⚠️ PDF دریافت شد ولی ارسال آن در تلگرام ناموفق بود. لطفاً دوباره تلاش کنید.",
         "en": "⚠️ The PDF was fetched but sending it on Telegram failed. Please try again.",
     },
     "pdf_generic": {
-        "fa": "⚠️ خطایی در دریافت PDF رخ داد. دوباره امتحان کن.",
+        "fa": "⚠️ خطایی در دریافت PDF رخ داد. لطفاً دوباره تلاش کنید.",
         "en": "⚠️ Something went wrong while fetching the PDF. Please try again.",
     },
     "unavailable": {
-        "fa": "⚠️ جست‌وجوی خارجی در حال حاضر در دسترس نیست.",
+        "fa": "⚠️ جستجوی خارجی در حال حاضر در دسترس نیست.",
         "en": "⚠️ External search is currently unavailable.",
     },
 }
