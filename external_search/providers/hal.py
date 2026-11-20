@@ -9,6 +9,7 @@ from .. import config
 from ..base import BaseProvider, Capability
 from ..errors import InvalidQueryError, ProviderResponseError
 from ..models import AccessStatus, SearchField, SearchPage, SearchResult
+from ..utils.doi import doi_for_query
 from ..utils.pdf import host_allowed
 from ._http import Throttle, http_get, parse_json
 
@@ -41,6 +42,12 @@ def _words(query: str) -> List[str]:
 def build_query(query: str, field: SearchField) -> str:
     """Build the Solr `q` value from untrusted user text."""
     field = SearchField(field)
+    if field == SearchField.DOI:      # doiId_s is a case-sensitive string field
+        doi = doi_for_query(query)
+        if not doi:
+            raise InvalidQueryError("invalid DOI")
+        variants = dict.fromkeys((doi, doi.upper()))
+        return "doiId_s:(" + " OR ".join(f'"{v}"' for v in variants) + ")"
     if field == SearchField.TITLE:
         term = " ".join(re.sub(r'["\\\x00-\x1f]', " ", query or "").split())
         if not term:
@@ -50,7 +57,11 @@ def build_query(query: str, field: SearchField) -> str:
     if not words:
         raise InvalidQueryError("empty query")
     joined = " AND ".join(words)
-    return f"authFullName_t:({joined})" if field == SearchField.AUTHOR else joined
+    if field == SearchField.AUTHOR:
+        return f"authFullName_t:({joined})"
+    if field == SearchField.AUTO:
+        return f"({joined}) OR authFullName_t:({joined})"
+    return joined
 
 
 def _first(v) -> Optional[str]:
@@ -114,6 +125,7 @@ class HalProvider(BaseProvider):
     name = "hal"
     capabilities = Capability.SEARCH | Capability.METADATA | Capability.OPEN_ACCESS_PDF
     pdf_hosts = PDF_HOSTS
+    search_fields = BaseProvider.search_fields | {SearchField.DOI}
 
     def __init__(self, fetch: Optional[Callable[[str], bytes]] = None,
                  min_interval: float = config.HAL_MIN_INTERVAL, clock=None, sleep=None):

@@ -9,7 +9,7 @@ from .. import config
 from ..base import BaseProvider, Capability
 from ..errors import InvalidQueryError, ProviderResponseError
 from ..models import AccessStatus, SearchField, SearchPage, SearchResult
-from ..utils.doi import extract_doi
+from ..utils.doi import doi_for_query, extract_doi
 from ._http import Throttle, clean_text, http_get, parse_json
 from .arxiv import ArxivProvider, normalize_arxiv_id
 
@@ -30,6 +30,26 @@ def _words(query: str) -> List[str]:
 def build_query(query: str, field: SearchField) -> str:
     """Build the ADS `q` value from untrusted user text."""
     field = SearchField(field)
+    if field == SearchField.DOI:
+        doi = doi_for_query(query)
+        if not doi:
+            raise InvalidQueryError("invalid DOI")
+        return f'doi:"{doi}"'
+    if field == SearchField.ID:
+        arx = normalize_arxiv_id(query)
+        if not arx:
+            raise InvalidQueryError("invalid arXiv id")
+        return f'identifier:"arXiv:{arx}"'
+    if field == SearchField.AUTO:
+        # abs: does not cover authors, so every word may match either field; a multi-word
+        # input is also tried as one author phrase (handles "Albert Einstein" vs "Einstein, A.").
+        words = _words(query)
+        if not words:
+            raise InvalidQueryError("empty query")
+        each = " AND ".join(f"(abs:{w} OR author:{w})" for w in words)
+        if len(words) == 1:
+            return each
+        return f'author:"{" ".join(words)}" OR ({each})'
     if field == SearchField.TITLE:
         term = " ".join(re.sub(r'["\\\x00-\x1f]', " ", query or "").split())
         if not term:
@@ -120,6 +140,7 @@ def parse_response(data: bytes, page: int, page_size: int) -> SearchPage:
 class AdsProvider(BaseProvider):
     name = "ads"
     capabilities = Capability.SEARCH | Capability.METADATA | Capability.OPEN_ACCESS_PDF
+    search_fields = BaseProvider.search_fields | {SearchField.DOI, SearchField.ID}
     pdf_hosts = ArxivProvider.pdf_hosts          # the only PDFs offered are arXiv e-prints
 
     @classmethod

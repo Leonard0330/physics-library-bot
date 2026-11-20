@@ -15,6 +15,7 @@ from ..base import BaseProvider, Capability
 from ..errors import (InvalidQueryError, ProviderNetworkError, ProviderResponseError,
                       ProviderTimeout)
 from ..models import AccessStatus, SearchField, SearchPage, SearchResult
+from ..utils.doi import extract_doi
 
 NS = {"a": "http://www.w3.org/2005/Atom",
       "os": "http://a9.com/-/spec/opensearch/1.1/",
@@ -33,6 +34,17 @@ def normalize_arxiv_id(text: str) -> Optional[str]:
     if s.lower().startswith("arxiv:"):
         s = s[6:]
     return s if _ID_RE.match(s) else None
+
+
+_ARXIV_DOI_RE = re.compile(r"^10\.48550/arxiv\.(.+)$", re.I)
+
+
+def lookup_id(query: str, field: SearchField) -> Optional[str]:
+    """arXiv id for an ID query, or for an arXiv-issued DOI (10.48550/arXiv.<id>)."""
+    if SearchField(field) == SearchField.ID:
+        return normalize_arxiv_id(query)
+    m = _ARXIV_DOI_RE.match(extract_doi(query) or "")
+    return normalize_arxiv_id(m.group(1)) if m else None
 
 
 def _http_get(url: str, timeout: float) -> bytes:
@@ -120,6 +132,7 @@ class ArxivProvider(BaseProvider):
     name = "arxiv"
     capabilities = Capability.SEARCH | Capability.METADATA | Capability.OPEN_ACCESS_PDF
     pdf_hosts = frozenset({"arxiv.org", "www.arxiv.org", "export.arxiv.org"})
+    search_fields = BaseProvider.search_fields | {SearchField.DOI, SearchField.ID}
 
     def __init__(self, fetch: Optional[Callable[[str], bytes]] = None,
                  min_interval: float = config.ARXIV_MIN_INTERVAL,
@@ -145,6 +158,14 @@ class ArxivProvider(BaseProvider):
         if not isinstance(page, int) or page < 1 or not isinstance(page_size, int) or page_size < 1:
             raise InvalidQueryError("page and page_size must be positive integers")
         page_size = min(page_size, config.MAX_PAGE_SIZE)
+        field = SearchField(field)
+        if field in (SearchField.DOI, SearchField.ID):
+            ident = lookup_id(query, field)
+            if ident is None or page > 1:    # the arXiv API has no journal-DOI field
+                return SearchPage(results=[], page=page, page_size=page_size, total=0)
+            pg = parse_feed(self._get({"id_list": ident, "max_results": 1}), 1, 1)
+            return SearchPage(results=pg.results, page=page, page_size=page_size,
+                              total=len(pg.results))
         sq = build_search_query(query, field)
         data = self._get({"search_query": sq, "start": (page - 1) * page_size,
                           "max_results": page_size, "sortBy": "relevance",

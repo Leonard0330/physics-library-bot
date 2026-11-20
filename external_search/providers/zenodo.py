@@ -9,6 +9,7 @@ from .. import config
 from ..base import BaseProvider, Capability
 from ..errors import InvalidQueryError, ProviderResponseError
 from ..models import AccessStatus, SearchField, SearchPage, SearchResult
+from ..utils.doi import doi_for_query
 from ._http import NotFoundError, Throttle, clean_text, http_get, parse_json
 
 _RESERVED = {"and", "or", "not", "to"}
@@ -38,6 +39,11 @@ def _words(query: str) -> List[str]:
 def build_query(query: str, field: SearchField) -> str:
     """Build the `q` value (Elasticsearch query string) from untrusted user text."""
     field = SearchField(field)
+    if field == SearchField.DOI:
+        doi = doi_for_query(query)
+        if not doi:
+            raise InvalidQueryError("invalid DOI")
+        return f'(doi:"{doi}" OR conceptdoi:"{doi}")'
     if field == SearchField.TITLE:
         term = " ".join(re.sub(r'["\\\x00-\x1f]', " ", query or "").split())
         if not term:
@@ -129,6 +135,7 @@ class ZenodoProvider(BaseProvider):
     name = "zenodo"
     capabilities = Capability.SEARCH | Capability.METADATA | Capability.OPEN_ACCESS_PDF
     pdf_hosts = frozenset({"zenodo.org"})
+    search_fields = BaseProvider.search_fields | {SearchField.DOI}
 
     def __init__(self, fetch: Optional[Callable[[str], bytes]] = None,
                  min_interval: float = config.ZENODO_MIN_INTERVAL, clock=None, sleep=None):
