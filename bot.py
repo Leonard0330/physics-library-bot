@@ -224,11 +224,11 @@ def _format_resource_entry(res, number: int) -> str:
     edition = ""
     if rtype == "book" and _row_get(res, "edition") and str(res["edition"]).strip():
         edition = f" [{_h(res['edition'])}]"
-    lines = [f'{number}. {icon} <a href="{_deeplink(res["id"])}">{title}</a>{edition}']
+    lines = [f'{number}. {icon} <b><a href="{_deeplink(res["id"])}">{title}</a></b>{edition}']
 
     author = _row_get(res, "author")
     if author and str(author).strip():
-        lines.append(f"👤 {_h(str(author).strip()[:70])}")
+        lines.append(f"👤 <i>{_h(str(author).strip()[:70])}</i>")
 
     date = _row_get(res, "year") if rtype == "book" else _row_get(res, "publication_date")
     meta = []

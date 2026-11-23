@@ -618,7 +618,7 @@ def format_details(r, lang: str) -> str:
         names = ", ".join(_e(_short(a, 60)) for a in r.authors[:DETAIL_AUTHORS_MAX])
         if len(r.authors) > DETAIL_AUTHORS_MAX:
             names += " " + _tx("authors_more", lang)
-        lines.append(f"{_tx('d_authors', lang)}: {names}")
+        lines.append(f"{_tx('d_authors', lang)}: <i>{names}</i>")
     if _date_text(r):
         lines.append(f"{_tx('d_date', lang)}: {_date_text(r)}")
     if r.identifier:
@@ -650,13 +650,14 @@ def _short(s: str, n: int) -> str:
 
 def _format_item(i: int, r, lang: str, compact: bool) -> str:
     title = _e(_short(r.title, 160))
-    head = f'{i}. <a href="{_e(r.landing_page_url)}">{title}</a>' if r.landing_page_url else f"{i}. <b>{title}</b>"
+    head = (f'{i}. <b><a href="{_e(r.landing_page_url)}">{title}</a></b>'
+            if r.landing_page_url else f"{i}. <b>{title}</b>")
     lines = [head]
     if r.authors and not compact:
         names = ", ".join(_e(_short(a, 40)) for a in r.authors[:3])
         if len(r.authors) > 3:
             names += " " + _tx("authors_more", lang)
-        lines.append(f"👤 {names}")
+        lines.append(f"👤 <i>{names}</i>")
     meta = []
     if _date_text(r):
         meta.append(f"📅 {_date_text(r)}")
