@@ -82,7 +82,24 @@ def _row_get(row, key: str, default=None):
     except (IndexError, KeyError):
         return default
 
+
+def _res_icon(row, rtype=None) -> str:
+    """Icon of a resource: articles 📄; books by their own language — Persian 📘, English 📕, others 📒."""
+    rt = rtype if rtype is not None else _row_get(row, "resource_type", "book")
+    if rt == "article":
+        return "📄"
+    code = str(_row_get(row, "language", "") or "").strip().lower()
+    if code in ("fa", "fas", "per", "persian", "farsi", "فارسی"):
+        return "📘"
+    if code in ("en", "eng", "english", "انگلیسی"):
+        return "📕"
+    return "📒"
+
 database.init_db()
+try:
+    BOT_USERNAME = bot.get_me().username
+except Exception:
+    BOT_USERNAME = "PhysisLib_Bot"
 # scheduler حذف شد — گزارش از داشبورد analytics on-demand ارسال می‌شود
 
 
@@ -108,134 +125,146 @@ user_menu_state: dict[int, str] = {}
 # Pagination 
 PAGE_SIZE = 10
 
-# ── Pagination context store 
-_pg_store: dict[int, str] = {}   # id → full context string
-_pg_next_id: list[int] = [0]     # mutable counter (list trick avoids nonlocal)
-_PG_STORE_MAX = 500
-
-
-_pg_rev: dict[str, int] = {}     # context string → id (dedupe: same list = same token)
+# ── Pagination context store ──────────────────────────────────────────────────
+# callback_data is limited to 64 bytes, so the full list context (type, query,
+# filters, header) is kept server-side and only a short token travels in the button.
+_pg_store: dict[int, str] = {}      # id → full context string
+_pg_reverse: dict[str, int] = {}    # full context string → id (re-use token on page flips)
+_pg_next_id: list[int] = [0]
+_PG_STORE_MAX = 1000
+_FETCH_ALL = 100000
 
 
 def _ctx_save(full_context: str) -> str:
-    # Re-use the existing token for an identical context (prevents store bloat
-    # when the user flips through pages back and forth)
-    cid = _pg_rev.get(full_context)
-    if cid is not None and cid in _pg_store:
+    cid = _pg_reverse.get(full_context)
+    if cid is not None:
         return f"p{cid}"
-    # Evict oldest entry when cap is reached
-    if len(_pg_store) >= _PG_STORE_MAX:
+    if len(_pg_store) >= _PG_STORE_MAX:           # evict oldest
         oldest = next(iter(_pg_store))
-        _pg_rev.pop(_pg_store.pop(oldest), None)
+        _pg_reverse.pop(_pg_store.pop(oldest), None)
     cid = _pg_next_id[0]
     _pg_next_id[0] += 1
     _pg_store[cid] = full_context
-    _pg_rev[full_context] = cid
+    _pg_reverse[full_context] = cid
     return f"p{cid}"
 
 
 def _ctx_load(token: str) -> str | None:
-    """Retrieve the full context for a token like 'p42'.  Returns None if expired."""
+    """Retrieve the full context for a token like 'p42'. Returns None if expired."""
     if token.startswith("p") and token[1:].isdigit():
         return _pg_store.get(int(token[1:]))
-    return None  # legacy plain context (should not appear in practice)
-
-
-# ── Text-based result list (bold clickable titles → deep link → card) ─────────
-_BOT_USERNAME: list[str] = []
-
-
-def _bot_username() -> str:
-    if not _BOT_USERNAME:
-        _BOT_USERNAME.append(bot.get_me().username)
-    return _BOT_USERNAME[0]
-
-
-def _res_link(res_id) -> str:
-    """Deep link that opens the resource card (download button included)."""
-    return f"https://t.me/{_bot_username()}?start=res_{res_id}"
-
-
-def _fmt_result_entries(rows, start_index: int = 1, lang: str = "en") -> str:
-    """Numbered result blocks: bold linked title / author / date + id / field."""
-    blocks: list[str] = []
-    for i, res in enumerate(rows, start=start_index):
-        rtype = _row_get(res, "resource_type", "book")
-        icon = "📄" if rtype == "article" else "📘"
-        title = str(_row_get(res, "title", "") or "").strip() or "—"
-        if len(title) > 100:
-            title = title[:99].rstrip() + "…"
-        lines = [f'{i}. {icon} <b><a href="{_res_link(res["id"])}">{_h(title)}</a></b>']
-        author = _row_get(res, "author")
-        if author and str(author).strip():
-            lines.append(f"👤 {_h(str(author).strip()[:60])}")
-        date = _row_get(res, "publication_date") or _row_get(res, "year")
-        meta = []
-        if date:
-            meta.append(f"📅 {_h(date)}")
-        meta.append(f"🆔 <code>{_h(database.get_display_id(res))}</code>")
-        lines.append(" · ".join(meta))
-        fkey = _row_get(res, "physics_field")
-        if fkey and fkey in database.PHYSICS_FIELDS:
-            fa_n, en_n = database.PHYSICS_FIELDS[fkey]
-            lines.append(f"🌌 {_h(fa_n if lang == 'fa' else en_n)}")
-        blocks.append("\n".join(lines))
-    return "\n\n".join(blocks)
-
-
-def _send_or_edit_html(chat_id: int, text: str, markup=None, edit_message_id: int | None = None):
-    kw = dict(parse_mode="HTML", disable_web_page_preview=True, reply_markup=markup)
-    if edit_message_id:
-        try:
-            bot.edit_message_text(text, chat_id=chat_id, message_id=edit_message_id, **kw)
-            return
-        except Exception as exc:
-            if "not modified" in str(exc).lower():
-                return
-    bot.send_message(chat_id, text, **kw)
-
-
-def _count_for_context(list_type: str, arg: str, lf="", ff="", rf="") -> int | None:
-    """Total result count if database.count_resources exists, else None."""
-    fn = getattr(database, "count_resources", None)
-    if fn is None:
-        return None
-    try:
-        if list_type == "searchf":
-            return fn(query=arg.split("|")[0], language=lf, physics_field=ff, resource_type=rf)
-        if list_type == "search":
-            return fn(query=arg)
-        if list_type in ("books", "articles"):
-            return fn(resource_type=list_type[:-1])
-        if list_type == "field":
-            fk, rt = (arg.split("|", 1) + [""])[:2]
-            return fn(physics_field=fk, resource_type=rt or None)
-    except Exception:
-        return None
     return None
 
 
-def _pagination_keyboard(context: str, page: int, has_next: bool,
-                         pages: int | None = None) -> types.InlineKeyboardMarkup | None:
-    """⏮ ◀️ [n/N] ▶️ ⏭ — first/last only when total page count is known."""
-    if page == 0 and not has_next:
+def _deeplink(res_id) -> str:
+    """t.me deep link that makes the bot open the card of one resource."""
+    return f"https://t.me/{BOT_USERNAME}?start=res_{res_id}"
+
+
+def _fetch_list_rows(ctx_core: str):
+    """Return (all_rows, subtitle) for a list context such as 'search|einstein'."""
+    parts = ctx_core.split("|", 1)
+    list_type = parts[0]
+    arg = parts[1] if len(parts) > 1 else ""
+    N = _FETCH_ALL
+    subtitle = None
+
+    if list_type == "searchf":
+        # arg: "<query>|lang:<lf>|field:<ff>|rtype:<rf>"
+        parts_f = arg.split("|")
+        q_f = parts_f[0] if parts_f else ""
+        lf = ff = rf = ""
+        for p in parts_f[1:]:
+            if p.startswith("lang:"):
+                lf = p[5:]
+            elif p.startswith("field:"):
+                ff = p[6:]
+            elif p.startswith("rtype:"):
+                rf = p[6:]
+        subtitle = q_f
+        rows = database.search_resources(query=q_f, language=lf, physics_field=ff,
+                                         resource_type=rf, limit=N, offset=0)
+    elif list_type == "search":
+        subtitle = arg
+        rows = database.search_resources(query=arg, limit=N, offset=0)
+    elif list_type == "books":
+        rows = database.search_resources(resource_type="book", limit=N, offset=0)
+    elif list_type == "articles":
+        rows = database.search_resources(resource_type="article", limit=N, offset=0)
+    elif list_type == "top_all":
+        rows = database.get_top_downloads(limit=N, offset=0)
+    elif list_type == "top_books":
+        rows = database.get_top_downloads(limit=N, resource_type="book", offset=0)
+    elif list_type == "top_articles":
+        rows = database.get_top_downloads(limit=N, resource_type="article", offset=0)
+    elif list_type == "recent_all":
+        rows = database.search_resources(limit=N, offset=0, order_by="recent")
+    elif list_type == "recent_books":
+        rows = database.search_resources(resource_type="book", limit=N, offset=0, order_by="recent")
+    elif list_type == "recent_articles":
+        rows = database.search_resources(resource_type="article", limit=N, offset=0, order_by="recent")
+    elif list_type == "field":
+        field_key, rtype = (arg.split("|", 1) + [""])[:2]
+        rows = database.search_resources(physics_field=field_key, resource_type=rtype or None,
+                                         limit=N, offset=0)
+    elif list_type == "bookmarks":
+        rows = database.get_bookmarks(int(arg))
+    elif list_type == "history":
+        rows = database.get_download_history(int(arg), limit=1000)
+    else:
+        rows = []
+    return list(rows), subtitle
+
+
+def _format_resource_entry(res, number: int) -> str:
+    """One numbered entry: linked title (opens the card), author, date, ID."""
+    rtype = _row_get(res, "resource_type", "book")
+    icon = _res_icon(res, rtype)
+    title = _h(str(res["title"]).strip()[:90])
+    edition = ""
+    if rtype == "book" and _row_get(res, "edition") and str(res["edition"]).strip():
+        edition = f" [{_h(res['edition'])}]"
+    lines = [f'{number}. {icon} <a href="{_deeplink(res["id"])}">{title}</a>{edition}']
+
+    author = _row_get(res, "author")
+    if author and str(author).strip():
+        lines.append(f"👤 {_h(str(author).strip()[:70])}")
+
+    date = _row_get(res, "year") if rtype == "book" else _row_get(res, "publication_date")
+    meta = []
+    if date:
+        meta.append(f"📅 {_h(date)}")
+    meta.append(f"🆔 <code>{_h(database.get_display_id(res))}</code>")
+    lines.append(" · ".join(meta))
+    return "\n".join(lines)
+
+
+def _format_list_text(lang: str, header: str, subtitle, page_rows, offset: int,
+                      total: int, page: int, pages: int) -> str:
+    out = [f"<b>{_h(header)}</b>"]
+    if subtitle:
+        out.append(f"🔎 «{_h(subtitle)}»")
+    out.append("📊 " + TEXTS["list_summary"][lang].format(
+        a=offset + 1, b=offset + len(page_rows), total=total, p=page + 1, n=pages))
+    out.append("")
+    out.append("\n\n".join(_format_resource_entry(r, offset + i) for i, r in enumerate(page_rows, 1)))
+    return "\n".join(out)
+
+
+def _pagination_keyboard(context: str, page: int, pages: int) -> types.InlineKeyboardMarkup | None:
+    """⏮ ◀️ [x/y] ▶️ ⏭ — unavailable slots are inert placeholders so the row never shifts."""
+    if pages <= 1:
         return None
-    token = _ctx_save(context)   # store full context, get short token
-
-    def _b(label: str, target: int) -> types.InlineKeyboardButton:
-        return types.InlineKeyboardButton(label, callback_data=f"page:{token}:{target}")
-
-    row = []
-    if page > 0:
-        if pages and page > 1:
-            row.append(_b("⏮", 0))
-        row.append(_b("◀️", page - 1))
-    row.append(types.InlineKeyboardButton(
-        f"{page + 1}/{pages}" if pages else str(page + 1), callback_data="noop"))
-    if has_next:
-        row.append(_b("▶️", page + 1))
-        if pages and page < pages - 2:
-            row.append(_b("⏭", pages - 1))
+    token = _ctx_save(context)
+    B = types.InlineKeyboardButton
+    noop = lambda label: B(label, callback_data="pgnoop")
+    row = [
+        B("⏮", callback_data=f"page:{token}:0") if page > 0 else noop("·"),
+        B("◀️", callback_data=f"page:{token}:{page - 1}") if page > 0 else noop("·"),
+        noop(f"{page + 1}/{pages}"),
+        B("▶️", callback_data=f"page:{token}:{page + 1}") if page < pages - 1 else noop("·"),
+        B("⏭", callback_data=f"page:{token}:{pages - 1}") if page < pages - 1 else noop("·"),
+    ]
     mk = types.InlineKeyboardMarkup()
     mk.row(*row)
     return mk
@@ -249,145 +278,38 @@ def _send_paginated_list(
     header_key: str,
     edit_message_id: int | None = None,
 ):
-    # ── header_key abbreviation maps (keeps callback_data under 64 bytes)
-    _HDR_ENCODE = {
-        "books_list_header":     "bl",
-        "articles_list_header":  "al",
-        "resources_list_header": "rl",
-        "top_books_header":      "tb",
-    }
-    _HDR_DECODE = {v: k for k, v in _HDR_ENCODE.items()}
-
-    # ── decode header_key from context
+    """Render a local resource list as text with linked titles + page navigation."""
     if "|hdr:" in context:
-        ctx_core, hkey_raw = context.rsplit("|hdr:", 1)
-        hkey = _HDR_DECODE.get(hkey_raw, hkey_raw)  # expand abbreviation if present
+        ctx_core, hkey = context.rsplit("|hdr:", 1)
     else:
-        ctx_core, hkey = context, header_key  # fallback (first call)
+        ctx_core, hkey = context, header_key
+    if hkey not in TEXTS:
+        hkey = "resources_list_header"
 
-    offset = page * PAGE_SIZE
-    fetch_limit = PAGE_SIZE + 1          # fetch one extra to detect next page
-
-    # ── fetch rows based on list type
-    parts = ctx_core.split("|", 1)
-    list_type = parts[0]
-    arg = parts[1] if len(parts) > 1 else ""
-    q_show, lf, ff, rf = "", "", "", ""
-    total_override: int | None = None
-
-    if list_type in ("bookmarks", "history"):
-        # Per-user lists: fetched in full and sliced here (they are small)
-        try:
-            if list_type == "bookmarks":
-                all_rows = list(database.get_bookmarks(user.id))
-            else:
-                all_rows = list(database.get_download_history(user.id, limit=200))
-        except Exception as exc:
-            logging.exception("paginated %s: DB error uid=%s: %s", list_type, user.id, exc)
-            all_rows = []
-        total_override = len(all_rows)
-        rows = all_rows[offset:offset + fetch_limit]
-    elif list_type == "searchf":
-        # arg format: "<query>|lang:<lf>|field:<ff>|rtype:<rf>"
-        parts_f = arg.split("|")
-        q_f  = parts_f[0] if parts_f else ""
-        lf   = ""
-        ff   = ""
-        rf   = ""
-        for p in parts_f[1:]:
-            if p.startswith("lang:"):
-                lf = p[5:]
-            elif p.startswith("field:"):
-                ff = p[6:]
-            elif p.startswith("rtype:"):
-                rf = p[6:]
-        q_show = q_f
-        rows = database.search_resources(
-            query=q_f, language=lf, physics_field=ff,
-            resource_type=rf, limit=fetch_limit, offset=offset,
-        )
-    elif list_type == "search":
-        q_show = arg
-        rows = database.search_resources(query=arg, limit=fetch_limit, offset=offset)
-    elif list_type == "books":
-        rows = database.search_resources(resource_type="book", limit=fetch_limit, offset=offset)
-    elif list_type == "articles":
-        rows = database.search_resources(resource_type="article", limit=fetch_limit, offset=offset)
-    elif list_type == "top_all":
-        rows = database.get_top_downloads(limit=fetch_limit, offset=offset)
-    elif list_type == "top_books":
-        rows = database.get_top_downloads(limit=fetch_limit, resource_type="book", offset=offset)
-    elif list_type == "top_articles":
-        rows = database.get_top_downloads(limit=fetch_limit, resource_type="article", offset=offset)
-    elif list_type == "recent_all":
-        rows = database.search_resources(limit=fetch_limit, offset=offset, order_by="recent")
-    elif list_type == "recent_books":
-        rows = database.search_resources(resource_type="book", limit=fetch_limit, offset=offset, order_by="recent")
-    elif list_type == "recent_articles":
-        rows = database.search_resources(resource_type="article", limit=fetch_limit, offset=offset, order_by="recent")
-    elif list_type == "field":
-        field_key, rtype = (arg.split("|", 1) + [""])[:2]
-        rtype = rtype or None
-        rows = database.search_resources(
-            physics_field=field_key, resource_type=rtype, limit=fetch_limit, offset=offset
-        )
-    else:
-        rows = []
-
-    has_next = len(rows) > PAGE_SIZE
-    page_rows = rows[:PAGE_SIZE]
-
-    if not page_rows:
-        if page > 0:
-            # e.g. a bookmark was removed and the last page vanished → step back
-            _send_paginated_list(chat_id, user, context, page - 1, header_key, edit_message_id)
-        else:
-            bot.send_message(chat_id, t(user, "no_books"), reply_markup=main_keyboard(user))
+    rows, subtitle = _fetch_list_rows(ctx_core)
+    total = len(rows)
+    if not total:
         return
+    pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
+    page = max(0, min(page, pages - 1))
+    offset = page * PAGE_SIZE
+    page_rows = rows[offset:offset + PAGE_SIZE]
 
     lang = get_lang(user)
-    first = page * PAGE_SIZE + 1
-    last = page * PAGE_SIZE + len(page_rows)
-    total = total_override if total_override is not None else _count_for_context(list_type, arg, lf, ff, rf)
+    header = TEXTS[hkey][lang].rstrip(":：").strip()
+    text = _format_list_text(lang, header, subtitle, page_rows, offset, total, page, pages)
+    mk = _pagination_keyboard(f"{ctx_core}|hdr:{hkey}", page, pages)
 
-    if q_show:
-        head = f"📖 <b>{'جستجو' if lang == 'fa' else 'Search'}:</b> «{_h(q_show)}»"
-        if list_type == "searchf":
-            fparts = []
-            if lf:
-                fparts.append(lf.upper())
-            if ff and ff in database.PHYSICS_FIELDS:
-                fa_n, en_n = database.PHYSICS_FIELDS[ff]
-                fparts.append(fa_n if lang == "fa" else en_n)
-            if rf:
-                fparts.append(("کتاب" if rf == "book" else "مقاله") if lang == "fa"
-                              else ("Book" if rf == "book" else "Article"))
-            if fparts:
-                head += f"\n🔧 {_h(' · '.join(fparts))}"
-    else:
-        head = f"<b>{_h(TEXTS[hkey][lang])}</b>"
-
-    pages = None
-    if total:
-        pages = max(1, -(-total // PAGE_SIZE))
-        if lang == "fa":
-            stat = f"📊 {first}–{last} از {total} نتیجه · صفحه {page + 1}/{pages}"
-        else:
-            stat = f"📊 {first}–{last} of {total} results · page {page + 1}/{pages}"
-    else:
-        stat = (f"📊 {first}–{last} · صفحه {page + 1}" if lang == "fa"
-                else f"📊 {first}–{last} · page {page + 1}")
-
-    hint = ("👆 روی عنوان بزنید تا کارت و دکمه دانلود باز شود"
-            if lang == "fa" else "👆 Tap a title to open its card and download")
-
-    text = f"{head}\n{stat}\n\n{_fmt_result_entries(page_rows, first, lang)}\n\n<i>{hint}</i>"
-
-    hkey_stored = _HDR_ENCODE.get(hkey, hkey)
-    full_context = f"{ctx_core}|hdr:{hkey_stored}"
-    nav_mk = _pagination_keyboard(full_context, page, has_next, pages)
-    _send_or_edit_html(chat_id, text, nav_mk, edit_message_id)
-# End Pagination 
+    kwargs = dict(parse_mode="HTML", disable_web_page_preview=True, reply_markup=mk)
+    if edit_message_id:
+        try:
+            bot.edit_message_text(text, chat_id=chat_id, message_id=edit_message_id, **kwargs)
+            return
+        except Exception as exc:
+            if "not modified" in str(exc).lower():
+                return
+    bot.send_message(chat_id, text, **kwargs)
+# End Pagination
 
 # texts (FA / EN)
 TEXTS = {
@@ -395,48 +317,52 @@ TEXTS = {
         "fa": (
             "<b>📚 به ربات کتابخانه فیزیک خوش آمدید!</b>\n\n"
             "<i>این ربات مجموعه‌ای منتخب از کتاب‌ها و مقالات علمی فیزیک را در شاخه‌های مختلف این علم در اختیار شما قرار می‌دهد.</i>\n\n"
-            "🔍 <b>جستجو</b> — جستجو در همه منابع\n"
-            "📂 <b>کتابخانه</b> — کتاب‌ها، مقالات و فیلدهای فیزیک\n"
-            "🌐 <b>زبان</b> — تغییر زبان رابط\n\n"
+            "🔍 <b>جستجو</b> — یافتن سریع کتاب یا مقاله در کتابخانه با عنوان یا کلیدواژه\n"
+            "📂 <b>کتابخانه</b> — مرور منابع بر اساس فیلد، پرطرفدارها یا جدیدترین‌ها\n"
+            "🌍 <b>جستجوی خارجی</b> — جستجو در پایگاه‌های علمی آنلاین مثل arXiv و دریافت PDF مقاله‌ها، حتی اگر در کتابخانه نباشند\n"
+            "🌐 <b>زبان</b> — تغییر زبان ربات\n\n"
             "برای راهنمای کامل: <b>درباره ← راهنما</b> 👇"
         ),
         "en": (
             "<b>📚 Welcome to the Physics Library Bot!</b>\n\n"
             "<i>This bot provides a curated collection of physics books and research articles across multiple fields of physics.</i>\n\n"
-            "🔍 <b>Search</b> — Quickly find any book or article by title or keywords.\n"
-            "📂 <b>Browse</b> — Explore the library by category, popularity, or recently added resources.\n"
-            "🌐 <b>Language</b> — Switch interface language.\n\n"
-            "For detailed instructions and additional information, open <b>About → Help</b> 👇"
+            "🔍 <b>Search</b> — Quickly find a book or article in the library by title or keywords.\n"
+            "📂 <b>Browse</b> — Explore the library by field, popularity, or recently added resources.\n"
+            "🌍 <b>External Search</b> — Search online scientific databases such as arXiv and get paper PDFs, even if they aren't in the library.\n"
+            "🌐 <b>Language</b> — Switch the bot's language.\n\n"
+            "For detailed instructions, open <b>About → Help</b> 👇"
         ),
+    },
+    "list_summary": {
+        "fa": "{a}–{b} از {total} نتیجه · صفحه {p}/{n}",
+        "en": "{a}–{b} of {total} results · page {p}/{n}"
+    },
+    "list_expired": {
+        "fa": "⚠️ این لیست منقضی شده است. لطفاً دوباره آن را باز کنید.",
+        "en": "⚠️ This list has expired. Please open it again."
+    },
+    "recent_header": {
+        "fa": "🆕 جدیدترین منابع",
+        "en": "🆕 Recently Added"
     },
     "no_books": {
         "fa": "📭 هنوز منبعی ثبت نشده.",
         "en": "📭 No resources found."
-    },
-    "search_prompt": {
-        "fa": "🔍 جستجو در همه منابع فارسی:\n"
-        "کلمه کلیدی موردنظر خود را تایپ کنید:\n\n"
-        "To search among English-language resources, change the language and then search again.\n"
-        "برای جستجو در منابع انگلیسی، زبان را تغییر دهید و سپس دوباره جستجو کنید.",
-        "en": "🔍 Search in all English resources:\n"
-        "Type the keyword you want to search:\n\n"
-        "برای جستجو در منابع فارسی، زبان را تغییر دهید و سپس دوباره جستجو کنید.\n"
-        "To search among Persian-language resources, change the language and then search again."
     },
     "not_found": {
         "fa": "🔍 نتیجه‌ای پیدا نشد.",
         "en": "🔍 No results found."
     },
     "not_found_suggest": {
-        "fa": "🔍 نتیجه‌ای پیدا نشد.\nشاید منظورتان «{suggestion}» بوده؟",
+        "fa": "🔍 نتیجه‌ای پیدا نشد.\nشاید منظور شما «{suggestion}» بوده است؟",
         "en": "🔍 No results found.\nDid you mean \"{suggestion}\"?"
     },
     "search_filter_prompt": {
         "fa": (
             "🔍 جستجوی پیشرفته\n"
-            "فیلترهای دلخواه را انتخاب کن و سپس کلیدواژه را تایپ کن.\n\n"
+            "فیلترهای موردنظر خود را انتخاب کنید و سپس کلیدواژه را بنویسید.\n\n"
             "فیلترهای فعال: {active_filters}\n\n"
-            "کلیدواژه خود را بنویس:"
+            "کلیدواژه خود را بنویسید:"
         ),
         "en": (
             "🔍 Advanced Search\n"
@@ -450,7 +376,7 @@ TEXTS = {
         "en": "None"
     },
     "search_filter_header": {
-        "fa": "🔍 فیلترهای جستجو را انتخاب کن:",
+        "fa": "🔍 فیلترهای جستجو را انتخاب کنید:",
         "en": "🔍 Choose search filters:"
     },
     "download": {
@@ -473,7 +399,7 @@ TEXTS = {
         "fa": "⚠️ خطایی رخ داد. لطفاً دوباره تلاش کنید.",
         "en": "⚠️ Something went wrong. Please try again."
     },
-    "rate_prompt":  {"fa": "امتیاز خود را انتخاب کن:", "en": "Choose your rating:"},
+    "rate_prompt":  {"fa": "امتیاز خود را انتخاب کنید:", "en": "Choose your rating:"},
     "rate_saved":   {"fa": "✅ امتیاز ثبت شد.",         "en": "✅ Rating saved."},
     "rating_label": {"fa": "⭐ {avg} ({cnt})",           "en": "⭐ {avg} ({cnt})"},
     "rating_none":  {"fa": "⭐ هنوز امتیازی ثبت نشده",   "en": "⭐ No ratings yet"},
@@ -483,8 +409,8 @@ TEXTS = {
     "bookmarks_header": {"fa": "🔖 منابع ذخیره‌شده:",         "en": "🔖 Saved resources:"},
     "history_empty":    {"fa": "📭 هنوز چیزی دانلود نکردید.",   "en": "📭 No download history."},
     "history_header":   {"fa": "📥 تاریخچه دانلودها:",        "en": "📥 Download history:"},
-    "subscribed":       {"fa": "🔔 فیلد «{field}» رو دنبال می‌کنید.", "en": "🔔 Following «{field}»."},
-    "unsubscribed":     {"fa": "🔕 دیگر فیلد «{field}» رو دنبال نمی‌کنید.", "en": "🔕 Unfollowed «{field}»."},
+    "subscribed":       {"fa": "🔔 فیلد «{field}» را دنبال می‌کنید.", "en": "🔔 Following «{field}»."},
+    "unsubscribed":     {"fa": "🔕 دیگر فیلد «{field}» را دنبال نمی‌کنید.", "en": "🔕 Unfollowed «{field}»."},
     "notify_new":       {"fa": "🔔 منبع جدید در «{field}»:\n📘 {title}", "en": "🔔 New resource in «{field}»:\n📕 {title}"},
     "subscribe_btn":    {"fa": "🔔 دنبال کردن فیلد", "en": "🔔 Subscribe to this field"},
     "unsubscribe_btn":  {"fa": "🔕 دنبال نکردن فیلد", "en": "🔕 Unsubscribe from this field"},
@@ -504,7 +430,7 @@ TEXTS = {
         "en": "🌐 Language changed to English."
     },
     "fields_header": {
-        "fa": "🌌 فیلدهای فیزیک:\nروی هر فیلد بزن تا منابعش رو ببینی 👇",
+        "fa": "🌌 فیلدهای فیزیک:\nبرای مشاهده منابع، روی فیلد موردنظر بزنید 👇",
         "en": "🌌 Physics Fields:\nTap a field to see its resources 👇"
     },
     "no_fields": {
@@ -520,39 +446,39 @@ TEXTS = {
         "en": "⭐ Top Resources"
     },
     "books_list_header": {
-        "fa": "📘 لیست کتاب‌ها — روی کتاب موردنظر کلیک کن 👇",
-        "en": "📕 Books — tap to see details 👇"
+        "fa": "📘 لیست کتاب‌ها",
+        "en": "📕 Books"
     },
     "articles_list_header": {
-        "fa": "📄 لیست مقالات — روی مقاله موردنظر کلیک کن 👇",
-        "en": "📄 Articles — tap to see details 👇"
+        "fa": "📄 لیست مقالات",
+        "en": "📄 Articles"
     },
     "resources_list_header": {
-        "fa": "📋 نتایج جستجو — روی هر مورد کلیک کن 👇",
-        "en": "📋 Search results — tap to see details 👇"
+        "fa": "📋 نتایج جستجو",
+        "en": "📋 Search results"
     },
     "browse_header": {
-        "fa": "📂 کتابخانه — یه گزینه انتخاب کن:",
+        "fa": "📂 کتابخانه — یک گزینه را انتخاب کنید:",
         "en": "📂 Browse — choose an option:"
     },
     "browse_books_header": {
-        "fa": "📘 کتاب‌ها — یه گزینه انتخاب کن:",
+        "fa": "📘 کتاب‌ها — یک گزینه را انتخاب کنید:",
         "en": "📕 Books — choose an option:"
     },
     "browse_articles_header": {
-        "fa": "📄 مقالات — یه گزینه انتخاب کن:",
+        "fa": "📄 مقالات — یک گزینه را انتخاب کنید:",
         "en": "📄 Articles — choose an option:"
     },
     "about_header": {
-        "fa": "ℹ️ درباره — یه گزینه انتخاب کن:",
+        "fa": "ℹ️ درباره — یک گزینه را انتخاب کنید:",
         "en": "ℹ️ About — choose an option:"
     },
     "contact_prompt": {
         "fa": (
             "📩 <b>تماس با ما</b>\n\n"
-            "پیام خودت رو بنویس و بفرست. می‌تونی منبع جامانده، اطلاعات نادرست، مشکل فنی، "
-            "درخواست افزودن کتاب یا مقاله، پیشنهاد یا هر سؤال دیگه‌ای رو برای ادمین‌ها بفرستی.\n\n"
-            "برای انصراف روی «❌ لغو» بزن."
+            "پیام خود را بنویسید و ارسال کنید. می‌توانید منبع جاافتاده، اطلاعات نادرست، مشکل فنی، "
+            "درخواست افزودن کتاب یا مقاله، پیشنهاد یا هر پرسش دیگری را برای ادمین‌ها ارسال کنید.\n\n"
+            "برای انصراف، روی «❌ لغو» بزنید."
         ),
         "en": (
             "📩 <b>Contact Us</b>\n\n"
@@ -562,11 +488,11 @@ TEXTS = {
         )
     },
     "contact_sent": {
-        "fa": "✅ پیامت با موفقیت برای ادمین‌ها ارسال شد. ممنون!",
+        "fa": "✅ پیام شما با موفقیت برای ادمین‌ها ارسال شد. سپاسگزاریم!",
         "en": "✅ Your message was sent to the admins. Thank you!"
     },
     "contact_failed": {
-        "fa": "⚠️ ارسال پیام ممکن نشد. لطفاً دوباره امتحان کن یا «❌ لغو» رو بزن.",
+        "fa": "⚠️ ارسال پیام ممکن نشد. لطفاً دوباره تلاش کنید یا «❌ لغو» را بزنید.",
         "en": "⚠️ Couldn't deliver your message. Please try again or tap “❌ Cancel”."
     },
     "contact_cancelled": {
@@ -574,11 +500,11 @@ TEXTS = {
         "en": "↩️ Message cancelled."
     },
     "contact_invalid": {
-        "fa": "❗️ لطفاً یک پیام متنی (یا عکس/فایل) بفرست، یا «❌ لغو» رو بزن.",
+        "fa": "❗️ لطفاً یک پیام متنی (یا عکس/فایل) ارسال کنید، یا «❌ لغو» را بزنید.",
         "en": "❗️ Please send a text message (or photo/file), or tap “❌ Cancel”."
     },
     "contact_too_long": {
-        "fa": "❗️ پیام خیلی طولانیه. لطفاً کوتاه‌ترش کن (حداکثر {n} کاراکتر).",
+        "fa": "❗️ پیام شما بسیار طولانی است. لطفاً آن را کوتاه‌تر کنید (حداکثر {n} کاراکتر).",
         "en": "❗️ Your message is too long. Please shorten it (max {n} characters)."
     },
     "about_project": {
@@ -603,75 +529,94 @@ TEXTS = {
         "fa": (
             "<b>📖 راهنمای استفاده از کتابخانه فیزیک</b>\n\n"
 
-            "<b>📚 پیدا کردن منابع</b>\n"
-            "از بخش <b>جستجو</b> برای پیدا کردن سریع کتاب\u200c\u0647\u0627 و مقالات پژوهشی بر اساس عنوان، نویسنده، کلیدواژه، DOI یا سایر اطلاعات موجود استفاده کنید.\n\n"
-
-            "<b>🔎 جستجو</b>\n"
-            "در تمام منابع کتابخانه جستجو کنید. می\u200cتوانید نتایج را بر اساس <b>نوع منبع، زبان و فیلدهای فیزیکی</b> محدود کنید.\n\n"
+            "<b>🔍 جستجو</b>\n"
+            "کتاب یا مقاله‌ای را که در کتابخانه ربات هست با عنوان، نویسنده، کلیدواژه، DOI یا سایر اطلاعات پیدا کنید. پیش از نوشتن کلیدواژه می‌توانید نتایج را با <b>زبان، فیلد فیزیک و نوع منبع</b> محدود کنید و سپس «شروع جستجو» را بزنید. اگر نتیجه‌ای نبود، ربات موارد مشابه را پیشنهاد می‌دهد.\n\n"
 
             "<b>📂 کتابخانه</b>\n"
-            "بدون نیاز به جستجوی یک منبع خاص، در کتابخانه کاوش کنید:\n"
-            "\u2022 📕 <b>کتاب\u200c\u0647\u0627</b> \u2014 مشاهده همه کتاب\u200c\u0647\u0627 یا مرور آن\u200c\u0647\u0627 بر اساس حوزه، محبوبیت یا منابع تازه\u200c\u0627\u0636\u0627\u0641\u0647\u200c\u0634\u062f\u0647\n"
-            "\u2022 📄 <b>مقالات</b> \u2014 مرور مقالات پژوهشی به همین شیوه\n"
-            "\u2022 🌌 <b>حوزه\u200c\u0647\u0627\u06cc فیزیک</b> \u2014 کاوش منابع بر اساس موضوعات مختلف فیزیک\n"
-            "\u2022 ⭐ <b>منابع برتر</b> \u2014 مشاهده پرمخاطب\u200c\u062a\u0631\u06cc\u0646 منابع کتابخانه\n"
-            "\u2022 🆕 <b>تازه\u200c\u0627\u0636\u0627\u0641\u0647\u200c\u0634\u062f\u0647\u200c\u0647\u0627</b> \u2014 مشاهده جدیدترین منابع اضافه\u200c\u0634\u062f\u0647 به کتابخانه\n\n"
+            "بدون جستجوی یک منبع خاص، کتابخانه را مرور کنید:\n"
+            "• 📘 <b>کتاب‌ها</b> و 📄 <b>مقالات</b> — هرکدام با گزینه‌های «همه»، «فیلدها»، «پرطرفدار» و «جدید»\n"
+            "• 🌌 <b>فیلدهای فیزیک</b> — مشاهده منابع بر اساس شاخه‌های مختلف فیزیک\n"
+            "• ⭐ <b>پرطرفدارها</b> — پردانلودترین منابع کتابخانه\n"
+            "• 🆕 <b>جدیدترین‌ها</b> — تازه‌ترین منابعی که به کتابخانه اضافه شده‌اند\n\n"
 
-            "<b>🔖 ذخیره\u200c\u0634\u062f\u0647\u200c\u0647\u0627</b>\n"
-            "منابع موردنظر خود را ذخیره کنید تا بعداً به آن\u200c\u0647\u0627 دسترسی داشته باشید. کتاب\u200c\u0647\u0627 و مقالات نشان\u200c\u0634\u062f\u0647 از منوی اصلی در دسترس هستند.\n\n"
+            "<b>🌍 جستجوی خارجی</b>\n"
+            "اگر منبع موردنظرتان در کتابخانه ربات نبود، از این بخش استفاده کنید. ربات در پایگاه‌های علمی آنلاین (<b>arXiv، Zenodo، HAL و NASA ADS</b>) جستجو می‌کند و در صورت وجود فایل رایگان، PDF مقاله را برایتان می‌فرستد. این جستجو جدا از جستجوی کتابخانه است.\n"
+            "1️⃣ پایگاه‌ها را با دکمه‌های پایین صفحه انتخاب کنید (پیش‌فرض: «همه»)\n"
+            "2️⃣ عنوان، نام نویسنده، کلیدواژه، DOI، شناسه‌ی arXiv یا لینک arXiv/DOI را بنویسید؛ نوع ورودی خودکار تشخیص داده می‌شود\n"
+            "3️⃣ از میان نتایج، شماره‌ی مقاله را بزنید تا چکیده و جزئیات را ببینید\n"
+            "4️⃣ با «📄 دریافت PDF» فایل را در همین گفت‌وگو دریافت کنید\n"
+            "<i>نکته‌ها: محتوای این پایگاه‌ها بیشتر انگلیسی است، پس عبارت را انگلیسی بنویسید. با «محدود به عنوان» یا «محدود به نویسنده» نتایج دقیق‌تر می‌شود. گاهی PDF مقاله در پایگاه موجود نیست یا حجمش زیاد است؛ در این حالت از لینک منبع استفاده کنید.</i>\n\n"
+
+            "<b>🔖 ذخیره‌شده‌ها</b>\n"
+            "منابع موردعلاقه‌تان را ذخیره کنید و بعداً از منوی اصلی سریع به آن‌ها برگردید.\n\n"
 
             "<b>📥 تاریخچه دانلودها</b>\n"
-            "منابعی را که قبلاً دانلود کرده\u200c\u0627\u06cc\u062f مشاهده کنید.\n\n"
+            "فهرست منابعی که قبلاً از کتابخانه دانلود کرده‌اید.\n\n"
 
-            "<b>🔔 دنبال کردن فیلدهای فیزیک</b>\n"
-            "با دنبال کردن فیلد موردنظر، هر بار که منبع جدیدی در آن فیلد اضافه شود اطلاع\u200c\u0631\u0633\u0627\u0646\u06cc دریافت می\u200cکنید.\n\n"
+            "<b>🔔 دنبال کردن فیلدها</b>\n"
+            "با دنبال کردن یک فیلد فیزیک، هر بار که منبع جدیدی در آن فیلد اضافه شود خبردار می‌شوید.\n\n"
 
-            "<b>⭐ امتیازدهی به منابع</b>\n"
-            "پس از دانلود یک منبع، می\u200cتوانید به آن امتیاز دهید و به بهبود کتابخانه برای سایر کاربران کمک کنید.\n\n"
+            "<b>⭐ امتیازدهی</b>\n"
+            "پس از دانلود هر منبع می‌توانید به آن امتیاز بدهید و به بهتر شدن کتابخانه کمک کنید.\n\n"
+
+            "<b>ℹ️ درباره</b>\n"
+            "• ❓ <b>راهنما</b> — همین صفحه\n"
+            "• 📊 <b>آمار کتابخانه</b> — تعداد کتاب‌ها، مقالات و دانلودها\n"
+            "• 📩 <b>تماس با ما</b> — ارسال پیام به ادمین‌ها: معرفی منبع تازه، گزارش اشتباه یا مشکل فنی، پیشنهاد و سؤال\n"
+            "• 💡 <b>درباره پروژه</b> — معرفی کتابخانه و راه ارتباط با پشتیبانی\n\n"
 
             "<b>🌐 زبان</b>\n"
-            "زبان رابط کاربری ربات را بین <b>فارسی</b> و <b>English</b> تغییر دهید. انتخاب زبان فقط رابط کاربری را تغییر می\u200cدهد و جستجوی شما را به منابع یک زبان خاص محدود نمی\u200cکند.\n\n"
+            "زبان ربات را بین <b>فارسی</b> و <b>English</b> تغییر دهید. این کار فقط زبان منوها و پیام‌ها را عوض می‌کند و جستجو را به منابع یک زبان خاص محدود نمی‌کند.\n\n"
 
             "<b>💡 نکته</b>\n"
-            "هر زمان که مسیر خود را گم کردید، می\u200cتوانید به منوی اصلی برگردید یا از دستور /start استفاده کنید."
+            "هر زمان که مسیر را گم کردید، به منوی اصلی برگردید یا دستور /start را بزنید."
         ),
 
         "en": (
             "<b>📖 How to use the Physics Library</b>\n\n"
 
-            "<b>📚 Find Physics resources</b>\n"
-            "Use <b>Search</b> to quickly find books and research articles by title, author, keywords, DOI, or other available information.\n\n"
-
-            "<b>🔎 Search</b>\n"
-            "Search across the entire library. You can refine your results by <b>resource type, language, and physics field</b>.\n\n"
+            "<b>🔍 Search</b>\n"
+            "Find a book or article that is in the bot's library by title, author, keywords, DOI, or other details. Before typing your keyword, you can narrow the results with <b>language, physics field, and resource type</b> filters, then tap “Start Searching”. If nothing matches, the bot suggests similar resources.\n\n"
 
             "<b>📂 Browse</b>\n"
             "Explore the library without searching for a specific resource:\n"
-            "\u2022 📕 <b>Books</b> \u2014 browse all books or explore them by field, popularity, or recently added\n"
-            "\u2022 📄 <b>Articles</b> \u2014 browse research articles in the same way\n"
-            "\u2022 🌌 <b>Physics Fields</b> \u2014 explore resources organized by physics topics\n"
-            "\u2022 ⭐ <b>Top Resources</b> \u2014 discover the most downloaded resources\n"
-            "\u2022 🆕 <b>Recently Added</b> \u2014 see the latest additions to the library\n\n"
+            "• 📕 <b>Books</b> and 📄 <b>Articles</b> — each with “All”, “Fields”, “Popular”, and “Recent” options\n"
+            "• 🌌 <b>Physics Fields</b> — resources organized by area of physics\n"
+            "• ⭐ <b>Popular</b> — the most downloaded resources\n"
+            "• 🆕 <b>Recently Added</b> — the latest additions to the library\n\n"
+
+            "<b>🌍 External Search</b>\n"
+            "Use this when a resource isn't in the bot's library. The bot searches online scientific databases (<b>arXiv, Zenodo, HAL, and NASA ADS</b>) and, when a free file is available, sends you the paper's PDF. It is separate from the library search.\n"
+            "1️⃣ Pick the sources with the bottom buttons (default: “All”)\n"
+            "2️⃣ Type a title, author name, keywords, DOI, arXiv ID, or an arXiv/DOI link; the input type is detected automatically\n"
+            "3️⃣ Tap a result's number to see its abstract and details\n"
+            "4️⃣ Tap “📄 Get PDF” to receive the file right here in the chat\n"
+            "<i>Tips: these databases are mostly in English, so type your query in English. “Title only” and “Author only” make results more precise. Sometimes a paper's PDF isn't available or is too large; in that case use the source link.</i>\n\n"
 
             "<b>🔖 Bookmarks</b>\n"
-            "Save resources you want to return to later. Your bookmarked books and articles are available from the main menu.\n\n"
+            "Save resources you like and return to them quickly from the main menu.\n\n"
 
-            "<b>📥 Download History</b>\n"
-            "View the resources you have previously downloaded.\n\n"
+            "<b>📥 History</b>\n"
+            "The list of resources you have previously downloaded from the library.\n\n"
 
-            "<b>🔔 Field Subscriptions</b>\n"
-            "Subscribe to a physics field to receive notifications when new resources are added to that field.\n\n"
+            "<b>🔔 Following Fields</b>\n"
+            "Follow a physics field to be notified whenever a new resource is added to it.\n\n"
 
-            "<b>⭐ Rate Resources</b>\n"
-            "After downloading a resource, you can rate it to help improve the library for other users.\n\n"
+            "<b>⭐ Rating</b>\n"
+            "After downloading a resource, you can rate it to help improve the library.\n\n"
+
+            "<b>ℹ️ About</b>\n"
+            "• ❓ <b>Help</b> — this page\n"
+            "• 📊 <b>Library Stats</b> — number of books, articles, and downloads\n"
+            "• 📩 <b>Contact Us</b> — message the admins: suggest a resource, report incorrect information or a technical problem, or ask a question\n"
+            "• 💡 <b>About Project</b> — an introduction to the library and how to reach support\n\n"
 
             "<b>🌐 Language</b>\n"
-            "Switch the bot interface between <b>English</b> and <b>\u0641\u0627\u0631\u0633\u06cc</b>. Your language choice only changes the interface; it does not limit your search results.\n\n"
+            "Switch the bot between <b>English</b> and <b>فارسی</b>. This only changes the language of menus and messages; it does not limit your search results.\n\n"
 
             "<b>💡 Tip</b>\n"
-            "You can always return to the main menu or use /start if you get lost."
+            "If you get lost, go back to the main menu or send /start."
         ),
-
     },
 }
 
@@ -801,7 +746,7 @@ FIELD_DESCRIPTIONS: dict[str, dict[str, str]] = {
         "fa": (
             "مطالعه بنیادی‌ترین اجزای شناخته‌شده ماده و میدان‌ها و برهم‌کنش‌های بنیادی، شامل "
             "مدل استاندارد، کوارک‌ها و لپتون‌ها، بوزون‌های پیمانه‌ای، سازوکار هیگز و نظریه‌ها "
-            "و جست‌وجوهای فراتر از مدل استاندارد."
+            "و جستجوهای فراتر از مدل استاندارد."
         ),
         "en": (
             "The study of the fundamental constituents of matter and fundamental fields and "
@@ -1282,7 +1227,7 @@ def _forward_contact_to_admins(message: types.Message) -> int:
         a_lang = admin.get_lang(admin_id)
         if a_lang == "fa":
             header = (f"📩 پیام جدید از کاربر\n👤 نام: {user.first_name or '—'}\n"
-                      f"🔗 یوزرنیم: {uname}\n🆔 آیدی: {user.id}")
+                      f"🔗 نام کاربری: {uname}\n🆔 شناسه: {user.id}")
         else:
             header = (f"📩 New message from a user\n👤 Name: {user.first_name or '—'}\n"
                       f"🔗 Username: {uname}\n🆔 ID: {user.id}")
@@ -1358,14 +1303,17 @@ def start(message: types.Message):
     # /start های بعدی (بازگشت به خانه) با is_new=False لاگ می‌شوند
     analytics.log_user_started(user.id, is_new=is_new)
 
-    # Deep link from search results: /start res_<id>
+    # Deep link from a list title: /start res_<id> → show that resource's card
     parts = (message.text or "").split(maxsplit=1)
-    if len(parts) == 2 and parts[1].startswith("res_") and parts[1][4:].isdigit():
-        res = database.get_resource(int(parts[1][4:]))
-        if res:
-            send_resource_card(message.chat.id, user, res)
-        else:
+    payload = parts[1].strip() if len(parts) > 1 else ""
+    if payload.startswith("res_") and payload[4:].isdigit():
+        if is_new:
+            send_home(message.chat.id, user)   # give brand-new users the menu too
+        res = database.get_resource(int(payload[4:]))
+        if not res:
             bot.send_message(message.chat.id, t(user, "book_missing"))
+            return
+        send_resource_card(message.chat.id, user, res)
         return
 
     send_home(message.chat.id, user)
@@ -1453,7 +1401,7 @@ def admin_callback(callback: types.CallbackQuery):
             error_msg=str(exc),
         )
         try:
-            bot.answer_callback_query(callback.id, "⚠️ خطای داخلی رخ داد. دوباره امتحان کن.", show_alert=True)
+            bot.answer_callback_query(callback.id, "⚠️ خطای داخلی رخ داد. لطفاً دوباره تلاش کنید.", show_alert=True)
         except Exception:
             pass
 
@@ -1539,7 +1487,7 @@ def text_handler(message: types.Message):
         code = text.strip().lower()
         if code not in database.VALID_ISO_639_1:
             lang = get_lang(user)
-            err_msg = (f"❗️ کد '{code}' معتبر نیست. یک کد دو‌حرفی ISO 639-1 وارد کن (مثلاً: nl, ru, zh):"
+            err_msg = (f"❗️ کد '{code}' معتبر نیست. لطفاً یک کد دوحرفی ISO 639-1 وارد کنید (برای نمونه: nl, ru, zh):"
                        if lang == "fa" else
                        f"❗️ '{code}' is not a valid ISO 639-1 code. Enter a two-letter code (e.g. nl, ru, zh):")
             waiting_search_lang.add(uid)   # let user retry
@@ -1652,7 +1600,7 @@ def text_handler(message: types.Message):
 
     elif text in (BTN["rb_recent"]["fa"], BTN["rb_recent"]["en"]):
         probe = database.search_resources(limit=1, offset=0, order_by="recent")
-        send_resource_list(message.chat.id, user, probe, header_key="resources_list_header",
+        send_resource_list(message.chat.id, user, probe, header_key="recent_header",
                            pg_context="recent_all|")
 
     # ── About submenu Reply Keyboard buttons ───────────────────────────────
@@ -1765,10 +1713,10 @@ def _send_search_filter_panel(chat_id: int, user: types.User, edit_message_id: i
 
 
 def handle_books(message: types.Message):
-    #list of all books
     user = message.from_user
-    rows = database.search_books(limit=20)
-    send_book_list(message.chat.id, user, rows, header_key="books_list_header")
+    probe = database.search_resources(resource_type="book", limit=1, offset=0)
+    send_resource_list(message.chat.id, user, probe, header_key="books_list_header",
+                       pg_context="books|")
 
 
 _retry_queries: dict[str, str] = {}
@@ -1825,24 +1773,18 @@ def handle_search_query(message: types.Message, query: str):
         lang = get_lang(user)
         active_filters = has_filters
 
-        # Try to suggest similar results (broader match, ignoring active filters)
+        # Suggest similar results (broader match, ignoring active filters)
         suggestions = database.suggest_similar(query, limit=3)
-
         _nf_mk = types.InlineKeyboardMarkup()
+        nf_parse = None
 
         if suggestions:
-            if lang == "fa":
-                msg = "🔍 نتیجه‌ای پیدا نشد. شاید منظورتان یکی از اینها بوده:\n\n"
-            else:
-                msg = "🔍 No results found. Did you mean one of these?\n\n"
-            sug_lines = []
-            for i, s_row in enumerate(suggestions, 1):
-                rtype = s_row["resource_type"] if "resource_type" in s_row.keys() else "book"
-                icon = "📄" if rtype == "article" else "📘"
-                sug_lines.append(
-                    f'{i}. {icon} <b><a href="{_res_link(s_row["id"])}">{_h(str(s_row["title"])[:100])}</a></b>'
-                )
-            msg += "\n".join(sug_lines)
+            head = ("🔍 نتیجه‌ای پیدا نشد. شاید منظور شما یکی از این موارد بوده است:"
+                    if lang == "fa" else
+                    "🔍 No results found. Did you mean one of these?")
+            entries = "\n\n".join(_format_resource_entry(s, i) for i, s in enumerate(suggestions, 1))
+            msg = f"{_h(head)}\n\n{entries}"
+            nf_parse = "HTML"
         else:
             msg = t(user, "not_found")
 
@@ -1853,7 +1795,7 @@ def handle_search_query(message: types.Message, query: str):
             # the query server-side and only send a short token.
             _retry_token = _retry_save(query)
             _nf_mk.add(types.InlineKeyboardButton(
-                "🔍 بدون فیلتر جستجو کن" if lang == "fa" else "🔍 Search without filters",
+                "🔍 جستجو بدون فیلتر" if lang == "fa" else "🔍 Search without filters",
                 callback_data=f"search_no_filter:{_retry_token}"
             ))
 
@@ -1862,7 +1804,7 @@ def handle_search_query(message: types.Message, query: str):
             callback_data="search_again"
         ))
         bot.send_message(message.chat.id, msg, reply_markup=_nf_mk,
-                         parse_mode="HTML", disable_web_page_preview=True)
+                         parse_mode=nf_parse, disable_web_page_preview=True)
         return
 
     # ── analytics: search_completed (جستجو نتیجه داشت) ──────────────────────
@@ -1966,8 +1908,9 @@ def handle_stats(message: types.Message, user_override: types.User = None,
 
 def handle_top(message: types.Message):
     user = message.from_user
-    rows = database.get_top_downloads(limit=10)
-    send_book_list(message.chat.id, user, rows, header_key="top_books_header")
+    probe = database.get_top_downloads(limit=1, offset=0)
+    send_resource_list(message.chat.id, user, probe, header_key="top_books_header",
+                       pg_context="top_all|")
 
 
 def toggle_language(message: types.Message):
@@ -1985,25 +1928,13 @@ def toggle_language(message: types.Message):
     )
 
 
-def send_book_list(chat_id: int, user: types.User, rows, header_key: str):
-    if not rows:
-        bot.send_message(chat_id, t(user, "no_books"), reply_markup=main_keyboard(user))
-        return
-    header = TEXTS[header_key][get_lang(user)]
-    _send_or_edit_html(chat_id, f"<b>{_h(header)}</b>\n\n{_fmt_result_entries(rows, 1, get_lang(user))}")
-
-
 def send_resource_list(chat_id: int, user: types.User, rows, header_key: str,
-                       pg_context: str | None = None):
+                       pg_context: str):
+    """Show a paginated text list. `rows` is only a probe: empty → 'nothing found'."""
     if not rows:
         bot.send_message(chat_id, t(user, "no_books"), reply_markup=main_keyboard(user))
         return
-    if pg_context is not None:
-        _send_paginated_list(chat_id, user, pg_context, page=0, header_key=header_key)
-        return
-    # legacy flat render (≤20 items, no pagination needed)
-    header = TEXTS[header_key][get_lang(user)]
-    _send_or_edit_html(chat_id, f"<b>{_h(header)}</b>\n\n{_fmt_result_entries(rows, 1, get_lang(user))}")
+    _send_paginated_list(chat_id, user, pg_context, page=0, header_key=header_key)
 
 
 # ── Central formatters ────────────────────────────────────────────────────────
@@ -2063,7 +1994,7 @@ def _fmt_book_card(book, lang: str, field: str, lang_label: str, disp: str,
     edition_str = ""
     if _row_get(book, "edition") and str(book["edition"]).strip():
         edition_str = f" ({_h(book['edition'])})"
-    lines.append(f"📕 <b>{title_str}</b>{edition_str}")
+    lines.append(f"{_res_icon(book, 'book')} <b>{title_str}</b>{edition_str}")
 
     # ── Author  [Italic]
     lines.append(f"✍ <i>{_h(book['author'])}</i>")
@@ -2181,7 +2112,7 @@ def _fmt_book_caption(res, field: str, lang_label: str, disp: str) -> str:
     edition_str = ""
     if _row_get(res, "edition") and str(res["edition"]).strip():
         edition_str = f" ({_h(res['edition'])})"
-    title_line = f"📕 <b>{title_str}</b>{edition_str}"
+    title_line = f"{_res_icon(res)} <b>{title_str}</b>{edition_str}"
 
     fixed_parts: list[str] = [title_line]
     fixed_parts.append(f"✍ <i>{_h(res['author'])}</i>")
@@ -2539,7 +2470,7 @@ def sf_lang_callback(callback: types.CallbackQuery):
     if val == "__type__":
         bot.answer_callback_query(callback.id)
         waiting_search_lang.add(uid)
-        hint = ("🔤 کد ISO 639-1 زبان را تایپ کن (مثلاً: nl، ru، zh، …):"
+        hint = ("🔤 کد ISO 639-1 زبان را بنویسید (برای نمونه: nl، ru، zh، …):"
                 if lang == "fa" else
                 "🔤 Type the ISO 639-1 language code (e.g. nl, ru, zh, …):")
         bot.send_message(callback.message.chat.id, hint, reply_markup=cancel_keyboard(user))
@@ -2609,7 +2540,7 @@ def browse_callback(callback: types.CallbackQuery):
                            pg_context="top_all|")
     elif action == "recent":
         probe = database.search_resources(limit=1, offset=0, order_by="recent")
-        send_resource_list(chat_id, user, probe, header_key="resources_list_header",
+        send_resource_list(chat_id, user, probe, header_key="recent_header",
                            pg_context="recent_all|")
 
 
@@ -2806,7 +2737,7 @@ def page_callback(callback: types.CallbackQuery):
         # Session expired (e.g. bot restarted) — inform user gracefully
         bot.answer_callback_query(
             callback.id,
-            "⚠️ Session expired. Please search again.",
+            t(user, "list_expired"),
             show_alert=True,
         )
         return
@@ -2822,8 +2753,8 @@ def page_callback(callback: types.CallbackQuery):
     )
 
 
-@bot.callback_query_handler(func=lambda c: c.data == "noop")
-def noop_callback(callback: types.CallbackQuery):
+@bot.callback_query_handler(func=lambda c: c.data == "pgnoop")
+def pagination_noop(callback: types.CallbackQuery):
     bot.answer_callback_query(callback.id)
 
 
@@ -2845,7 +2776,7 @@ def rate_callback(callback: types.CallbackQuery):
         logging.exception("rate_callback: error for uid=%s data=%s: %s", user.id, callback.data, exc)
         bot.answer_callback_query(
             callback.id,
-            "⚠️ خطا رخ داد." if lang == "fa" else "⚠️ An error occurred.",
+            "⚠️ خطایی رخ داد." if lang == "fa" else "⚠️ An error occurred.",
             show_alert=True,
         )
         return
@@ -2912,7 +2843,7 @@ def bookmark_callback(callback: types.CallbackQuery):
         logging.exception("bookmark_callback: DB error for uid=%s res_id=%s: %s", user.id, res_id, exc)
         bot.answer_callback_query(
             callback.id,
-            "⚠️ خطا رخ داد." if lang == "fa" else "⚠️ An error occurred.",
+            "⚠️ خطایی رخ داد." if lang == "fa" else "⚠️ An error occurred.",
             show_alert=True,
         )
         return
@@ -3013,15 +2944,15 @@ def handle_my_bookmarks(message: types.Message):
         bot.send_message(message.chat.id, TEXTS["bookmarks_empty"][lang],
                          reply_markup=main_keyboard(user))
         return
-    send_resource_list(message.chat.id, user, rows, header_key="bookmarks_header",
-                       pg_context="bookmarks|")
+    _send_paginated_list(message.chat.id, user, f"bookmarks|{user.id}", page=0,
+                         header_key="bookmarks_header")
 
 
 def handle_my_history(message: types.Message):
     user = message.from_user
     lang = get_lang(user)
     try:
-        rows = database.get_download_history(user.id, limit=20)
+        rows = database.get_download_history(user.id, limit=1)
     except Exception as exc:
         logging.exception("handle_my_history: DB error for uid=%s: %s", user.id, exc)
         bot.send_message(message.chat.id,
@@ -3032,10 +2963,8 @@ def handle_my_history(message: types.Message):
         bot.send_message(message.chat.id, TEXTS["history_empty"][lang],
                          reply_markup=main_keyboard(user))
         return
-    send_resource_list(message.chat.id, user, rows, header_key="history_header",
-                       pg_context="history|")
-
-
+    _send_paginated_list(message.chat.id, user, f"history|{user.id}", page=0,
+                         header_key="history_header")
 
 
 # callback: retry search without filters
